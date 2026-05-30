@@ -1,6 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { RuntimeConfig } from "../bootstrap/config.js";
+import type { UsageSnapshot } from "../protocol/provider.js";
 import type { RuntimePermissionState } from "../services/permissions/permissionProfiles.js";
 import type { StateStore } from "../state/sqlite.js";
 import { useAttachedRun } from "../hooks/useAttachedRun.js";
@@ -25,6 +26,8 @@ export function SidePanel(props: {
   state: StateStore;
   busy: boolean;
   permissions: RuntimePermissionState;
+  lastTurnUsage?: UsageSnapshot;
+  sessionUsage?: UsageSnapshot;
 }): React.ReactElement {
   const runs = useRuns(props.state, 5);
   const cache = useCacheSummary(props.state);
@@ -49,6 +52,9 @@ export function SidePanel(props: {
       <PanelSection title="cache">
         <CacheEfficiencyNotice cache={cache} compact />
       </PanelSection>
+      <PanelSection title="usage">
+        <UsageSummary lastTurn={props.lastTurnUsage} session={props.sessionUsage} />
+      </PanelSection>
       <PanelSection title="git">
         <GitStatus git={git} />
       </PanelSection>
@@ -69,6 +75,29 @@ export function SidePanel(props: {
       </PanelSection>
     </Box>
   );
+}
+
+function UsageSummary(props: {
+  lastTurn?: UsageSnapshot;
+  session?: UsageSnapshot;
+}): React.ReactElement {
+  const last = formatUsage(props.lastTurn);
+  const session = formatUsage(props.session);
+  return (
+    <Box flexDirection="column">
+      <Text color="gray">{`turn ${last}`}</Text>
+      <Text color="gray">{`session ${session}`}</Text>
+    </Box>
+  );
+}
+
+function formatUsage(usage?: UsageSnapshot): string {
+  const input = usage?.inputTokens ?? 0;
+  const output = usage?.outputTokens ?? 0;
+  const hit = usage?.cacheHitTokens ?? 0;
+  const miss = usage?.cacheMissTokens ?? 0;
+  const cache = hit + miss > 0 ? `${Math.round((hit / (hit + miss)) * 100)}%` : "n/a";
+  return `in ${input} / out ${output} / cache ${cache}`;
 }
 
 function compact(value: string, max: number): string {

@@ -37,8 +37,12 @@ export function compactRunListRows(runs: RunRecord[], limit = 5): CompactRunList
     key: run.id,
     status: run.status,
     tone: toneForRunStatus(run.status),
-    summary: `${shortId(run.id)} ${run.actionCount}a ${run.artifactCount}f ${run.eventCount}e`,
-    detail: [cacheNote(run), firstLine(run.message || "(no message)", 26)].filter(Boolean).join(" | "),
+    summary: firstLine(run.message || "recent run", 28),
+    detail: [
+      `${run.actionCount} actions`,
+      `${run.artifactCount} artifacts`,
+      cacheNote(run),
+    ].filter(Boolean).join(" | "),
   }));
 }
 
@@ -47,10 +51,6 @@ function toneForRunStatus(status: string): TerminalTone {
   if (status === "failed" || status === "cancelled") return "error";
   if (status === "running" || status === "paused") return "warning";
   return "muted";
-}
-
-function shortId(id: string): string {
-  return id.length <= 10 ? id : `${id.slice(0, 6)}..${id.slice(-2)}`;
 }
 
 function cacheNote(run: RunRecord): string {

@@ -1,6 +1,11 @@
 dist/
 node_modules/
 target/
+docs/
+scripts/
+src/**/*.test.ts
+src/**/*.test.tsx
+src/**/*.test.js
 .DS_Store
 *.log
 .env

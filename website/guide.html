@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>DeepSeekCode Guide</title>
-    <meta name="description" content="DeepSeekCode setup, cache guard, commands, testing, and upload safety guide." />
+    <meta name="description" content="DeepSeekCode setup, cache guard, commands, validation, and upload safety guide." />
     <meta name="theme-color" content="#050605" />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="stylesheet" href="src/styles.css" />
@@ -24,7 +24,7 @@
         <a href="#setup">Setup</a>
         <a href="#cache">Cache</a>
         <a href="#commands">Commands</a>
-        <a href="#testing">Testing</a>
+        <a href="#testing">Validation</a>
         <a href="#upload">Upload</a>
       </nav>
       <div class="header-actions">
@@ -38,7 +38,7 @@
         <div class="reveal">
           <span class="eyebrow">GUIDE</span>
           <h1>DeepSeekCode Website & Runtime Guide</h1>
-          <p>Setup, cache-first workflow, command reference, testing, and public-upload safety for the DeepSeekCode project.</p>
+          <p>Setup, cache-first workflow, command reference, validation, and public-upload safety for the DeepSeekCode project.</p>
         </div>
       </section>
 
@@ -47,7 +47,7 @@
           <a href="#setup">01 Setup</a>
           <a href="#cache">02 Cache guard</a>
           <a href="#commands">03 Commands</a>
-          <a href="#testing">04 Testing</a>
+          <a href="#testing">04 Validation</a>
           <a href="#upload">05 Upload safety</a>
         </aside>
         <div class="guide-content">
@@ -90,10 +90,9 @@ npm run start -- --project "D:\code\DeepSeekTest"</code></pre>
 
           <article id="testing" class="guide-block reveal">
             <span class="eyebrow">04</span>
-            <h2>Testing</h2>
+            <h2>Validation</h2>
             <pre><code>npm run build
-npm run smoke
-npm run parity
+npm run typecheck
 npm run doctor</code></pre>
             <p>For live provider checks, use <code>deepseek-v4-flash</code> unless you explicitly choose a more expensive model.</p>
           </article>
@@ -122,8 +121,8 @@ target/
     <footer class="site-footer">
       <span>DeepSeekCode Guide</span>
       <a href="index.html">Home</a>
-      <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/docs/ARCHITECTURE.md">Architecture</a>
-      <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/docs/CLI_REFERENCE.md">CLI Reference</a>
+      <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/ARCHITECTURE.md">Architecture</a>
+      <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/CLI_REFERENCE.md">CLI Reference</a>
     </footer>
     <script src="src/site.js"></script>
   </body>

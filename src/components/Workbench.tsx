@@ -8,7 +8,7 @@ import {
   isDeleteInput,
   isPrintableInput,
 } from "../keybindings/inputKeys.js";
-import type { DeepSeekProviderClient } from "../protocol/provider.js";
+import type { DeepSeekProviderClient, UsageSnapshot } from "../protocol/provider.js";
 import {
   commandPaletteInsertText,
   getCommandPaletteItems,
@@ -77,6 +77,8 @@ export function Workbench(props: {
   const [quickOpenQuery, setQuickOpenQuery] = useState("");
   const [quickOpenSelected, setQuickOpenSelected] = useState(0);
   const [queuedPrompts, setQueuedPrompts] = useState<string[]>([]);
+  const [lastTurnUsage, setLastTurnUsage] = useState<UsageSnapshot>({});
+  const [sessionUsage, setSessionUsage] = useState<UsageSnapshot>({});
   const [helpOpen, setHelpOpen] = useState(false);
   const [clearPromptPending, setClearPromptPending] = useState(false);
   const editor = usePromptEditor();
@@ -530,6 +532,8 @@ export function Workbench(props: {
     history.add(text);
     setBusy(true);
     let streamingAssistant = "";
+    let reasoningText = "";
+    let turnUsage: UsageSnapshot = {};
     try {
       for await (const event of engine.submit(text)) {
         if (event.type === "user") {
@@ -540,10 +544,21 @@ export function Workbench(props: {
           setItems((previous) => replaceStreamingAssistant(previous, streamingAssistant, props.config.model));
         } else if (event.type === "assistant") {
           streamingAssistant = "";
+          if (reasoningText.trim()) {
+            setItems((previous) => markThinkingDone(previous, turnUsage));
+          }
           sessionStorage.append({ role: "assistant", text: event.text });
           setItems((previous) => replaceFinalAssistant(previous, event.text, props.config.model));
         } else if (event.type === "reasoning_delta") {
-          setItems((previous) => replaceThinkingLine(previous, event.text.slice(-240)));
+          reasoningText += event.text;
+          setItems((previous) => replaceThinkingLine(previous, reasoningText));
+        } else if (event.type === "usage") {
+          turnUsage = addUsage(turnUsage, event.usage);
+          setLastTurnUsage(event.usage);
+          setSessionUsage((previous) => addUsage(previous, event.usage));
+          if (reasoningText.trim()) {
+            setItems((previous) => markThinkingDone(previous, event.usage));
+          }
         } else if (event.type === "tool_start") {
           setItems((previous) => [...previous, { role: "tool-start", text: event.text, timestamp: Date.now() }]);
         } else if (event.type === "tool_result") {
@@ -590,6 +605,8 @@ export function Workbench(props: {
             state={props.state}
             busy={busy}
             permissions={permissions}
+            lastTurnUsage={lastTurnUsage}
+            sessionUsage={sessionUsage}
           />
         )}
       </Box>
@@ -645,6 +662,8 @@ export function Workbench(props: {
         permissions={permissions}
         config={props.config}
         state={props.state}
+        lastTurnUsage={lastTurnUsage}
+        sessionUsage={sessionUsage}
         providerReady={Boolean(props.provider)}
         width={columns}
         compact={!showSidePanel}
@@ -683,4 +702,41 @@ function replaceThinkingLine(items: TranscriptItem[], text: string): TranscriptI
     return [...items.slice(0, -1), { role: "thinking", text: normalized }];
   }
   return [...items, { role: "thinking", text: normalized }];
+}
+
+function markThinkingDone(items: TranscriptItem[], usage: UsageSnapshot): TranscriptItem[] {
+  const last = items.at(-1);
+  if (last?.role !== "thinking") return items;
+  if (/thinking done/.test(last.text)) return items;
+  const suffix = usageSummary(usage);
+  return [
+    ...items.slice(0, -1),
+    {
+      ...last,
+      text: `${last.text}${suffix ? `\nthinking done · ${suffix}` : "\nthinking done"}`,
+    },
+  ];
+}
+
+function addUsage(left: UsageSnapshot, right: UsageSnapshot): UsageSnapshot {
+  return {
+    inputTokens: addNumber(left.inputTokens, right.inputTokens),
+    outputTokens: addNumber(left.outputTokens, right.outputTokens),
+    cacheHitTokens: addNumber(left.cacheHitTokens, right.cacheHitTokens),
+    cacheMissTokens: addNumber(left.cacheMissTokens, right.cacheMissTokens),
+  };
+}
+
+function addNumber(left?: number, right?: number): number | undefined {
+  if (left === undefined) return right;
+  if (right === undefined) return left;
+  return left + right;
+}
+
+function usageSummary(usage: UsageSnapshot): string {
+  const output = usage.outputTokens ?? 0;
+  const hit = usage.cacheHitTokens ?? 0;
+  const miss = usage.cacheMissTokens ?? 0;
+  const cache = hit + miss > 0 ? `cache ${Math.round((hit / (hit + miss)) * 100)}%` : "";
+  return [`tokens+${output}`, cache].filter(Boolean).join(" · ");
 }

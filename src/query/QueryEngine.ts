@@ -190,11 +190,38 @@ export class QueryEngine {
       }
 
       this.createPreActionCheckpoint(runId, trimmed);
-      const actionEvents: QueryEvent[] = [];
-      const final = await this.runActionLoop(runId, trimmed, (event) => {
-        actionEvents.push(event);
-      });
-      for (const event of actionEvents) yield event;
+      const pendingEvents: QueryEvent[] = [];
+      let wake: (() => void) | undefined;
+      let completed = false;
+      let final = "";
+      let actionError: unknown;
+      const actionLoop = this.runActionLoop(runId, trimmed, (event) => {
+        pendingEvents.push(event);
+        wake?.();
+      })
+        .then((message) => {
+          final = message;
+        })
+        .catch((error: unknown) => {
+          actionError = error;
+        })
+        .finally(() => {
+          completed = true;
+          wake?.();
+        });
+      while (!completed || pendingEvents.length > 0) {
+        const event = pendingEvents.shift();
+        if (event) {
+          yield event;
+          continue;
+        }
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+        });
+        wake = undefined;
+      }
+      await actionLoop;
+      if (actionError) throw actionError;
       this.rememberTurn(trimmed, final);
       yield { type: "assistant", text: final };
     } catch (error) {
@@ -306,13 +333,23 @@ export class QueryEngine {
         dropped_chars: promptPlan.droppedChars,
         blocks: promptPlan.blocks,
       });
+      let streamedPlanningReasoning = false;
       const envelope = await this.provider!.planActions({
         userMessage: promptPlan.userMessage,
         systemPrompt: stablePrompt.text,
         contextSummary: "",
         feedback,
         trajectory,
+      }, {
+        onReasoningDelta: (text) => {
+          streamedPlanningReasoning = true;
+          onEvent?.({ type: "reasoning_delta", text });
+        },
       });
+      const nonStreamReasoning = this.provider!.takeLastReasoning?.();
+      if (!streamedPlanningReasoning && nonStreamReasoning) {
+        onEvent?.({ type: "reasoning_delta", text: nonStreamReasoning });
+      }
       const planUsage = this.provider!.takeLastUsage();
       this.state.appendEvent(runId, "provider_request_diagnostics", buildRequestDiagnostics({
         provider: this.provider!.providerName,

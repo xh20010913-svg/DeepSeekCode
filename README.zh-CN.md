@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/deepseekcode-logo.svg" alt="DeepSeekCode" width="640"/>
+  <img src="assets/deepseekcode-logo.svg" alt="DeepSeekCode" width="640"/>
 </p>
 
 <p align="center">
@@ -11,11 +11,11 @@
   &nbsp;·&nbsp;
   <a href="https://xh20010913-svg.github.io/DeepSeekCode/">Website</a>
   &nbsp;·&nbsp;
-  <a href="./docs/WEBSITE_GUIDE.md">Guide</a>
+  <a href="./GUIDE.md">Guide</a>
   &nbsp;·&nbsp;
-  <a href="./docs/ARCHITECTURE.md">Architecture</a>
+  <a href="./ARCHITECTURE.md">Architecture</a>
   &nbsp;·&nbsp;
-  <a href="./docs/CLI_REFERENCE.md">CLI</a>
+  <a href="./CLI_REFERENCE.md">CLI</a>
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@
   <a href="./package.json"><img src="https://img.shields.io/badge/node-%3E%3D22-5fa04e.svg?style=flat-square&labelColor=161b22&logo=nodedotjs&logoColor=white" alt="Node >= 22"/></a>
   <a href="./package.json"><img src="https://img.shields.io/badge/runtime-TypeScript-3178c6.svg?style=flat-square&labelColor=161b22&logo=typescript&logoColor=white" alt="TypeScript"/></a>
   <a href="https://platform.deepseek.com"><img src="https://img.shields.io/badge/provider-DeepSeek-38bdf8.svg?style=flat-square&labelColor=161b22" alt="DeepSeek provider"/></a>
-  <a href="./docs/ARCHITECTURE.md#pillar-1-cache-first-loop"><img src="https://img.shields.io/badge/cache-prefix%20stable-22c55e.svg?style=flat-square&labelColor=161b22" alt="Prefix cache strategy"/></a>
+  <a href="./ARCHITECTURE.md#pillar-1-cache-first-loop"><img src="https://img.shields.io/badge/cache-prefix%20stable-22c55e.svg?style=flat-square&labelColor=161b22" alt="Prefix cache strategy"/></a>
 </p>
 
 <br/>
@@ -35,7 +35,7 @@
 <br/>
 
 <p align="center">
-  <img src="docs/assets/readme-runtime-terminal.png" alt="DeepSeekCode running in Windows Terminal" width="880"/>
+  <img src="assets/readme-runtime-terminal.png" alt="DeepSeekCode running in Windows Terminal" width="880"/>
 </p>
 
 <br/>
@@ -78,8 +78,8 @@ npm run start -- --project "D:\code\DeepSeekTest"
 ```bash
 npm run dev -- --project "D:\code\DeepSeekTest"
 npm run doctor
-npm run smoke
-npm run parity
+npm run typecheck
+npm run build
 ```
 
 | 命令 | 用途 |
@@ -87,8 +87,8 @@ npm run parity
 | `npm run start -- --project <dir>` | 启动 Ink/React 终端 Agent。 |
 | `npm run dev -- --project <dir>` | 开发时直接运行 TypeScript。 |
 | `npm run doctor` | 检查 Node、项目路径、provider、权限和状态路径。 |
-| `npm run smoke` | 运行本地安全和运行时测试。 |
-| `npm run parity` | 检查公开模块布局和本地架构 parity map。 |
+| `npm run typecheck` | 只检查 TypeScript 类型，不写入构建产物。 |
+| `npm run build` | 编译运行时代码到 `dist/`。 |
 
 <details>
 <summary><strong>Slash 命令、项目边界和安全默认值</strong></summary>
@@ -119,7 +119,7 @@ DeepSeekCode 会把文件工具限制在 `--project` 指定的项目目录内。
 /quit
 ```
 
-完整命令见 [CLI Reference](./docs/CLI_REFERENCE.md)。
+完整 flags、环境变量、权限 profile 和公开命令面见 [CLI Reference](./CLI_REFERENCE.md)。
 
 </details>
 
@@ -131,12 +131,13 @@ DeepSeekCode 从环境变量和本地项目配置读取运行参数。
 
 | 主题 | 快速说明 |
 | --- | --- |
-| DeepSeek provider | `DEEPSEEK_BASE_URL`、`DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL`；真实 smoke 默认使用 `deepseek-v4-flash`。 |
+| DeepSeek provider | `DEEPSEEK_BASE_URL`、`DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL`；真实 provider 检查默认使用 `deepseek-v4-flash`。 |
 | 缓存保护 | `/cache guard`、`/cache prepare`、`/cache profile` 和 `.deepseekcode/cache-guard.json` 会在大任务前检查 prompt shape。 |
 | 工具 | 文件、patch、shell、browser-open、validation、diff、approval、memory、skills、plugins、MCP 都走 typed tool 边界。 |
 | 权限 | Shell/browser 默认关闭；文件修改、命令、浏览器、MCP、plan 决策都有审批和 trace。 |
 | 状态 | runs、tasks、actions、events、artifacts、usage、memory、approval、cache telemetry 都是持久化的。 |
-| Website | [Website Guide](./docs/WEBSITE_GUIDE.md) 说明静态官网、截图、页面结构和 GitHub Pages 发布方式。 |
+| Guide | [Guide](./GUIDE.md) 说明安装、首次运行、项目边界、权限、缓存流程和发布检查。 |
+| Website | [Website Guide](./website/guide.html) 说明静态官网、截图、页面结构和 GitHub Pages 发布方式。 |
 
 <br/>
 
@@ -148,14 +149,14 @@ DeepSeekCode 围绕三根主线设计：
 2. **Typed local action runtime**：模型只提出结构化动作，DeepSeekCode 再校验路径、权限、工具和产物。
 3. **Durable long-running work**：run、任务 DAG、Planner/Builder/Tester/Reviewer、rework、approval、memory promotion、trace 都能跨终端刷新保留。
 
-完整说明见 [Architecture](./docs/ARCHITECTURE.md)。
+完整运行时结构、状态模型、工具边界和扩展点见 [Architecture](./ARCHITECTURE.md)。
 
 <br/>
 
 ## 能力图
 
 <p align="center">
-  <img src="docs/assets/deepseekcode-feature-grid.svg" alt="DeepSeekCode capabilities" width="880"/>
+  <img src="assets/deepseekcode-feature-grid.svg" alt="DeepSeekCode capabilities" width="880"/>
 </p>
 
 <br/>
@@ -176,14 +177,16 @@ DeepSeekCode 围绕三根主线设计：
 
 <br/>
 
-## 文档
+## 发布链接
 
-- [Website Guide](./docs/WEBSITE_GUIDE.md)：官网首页、guide 页、截图、GitHub Pages 和文案规则。
-- [Architecture](./docs/ARCHITECTURE.md)：缓存循环、动作运行时、持久化状态、TUI、工具、skills、plugins、MCP。
-- [CLI Reference](./docs/CLI_REFERENCE.md)：启动参数、slash 命令、测试命令和真实模型 smoke 规则。
-- [Technical Architecture](./docs/TECHNICAL_ARCHITECTURE.md)：更深入的内部实现说明。
-- [Architecture Parity Status](./docs/CLAUDE_CODE_PARITY_STATUS.md)：模块覆盖、兼容适配和迁移记录。
-- [Open Source References](./docs/OPEN_SOURCE_REFERENCES.md)：公开技术调研和比较矩阵。
+- [Website](https://xh20010913-svg.github.io/DeepSeekCode/)
+- [Guide](./GUIDE.md)
+- [Architecture](./ARCHITECTURE.md)
+- [CLI Reference](./CLI_REFERENCE.md)
+- [Website Guide](./website/guide.html)
+- [安装](#安装)
+- [配置](#配置)
+- [能力图](#能力图)
 
 <br/>
 
@@ -191,7 +194,7 @@ DeepSeekCode 围绕三根主线设计：
 
 欢迎在 [xh20010913-svg/DeepSeekCode](https://github.com/xh20010913-svg/DeepSeekCode) 提 issue、discussion、截图和使用反馈。适合作为 first contribution 的方向包括 UI polish、文档、缓存 telemetry 检查、命令面板、Windows terminal 行为和安全工具适配。
 
-首次 PR 前请阅读 [Contributing](./CONTRIBUTING.md)，并附上 `npm run build`、`npm run smoke` 或真实 `deepseek-v4-flash` smoke 的验证结果。
+提 issue 或 PR 时，请附上 `npm run typecheck`、`npm run build` 或真实 `deepseek-v4-flash` provider 检查的验证结果。
 
 <br/>
 

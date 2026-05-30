@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/deepseekcode-logo.svg" alt="DeepSeekCode" width="640"/>
+  <img src="assets/deepseekcode-logo.svg" alt="DeepSeekCode" width="640"/>
 </p>
 
 <p align="center">
@@ -11,11 +11,11 @@
   &nbsp;·&nbsp;
   <a href="https://xh20010913-svg.github.io/DeepSeekCode/">Website</a>
   &nbsp;·&nbsp;
-  <a href="./docs/WEBSITE_GUIDE.md">Guide</a>
+  <a href="./GUIDE.md">Guide</a>
   &nbsp;·&nbsp;
-  <a href="./docs/ARCHITECTURE.md">Architecture</a>
+  <a href="./ARCHITECTURE.md">Architecture</a>
   &nbsp;·&nbsp;
-  <a href="./docs/CLI_REFERENCE.md">CLI</a>
+  <a href="./CLI_REFERENCE.md">CLI</a>
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@
   <a href="./package.json"><img src="https://img.shields.io/badge/node-%3E%3D22-5fa04e.svg?style=flat-square&labelColor=161b22&logo=nodedotjs&logoColor=white" alt="Node >= 22"/></a>
   <a href="./package.json"><img src="https://img.shields.io/badge/runtime-TypeScript-3178c6.svg?style=flat-square&labelColor=161b22&logo=typescript&logoColor=white" alt="TypeScript"/></a>
   <a href="https://platform.deepseek.com"><img src="https://img.shields.io/badge/provider-DeepSeek-38bdf8.svg?style=flat-square&labelColor=161b22" alt="DeepSeek provider"/></a>
-  <a href="./docs/ARCHITECTURE.md#pillar-1-cache-first-loop"><img src="https://img.shields.io/badge/cache-prefix%20stable-22c55e.svg?style=flat-square&labelColor=161b22" alt="Prefix cache strategy"/></a>
+  <a href="./ARCHITECTURE.md#pillar-1-cache-first-loop"><img src="https://img.shields.io/badge/cache-prefix%20stable-22c55e.svg?style=flat-square&labelColor=161b22" alt="Prefix cache strategy"/></a>
 </p>
 
 <br/>
@@ -35,7 +35,7 @@
 <br/>
 
 <p align="center">
-  <img src="docs/assets/readme-runtime-terminal.png" alt="DeepSeekCode running in Windows Terminal" width="880"/>
+  <img src="assets/readme-runtime-terminal.png" alt="DeepSeekCode running in Windows Terminal" width="880"/>
 </p>
 
 <br/>
@@ -73,13 +73,13 @@ Start the workbench against any project directory:
 npm run start -- --project "D:\code\DeepSeekTest"
 ```
 
-Developer loop:
+Local development and checks:
 
 ```bash
 npm run dev -- --project "D:\code\DeepSeekTest"
 npm run doctor
-npm run smoke
-npm run parity
+npm run typecheck
+npm run build
 ```
 
 | Command | When |
@@ -87,8 +87,8 @@ npm run parity
 | `npm run start -- --project <dir>` | Launch the Ink/React terminal agent. |
 | `npm run dev -- --project <dir>` | Run directly from TypeScript while developing. |
 | `npm run doctor` | Check Node, project path, provider profile, permissions, and state path. |
-| `npm run smoke` | Run the local safety/runtime test suite. |
-| `npm run parity` | Check the public module layout against the local architecture parity map. |
+| `npm run typecheck` | Check the TypeScript program without writing build output. |
+| `npm run build` | Compile the runtime into `dist/`. |
 
 <details>
 <summary><strong>Slash commands, project scope, and safe defaults</strong></summary>
@@ -119,7 +119,7 @@ DeepSeekCode scopes file tools to the project directory you launch with `--proje
 /quit
 ```
 
-See [CLI Reference](./docs/CLI_REFERENCE.md) for the public command surface.
+See [CLI Reference](./CLI_REFERENCE.md) for flags, environment variables, permission profiles, and the public command surface.
 
 </details>
 
@@ -131,12 +131,13 @@ DeepSeekCode reads runtime configuration from environment variables and project 
 
 | Topic | Quick read |
 | --- | --- |
-| DeepSeek provider | `DEEPSEEK_BASE_URL`, `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`; live smoke tests should stay on `deepseek-v4-flash` unless you choose otherwise. |
+| DeepSeek provider | `DEEPSEEK_BASE_URL`, `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`; live provider checks should stay on `deepseek-v4-flash` unless you choose otherwise. |
 | Cache guard | `/cache guard`, `/cache prepare`, `/cache profile`, and `.deepseekcode/cache-guard.json` keep prompt shape reusable before large tasks. |
 | Tools | Filesystem, patch, shell, browser-open, validation, diff, approval, memory, skills, plugins, and MCP adapters are separated behind typed tool boundaries. |
 | Permissions | Shell/browser are off by default; approval gates make file edits, commands, browser actions, MCP calls, and plan decisions inspectable. |
 | State | Runs, tasks, actions, events, artifacts, usage, memory, approvals, and prompt-cache telemetry are durable instead of UI-only. |
-| Website | [Website Guide](./docs/WEBSITE_GUIDE.md) explains the static site, pages, screenshots, and GitHub Pages deployment shape. |
+| Guide | [Guide](./GUIDE.md) covers setup, first run, project scope, permissions, cache workflow, and release checks. |
+| Website | [Website Guide](./website/guide.html) explains the static site, pages, screenshots, and GitHub Pages deployment shape. |
 
 <br/>
 
@@ -148,14 +149,14 @@ DeepSeekCode is organized around three pillars:
 2. **Typed local action runtime**: the model proposes a structured action envelope; DeepSeekCode validates paths, permissions, tools, and artifacts before touching disk or shell.
 3. **Durable long-running work**: runs, task DAGs, Planner/Builder/Tester/Reviewer roles, rework branches, approval gates, memory promotions, and trace rows survive beyond one terminal redraw.
 
-Read the full [Architecture](./docs/ARCHITECTURE.md).
+Read the full [Architecture](./ARCHITECTURE.md) guide for the runtime shape, state model, tool boundaries, and extension points.
 
 <br/>
 
 ## Capabilities
 
 <p align="center">
-  <img src="docs/assets/deepseekcode-feature-grid.svg" alt="DeepSeekCode capabilities" width="880"/>
+  <img src="assets/deepseekcode-feature-grid.svg" alt="DeepSeekCode capabilities" width="880"/>
 </p>
 
 <br/>
@@ -176,14 +177,16 @@ The goal is not to impersonate any one tool. The goal is a DeepSeek-native local
 
 <br/>
 
-## Documentation
+## Release Links
 
-- [Website Guide](./docs/WEBSITE_GUIDE.md): homepage, guide page, screenshots, GitHub Pages deployment, and copywriting rules.
-- [Architecture](./docs/ARCHITECTURE.md): cache loop, action runtime, durable state, TUI, tools, skills, plugins, and MCP.
-- [CLI Reference](./docs/CLI_REFERENCE.md): startup flags, slash commands, test commands, and safe live-smoke guidance.
-- [Technical Architecture](./docs/TECHNICAL_ARCHITECTURE.md): deeper internal implementation notes.
-- [Architecture Parity Status](./docs/CLAUDE_CODE_PARITY_STATUS.md): module coverage, compatibility adapters, and migration notes.
-- [Open Source References](./docs/OPEN_SOURCE_REFERENCES.md): research notes and comparison matrix.
+- [Website](https://xh20010913-svg.github.io/DeepSeekCode/)
+- [Guide](./GUIDE.md)
+- [Architecture](./ARCHITECTURE.md)
+- [CLI Reference](./CLI_REFERENCE.md)
+- [Website Guide](./website/guide.html)
+- [Install](#install)
+- [Configuration](#configuration)
+- [Capabilities](#capabilities)
 
 <br/>
 
@@ -191,7 +194,7 @@ The goal is not to impersonate any one tool. The goal is a DeepSeek-native local
 
 Issues, discussions, screenshots, and usage reports are welcome at [xh20010913-svg/DeepSeekCode](https://github.com/xh20010913-svg/DeepSeekCode). Good first contributions should start with UI polish, docs, cache telemetry checks, command panels, Windows terminal behavior, and safe tool adapters.
 
-Before your first pull request, read [Contributing](./CONTRIBUTING.md). Please include verification output such as `npm run build`, `npm run smoke`, or the exact live `deepseek-v4-flash` smoke you ran.
+Please include verification output such as `npm run typecheck`, `npm run build`, or the exact live `deepseek-v4-flash` provider check you ran when opening issues or pull requests.
 
 <br/>
 

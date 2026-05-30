@@ -1,6 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { RuntimeConfig } from "../bootstrap/config.js";
+import type { UsageSnapshot } from "../protocol/provider.js";
 import { useApprovals } from "../hooks/useApprovals.js";
 import { useCacheSummary } from "../hooks/useCacheSummary.js";
 import type { CacheTelemetrySummary } from "../services/cache/telemetry.js";
@@ -17,6 +18,8 @@ export function Footer(props: {
   permissions: RuntimePermissionState;
   config: RuntimeConfig;
   state: StateStore;
+  lastTurnUsage?: UsageSnapshot;
+  sessionUsage?: UsageSnapshot;
   providerReady: boolean;
   width: number;
   compact?: boolean;
@@ -36,6 +39,8 @@ export function Footer(props: {
     providerReady: props.providerReady,
     providerModel: props.config.model,
     effort,
+    lastTurnUsage: props.lastTurnUsage,
+    sessionUsage: props.sessionUsage,
     compact: Boolean(props.compact),
   });
 
@@ -64,6 +69,8 @@ export interface FooterModelInput {
   providerReady: boolean;
   providerModel: string;
   effort?: EffortLevel;
+  lastTurnUsage?: UsageSnapshot;
+  sessionUsage?: UsageSnapshot;
   compact: boolean;
 }
 
@@ -80,6 +87,7 @@ export function buildFooterModel(input: FooterModelInput): FooterModel {
   const cacheText = input.cache.observedRuns > 0
     ? `cache ${input.cache.rate} (${input.cache.hitTokens}/${input.cache.missTokens})`
     : `cache ${input.cache.rate}`;
+  const usageText = `turn ${input.lastTurnUsage?.outputTokens ?? 0} out | total ${totalTokens(input.sessionUsage)}`;
   const effortText = getEffortNotificationText(input.effort, input.providerModel);
   const gatesText = `gates ${input.pendingGates}`;
   const permissionText = [
@@ -91,10 +99,14 @@ export function buildFooterModel(input: FooterModelInput): FooterModel {
   return {
     statusLabel: input.busy ? "working" : "idle",
     statusTone: input.busy ? "warning" : "muted",
-    left: `${cacheText} | ${effortText}${queueText}`,
+    left: `${cacheText} | ${usageText} | ${effortText}${queueText}`,
     hint: input.busy ? "Enter queues next prompt | /cancel stops run | ? shortcuts" : "Ctrl+P commands | Ctrl+O files | Ctrl+R history | ? shortcuts",
     right: input.compact
       ? `${permissionText} | ${gatesText} | ${providerText}`
       : `${permissionText} | ${gatesText} | ${providerText}`,
   };
+}
+
+function totalTokens(usage?: UsageSnapshot): number {
+  return (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0);
 }

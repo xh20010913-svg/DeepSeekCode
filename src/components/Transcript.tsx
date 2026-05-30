@@ -85,12 +85,12 @@ export function groupTranscriptItems(items: TranscriptItem[]): TranscriptDisplay
 }
 
 export function selectVisibleEntries(entries: TranscriptDisplayEntry[], height: number): TranscriptDisplayEntry[] {
-  return virtualMessageWindow(entries, height, estimateRows).visible;
+  return virtualMessageWindow(entries, height, 80, estimateRows).visible;
 }
 
-function estimateRows(entry: TranscriptDisplayEntry): number {
+function estimateRows(entry: TranscriptDisplayEntry, width: number): number {
   if (entry.kind === "tool-group") return estimateToolActivityGroupRows(entry.items);
-  return estimateTranscriptRows(entry.item);
+  return estimateTranscriptRows(entry.item, width);
 }
 
 function renderTranscriptEntry(

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/deepseekcode-logo.svg" alt="DeepSeekCode" width="640"/>
+  <img src="assets/deepseekcode-logo.svg" alt="DeepSeekCode" width="640"/>
 </p>
 
 <p align="center">
@@ -11,11 +11,11 @@
   &nbsp;·&nbsp;
   <a href="https://xh20010913-svg.github.io/DeepSeekCode/">Website</a>
   &nbsp;·&nbsp;
-  <a href="./docs/WEBSITE_GUIDE.md">Guide</a>
+  <a href="./GUIDE.md">Guide</a>
   &nbsp;·&nbsp;
-  <a href="./docs/ARCHITECTURE.md">Architecture</a>
+  <a href="./ARCHITECTURE.md">Architecture</a>
   &nbsp;·&nbsp;
-  <a href="./docs/CLI_REFERENCE.md">CLI</a>
+  <a href="./CLI_REFERENCE.md">CLI</a>
 </p>
 
 <p align="center">
@@ -34,7 +34,7 @@
 <br/>
 
 <p align="center">
-  <img src="docs/assets/readme-runtime-terminal.png" alt="DeepSeekCode running in Windows Terminal" width="880"/>
+  <img src="assets/readme-runtime-terminal.png" alt="DeepSeekCode running in Windows Terminal" width="880"/>
 </p>
 
 <br/>
@@ -74,9 +74,17 @@ npm run start -- --project "D:\code\DeepSeekTest"
 ```bash
 npm run dev -- --project "D:\code\DeepSeekTest"
 npm run doctor
-npm run smoke
-npm run parity
+npm run typecheck
+npm run build
 ```
+
+| Command | When |
+| --- | --- |
+| `npm run start -- --project <dir>` | Ink/React terminal agent を起動します。 |
+| `npm run dev -- --project <dir>` | TypeScript から直接実行します。 |
+| `npm run doctor` | Node、provider、permission、state path を確認します。 |
+| `npm run typecheck` | TypeScript をビルド出力なしで検証します。 |
+| `npm run build` | runtime を `dist/` にコンパイルします。 |
 
 <br/>
 
@@ -88,14 +96,14 @@ npm run parity
 | Typed local actions | The model proposes an action envelope; DeepSeekCode validates path, permission, tool, and artifact state before execution. |
 | Durable work | Runs, tasks, events, approvals, memory, usage, and traces are persisted instead of living only in terminal memory. |
 
-詳細は [Architecture](./docs/ARCHITECTURE.md) と [Website Guide](./docs/WEBSITE_GUIDE.md) を参照してください。
+詳細は [Architecture](./ARCHITECTURE.md) と [Guide](./GUIDE.md) を参照してください。
 
 <br/>
 
 ## Capabilities
 
 <p align="center">
-  <img src="docs/assets/deepseekcode-feature-grid.svg" alt="DeepSeekCode capabilities" width="880"/>
+  <img src="assets/deepseekcode-feature-grid.svg" alt="DeepSeekCode capabilities" width="880"/>
 </p>
 
 <br/>
@@ -129,11 +137,10 @@ npm run parity
 
 ## Documentation
 
-- [Website Guide](./docs/WEBSITE_GUIDE.md)
-- [Architecture](./docs/ARCHITECTURE.md)
-- [CLI Reference](./docs/CLI_REFERENCE.md)
-- [Technical Architecture](./docs/TECHNICAL_ARCHITECTURE.md)
-- [Architecture Parity Status](./docs/CLAUDE_CODE_PARITY_STATUS.md)
+- [Guide](./GUIDE.md)
+- [Architecture](./ARCHITECTURE.md)
+- [CLI Reference](./CLI_REFERENCE.md)
+- [Website](https://xh20010913-svg.github.io/DeepSeekCode/)
 
 <br/>
 

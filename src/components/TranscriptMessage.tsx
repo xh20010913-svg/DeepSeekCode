@@ -1,5 +1,6 @@
 import React from "react";
 import { AssistantTextMessage, formatAssistantText } from "./AssistantTextMessage.js";
+import { cellWidth } from "../prompt/promptViewport.js";
 import type { TerminalTone } from "./design/terminalTheme.js";
 import { Markdown } from "./Markdown.js";
 import { MessageRow, type MessageRowMeta } from "./MessageRow.js";
@@ -78,9 +79,10 @@ export function transcriptRoleMeta(role: TranscriptRole): TranscriptRoleMeta {
   return { label: "system", tone: "muted", dimBody: true };
 }
 
-export function estimateTranscriptRows(item: TranscriptMessageItem): number {
+export function estimateTranscriptRows(item: TranscriptMessageItem, width = 80): number {
   const textRows = formatTranscriptText(item).split(/\r?\n/).length;
-  return 1 + textRows + (isToolLikeRole(item.role) ? 0 : 1) + (hasTranscriptMetadata(item) ? 1 : 0);
+  const wrapRows = estimateWrappedRows(formatTranscriptText(item), Math.max(16, width - 8));
+  return 1 + Math.max(textRows, wrapRows) + (isToolLikeRole(item.role) ? 0 : 1) + (hasTranscriptMetadata(item) ? 1 : 0);
 }
 
 export function formatTranscriptText(item: TranscriptMessageItem): string {
@@ -123,4 +125,10 @@ export function truncateTranscriptText(
 
 function countNewlines(value: string): number {
   return (value.match(/\n/g) ?? []).length;
+}
+
+function estimateWrappedRows(text: string, width: number): number {
+  return text
+    .split(/\r?\n/)
+    .reduce((sum, line) => sum + Math.max(1, Math.ceil(cellWidth(line) / Math.max(1, width))), 0);
 }

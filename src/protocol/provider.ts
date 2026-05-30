@@ -50,6 +50,10 @@ export interface ActionPlanTurn {
   note?: string;
 }
 
+export interface ActionPlanOptions {
+  onReasoningDelta?: (text: string) => void;
+}
+
 export interface DeepSeekProviderClient {
   providerName: string;
   model: string;
@@ -63,6 +67,7 @@ export interface DeepSeekProviderClient {
     contextSummary: string;
     feedback?: ActionExecutionReport;
     trajectory?: ActionPlanTurn[];
-  }): Promise<ActionEnvelope>;
+  }, options?: ActionPlanOptions): Promise<ActionEnvelope>;
+  takeLastReasoning?(): string | undefined;
   takeLastUsage(): UsageSnapshot | undefined;
 }

@@ -13,6 +13,7 @@ import type {
   DeepSeekProviderClient,
   TurnClassification,
   UsageSnapshot,
+  ActionPlanOptions,
 } from "../../protocol/provider.js";
 
 interface DeepSeekResponse {
@@ -43,6 +44,7 @@ interface UsagePayload {
 
 export class DeepSeekClient implements DeepSeekProviderClient {
   private lastUsage?: UsageSnapshot;
+  private lastReasoning?: string;
 
   constructor(private readonly config: ProviderConfig) {}
 
@@ -71,6 +73,7 @@ export class DeepSeekClient implements DeepSeekProviderClient {
     const message = json.choices?.[0]?.message;
     const usage = usageFromPayload(json.usage);
     this.lastUsage = usage;
+    this.lastReasoning = message?.reasoning_content ?? undefined;
     return {
       provider: this.config.name,
       model: json.model ?? this.config.model,
@@ -84,6 +87,12 @@ export class DeepSeekClient implements DeepSeekProviderClient {
     const usage = this.lastUsage;
     this.lastUsage = undefined;
     return usage;
+  }
+
+  takeLastReasoning(): string | undefined {
+    const reasoning = this.lastReasoning;
+    this.lastReasoning = undefined;
+    return reasoning;
   }
 
   async *streamChat(messages: ChatMessage[]): AsyncGenerator<ChatStreamEvent, void, void> {
@@ -180,9 +189,9 @@ export class DeepSeekClient implements DeepSeekProviderClient {
     contextSummary: string;
     feedback?: ActionExecutionReport;
     trajectory?: ActionPlanTurn[];
-  }): Promise<ActionEnvelope> {
+  }, options: ActionPlanOptions = {}): Promise<ActionEnvelope> {
     const feedback = formatActionFeedback(input.trajectory ?? [], input.feedback);
-    const reply = await this.completeJson([
+    const messages: ChatMessage[] = [
       { role: "system", content: input.systemPrompt },
       {
         role: "user",
@@ -192,10 +201,17 @@ export class DeepSeekClient implements DeepSeekProviderClient {
           `${feedback}\n\n` +
           `Current user request:\n${input.userMessage}`,
       },
-    ], {
+    ];
+    const jsonOptions = {
       label: "action plan",
       maxTokens: Math.max(this.config.maxOutputTokens ?? 1200, 2200),
-    });
+    };
+    const reply = options.onReasoningDelta
+      ? await this.completeJsonStream(messages, {
+          ...jsonOptions,
+          onReasoningDelta: options.onReasoningDelta,
+        })
+      : await this.completeJson(messages, jsonOptions);
     return ActionEnvelopeSchema.parse(reply);
   }
 
@@ -212,6 +228,7 @@ export class DeepSeekClient implements DeepSeekProviderClient {
       max_tokens: maxTokens,
     });
     this.lastUsage = usageFromPayload(json.usage);
+    this.lastReasoning = json.choices?.[0]?.message?.reasoning_content ?? undefined;
     const first = parseJsonResponse(json, options.label ?? "json response");
     if (first.ok) return first.value;
 
@@ -233,6 +250,10 @@ export class DeepSeekClient implements DeepSeekProviderClient {
       max_tokens: Math.min(4096, Math.max(maxTokens * 2, 1200)),
     });
     this.lastUsage = mergeUsage(this.lastUsage, usageFromPayload(repair.usage));
+    this.lastReasoning = [
+      this.lastReasoning,
+      repair.choices?.[0]?.message?.reasoning_content ?? "",
+    ].filter(Boolean).join("\n");
     const second = parseJsonResponse(repair, `${options.label ?? "json response"} repair`);
     if (second.ok) return second.value;
 
@@ -241,9 +262,115 @@ export class DeepSeekClient implements DeepSeekProviderClient {
     );
   }
 
+  async completeJsonStream(messages: ChatMessage[], options: {
+    label?: string;
+    maxTokens?: number;
+    onReasoningDelta?: (text: string) => void;
+  } = {}): Promise<unknown> {
+    const maxTokens = options.maxTokens ?? this.config.maxOutputTokens ?? 1200;
+    try {
+      const streamed = await this.requestJsonStream({
+        model: this.config.model,
+        messages,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        stream: true,
+        stream_options: { include_usage: true },
+        max_tokens: maxTokens,
+      }, options.onReasoningDelta);
+      this.lastUsage = streamed.usage;
+      this.lastReasoning = streamed.reasoning || undefined;
+      const first = parseJsonText(streamed.content, {
+        label: options.label ?? "json stream",
+        finish: streamed.finishReason ?? "unknown",
+        reasoningChars: streamed.reasoning.length,
+      });
+      if (first.ok) return first.value;
+    } catch {
+      // Streaming JSON is an optimization for live thinking. Some gateways
+      // support JSON mode only on non-streaming requests, so fall through to
+      // the stricter non-stream path instead of failing the user task.
+    }
+    return this.completeJson(messages, {
+      label: options.label,
+      maxTokens,
+    });
+  }
+
   private async requestJson(body: Record<string, unknown>): Promise<DeepSeekResponse> {
     const response = await this.requestRaw(body);
     return (await response.json()) as DeepSeekResponse;
+  }
+
+  private async requestJsonStream(
+    body: Record<string, unknown>,
+    onReasoningDelta?: (text: string) => void,
+  ): Promise<{
+    content: string;
+    reasoning: string;
+    finishReason?: string | null;
+    usage: UsageSnapshot;
+  }> {
+    const response = await this.requestRaw(body);
+    if (!response.body) throw new Error("DeepSeek stream response has no body");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    const dataLines: string[] = [];
+    let content = "";
+    let reasoning = "";
+    let finishReason: string | null | undefined;
+    let usage: UsageSnapshot = {};
+
+    const flushEvent = (): void => {
+      const event = dataLines.join("\n").trim();
+      dataLines.length = 0;
+      if (!event || event === "[DONE]") return;
+      let chunk: DeepSeekResponse;
+      try {
+        chunk = JSON.parse(event) as DeepSeekResponse;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Invalid DeepSeek stream event: ${message}; data=${compact(event, 240)}`);
+      }
+      const choice = chunk.choices?.[0];
+      const delta = choice?.delta;
+      finishReason = choice?.finish_reason ?? finishReason;
+      if (delta?.reasoning_content) {
+        reasoning += delta.reasoning_content;
+        onReasoningDelta?.(delta.reasoning_content);
+      }
+      if (delta?.content) {
+        content += delta.content;
+      }
+      if (chunk.usage) {
+        usage = mergeUsage(usage, usageFromPayload(chunk.usage));
+      }
+    };
+
+    const readLine = (line: string): void => {
+      const trimmed = line.trimEnd();
+      if (!trimmed) {
+        flushEvent();
+        return;
+      }
+      if (trimmed.startsWith(":")) return;
+      if (!trimmed.startsWith("data:")) return;
+      dataLines.push(trimmed.slice("data:".length).trimStart());
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() ?? "";
+      for (const line of lines) readLine(line);
+    }
+    buffer += decoder.decode();
+    if (buffer) readLine(buffer);
+    flushEvent();
+    return { content, reasoning, finishReason, usage };
   }
 
   private async requestRaw(body: Record<string, unknown>): Promise<Response> {
@@ -279,10 +406,22 @@ function parseJsonResponse(json: DeepSeekResponse, label: string): JsonParseResu
   const content = stripJsonFence(choice?.message?.content ?? "");
   const reasoningChars = choice?.message?.reasoning_content?.length ?? 0;
   const finish = choice?.finish_reason ?? "unknown";
+  return parseJsonText(content, { label, finish, reasoningChars });
+}
+
+function parseJsonText(
+  text: string,
+  meta: {
+    label: string;
+    finish: string | null;
+    reasoningChars: number;
+  },
+): JsonParseResult {
+  const content = stripJsonFence(text);
   if (!content.trim()) {
     return {
       ok: false,
-      error: `${label} was empty finish=${finish} reasoningChars=${reasoningChars}`,
+      error: `${meta.label} was empty finish=${meta.finish ?? "unknown"} reasoningChars=${meta.reasoningChars}`,
     };
   }
   try {
@@ -291,7 +430,7 @@ function parseJsonResponse(json: DeepSeekResponse, label: string): JsonParseResu
     const message = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
-      error: `${label} parse failed: ${message} finish=${finish} contentChars=${content.length} head=${JSON.stringify(compact(content, 160))}`,
+      error: `${meta.label} parse failed: ${message} finish=${meta.finish ?? "unknown"} contentChars=${content.length} head=${JSON.stringify(compact(content, 160))}`,
     };
   }
 }

@@ -27,5 +27,10 @@ export function formatThinkingPreview(
 }
 
 export function normalizeThinkingText(text: string): string {
-  return flattenCellText(text).replace(/^(thinking|reasoning)\s*:\s*/i, "");
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const doneLine = lines.find((line) => /thinking done/i.test(line));
+  const body = flattenCellText(lines.filter((line) => line !== doneLine).join(" "))
+    .replace(/^(thinking|reasoning)\s*:\s*/i, "");
+  if (doneLine) return `${doneLine} · ${body}`;
+  return body;
 }
