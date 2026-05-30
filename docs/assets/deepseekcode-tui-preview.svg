@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="820" viewBox="0 0 1440 820" role="img" aria-labelledby="title desc">
+  <title id="title">DeepSeekCode terminal interface preview</title>
+  <desc id="desc">A generated preview of the DeepSeekCode terminal workbench.</desc>
+  <rect width="1440" height="820" fill="#050505"/>
+  <rect x="0" y="0" width="1440" height="820" fill="#070707"/>
+  <text x="20" y="56" fill="#2dd4bf" font-family="Cascadia Mono,Consolas,monospace" font-size="24" font-weight="700">DeepSeekCode</text>
+  <text x="188" y="56" fill="#7a7a7a" font-family="Cascadia Mono,Consolas,monospace" font-size="22" font-weight="700">D:\code\DeepSeekTest</text>
+  <text x="1070" y="56" fill="#22c55e" font-family="Cascadia Mono,Consolas,monospace" font-size="22" font-weight="700">&gt;&gt; [ready]</text>
+  <text x="1218" y="56" fill="#8a8a8a" font-family="Cascadia Mono,Consolas,monospace" font-size="22" font-weight="700">deepseek-v4-flash</text>
+
+  <text x="20" y="124" fill="#38bdf8" font-family="Cascadia Mono,Consolas,monospace" font-size="22" font-weight="700">[You]</text>
+  <text x="44" y="158" fill="#d4d4d4" font-family="Cascadia Mono,Consolas,monospace" font-size="22">帮我做一个类似雷霆战机的网页小游戏，要完整项目目录、关卡和动效。</text>
+
+  <line x1="20" y1="208" x2="1390" y2="208" stroke="#eab308" stroke-width="2" stroke-dasharray="8 4"/>
+  <text x="580" y="216" fill="#eab308" font-family="Cascadia Mono,Consolas,monospace" font-size="22" font-weight="700"> cache guard </text>
+  <text x="44" y="252" fill="#8a8a8a" font-family="Cascadia Mono,Consolas,monospace" font-size="21">profile=web-game  forecast=warm  readiness=82  reusable stable prefix detected</text>
+  <text x="44" y="286" fill="#eab308" font-family="Cascadia Mono,Consolas,monospace" font-size="21">[hit]</text>
+  <text x="122" y="286" fill="#8a8a8a" font-family="Cascadia Mono,Consolas,monospace" font-size="21">██████████████████████░░░░░░░░ 58% cache reuse</text>
+
+  <text x="20" y="352" fill="#22c55e" font-family="Cascadia Mono,Consolas,monospace" font-size="22" font-weight="700">[DeepSeekCode]</text>
+  <text x="44" y="390" fill="#d4d4d4" font-family="Cascadia Mono,Consolas,monospace" font-size="22">我会先搭建目录结构，再生成 HTML/CSS/JS，随后运行 artifact 校验。</text>
+
+  <text x="20" y="456" fill="#a3a3a3" font-family="Cascadia Mono,Consolas,monospace" font-size="21">[tool]</text>
+  <text x="118" y="456" fill="#d4d4d4" font-family="Cascadia Mono,Consolas,monospace" font-size="21">write_file index.html    created</text>
+  <text x="20" y="490" fill="#a3a3a3" font-family="Cascadia Mono,Consolas,monospace" font-size="21">[tool]</text>
+  <text x="118" y="490" fill="#d4d4d4" font-family="Cascadia Mono,Consolas,monospace" font-size="21">write_file css/style.css  created</text>
+  <text x="20" y="524" fill="#a3a3a3" font-family="Cascadia Mono,Consolas,monospace" font-size="21">[tool]</text>
+  <text x="118" y="524" fill="#d4d4d4" font-family="Cascadia Mono,Consolas,monospace" font-size="21">write_file js/game.js     created</text>
+  <text x="20" y="558" fill="#a3a3a3" font-family="Cascadia Mono,Consolas,monospace" font-size="21">[tool]</text>
+  <text x="118" y="558" fill="#22c55e" font-family="Cascadia Mono,Consolas,monospace" font-size="21">validate_artifact html    ok</text>
+
+  <text x="20" y="624" fill="#22c55e" font-family="Cascadia Mono,Consolas,monospace" font-size="22" font-weight="700">[DeepSeekCode]</text>
+  <text x="44" y="662" fill="#d4d4d4" font-family="Cascadia Mono,Consolas,monospace" font-size="22">已创建并校验网页小游戏项目；可直接打开 index.html 试玩。</text>
+
+  <line x1="8" y1="710" x2="1432" y2="710" stroke="#0ea5e9" stroke-width="2" stroke-dasharray="8 4"/>
+  <text x="20" y="748" fill="#38bdf8" font-family="Cascadia Mono,Consolas,monospace" font-size="22">&gt;</text>
+  <text x="56" y="748" fill="#d4d4d4" font-family="Cascadia Mono,Consolas,monospace" font-size="22">继续优化关卡和爆炸粒子</text>
+  <text x="20" y="786" fill="#8a8a8a" font-family="Cascadia Mono,Consolas,monospace" font-size="20">[idle] cache 58% (6080/10418)</text>
+  <text x="760" y="786" fill="#8a8a8a" font-family="Cascadia Mono,Consolas,monospace" font-size="20">safe | shell off | browser off | gates 0 | deepseek-v4-flash</text>
+</svg>

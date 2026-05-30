@@ -1,0 +1,5 @@
+DeepSeekCode utility compatibility note
+
+Reference path: permissions/yolo-classifier-prompts/auto_mode_system_prompt.txt
+This file is present to keep ClaudeCode migration path parity.
+Runtime code lives in DeepSeekCode-owned TypeScript adapters and local implementations.

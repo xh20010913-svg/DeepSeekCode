@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="560" viewBox="0 0 1440 560" role="img" aria-labelledby="title desc">
+  <title id="title">DeepSeekCode doctor interface preview</title>
+  <desc id="desc">A generated interface preview based on npm run doctor output.</desc>
+  <rect width="1440" height="560" rx="18" fill="#050505"/>
+  <rect x="18" y="18" width="1404" height="524" rx="14" fill="#080808" stroke="#1f2937"/>
+  <text x="42" y="64" fill="#2dd4bf" font-family="Cascadia Mono,Consolas,monospace" font-size="24" font-weight="700">PS D:\code\DeepSeekCode&gt; npm run doctor</text>
+  <text x="42" y="122" fill="#d4d4d4" font-family="Cascadia Mono,Consolas,monospace" font-size="23">DeepSeekCode doctor</text>
+  <text x="42" y="170" fill="#7dd3fc" font-family="Cascadia Mono,Consolas,monospace" font-size="22">project:</text>
+  <text x="190" y="170" fill="#d4d4d4" font-family="Cascadia Mono,Consolas,monospace" font-size="22">D:\code\DeepSeekCode</text>
+  <text x="42" y="214" fill="#7dd3fc" font-family="Cascadia Mono,Consolas,monospace" font-size="22">data:</text>
+  <text x="190" y="214" fill="#d4d4d4" font-family="Cascadia Mono,Consolas,monospace" font-size="22">%USERPROFILE%\.deepseekcode</text>
+  <text x="42" y="258" fill="#7dd3fc" font-family="Cascadia Mono,Consolas,monospace" font-size="22">state:</text>
+  <text x="190" y="258" fill="#d4d4d4" font-family="Cascadia Mono,Consolas,monospace" font-size="22">%USERPROFILE%\.deepseekcode\state\deepseekcode.sqlite</text>
+  <text x="42" y="302" fill="#7dd3fc" font-family="Cascadia Mono,Consolas,monospace" font-size="22">model:</text>
+  <text x="190" y="302" fill="#d4d4d4" font-family="Cascadia Mono,Consolas,monospace" font-size="22">deepseek-v4-flash</text>
+  <text x="42" y="346" fill="#7dd3fc" font-family="Cascadia Mono,Consolas,monospace" font-size="22">provider:</text>
+  <text x="190" y="346" fill="#d4d4d4" font-family="Cascadia Mono,Consolas,monospace" font-size="22">deepseek-default (https://api.deepseek.com)</text>
+  <text x="42" y="390" fill="#7dd3fc" font-family="Cascadia Mono,Consolas,monospace" font-size="22">permission profile:</text>
+  <text x="310" y="390" fill="#22c55e" font-family="Cascadia Mono,Consolas,monospace" font-size="22">safe</text>
+  <text x="42" y="434" fill="#7dd3fc" font-family="Cascadia Mono,Consolas,monospace" font-size="22">shell:</text>
+  <text x="190" y="434" fill="#f59e0b" font-family="Cascadia Mono,Consolas,monospace" font-size="22">off</text>
+  <text x="42" y="478" fill="#7dd3fc" font-family="Cascadia Mono,Consolas,monospace" font-size="22">browser:</text>
+  <text x="190" y="478" fill="#f59e0b" font-family="Cascadia Mono,Consolas,monospace" font-size="22">off</text>
+</svg>

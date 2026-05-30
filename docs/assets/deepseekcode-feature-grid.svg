@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="820" viewBox="0 0 1440 820" role="img" aria-labelledby="title desc">
+  <title id="title">DeepSeekCode capabilities</title>
+  <desc id="desc">A grid of DeepSeekCode capabilities.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#05070d"/>
+      <stop offset="1" stop-color="#0b1220"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#22c55e"/>
+    </linearGradient>
+  </defs>
+  <rect width="1440" height="820" rx="28" fill="url(#bg)"/>
+  <text x="72" y="92" fill="#f8fafc" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="48" font-weight="800">DeepSeekCode capabilities</text>
+  <text x="74" y="136" fill="#94a3b8" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="24">DeepSeek cache-first runtime, Claude-style terminal ergonomics, and local tool safety.</text>
+  <g font-family="Inter,Segoe UI,Arial,sans-serif">
+    <g transform="translate(72 190)">
+      <rect width="398" height="142" rx="14" fill="#0f172a" stroke="#1f2937"/>
+      <rect x="0" y="0" width="6" height="142" rx="3" fill="url(#accent)"/>
+      <text x="28" y="42" fill="#67e8f9" font-size="24" font-weight="800">Cache Guard</text>
+      <text x="28" y="78" fill="#cbd5e1" font-size="19">preflight · prepare · profiles</text>
+      <text x="28" y="108" fill="#94a3b8" font-size="18">stable prefix before spending tokens</text>
+    </g>
+    <g transform="translate(522 190)">
+      <rect width="398" height="142" rx="14" fill="#0f172a" stroke="#1f2937"/>
+      <rect x="0" y="0" width="6" height="142" rx="3" fill="#38bdf8"/>
+      <text x="28" y="42" fill="#67e8f9" font-size="24" font-weight="800">Typed Tools</text>
+      <text x="28" y="78" fill="#cbd5e1" font-size="19">read · write · patch · shell · validate</text>
+      <text x="28" y="108" fill="#94a3b8" font-size="18">model intent separated from execution</text>
+    </g>
+    <g transform="translate(972 190)">
+      <rect width="398" height="142" rx="14" fill="#0f172a" stroke="#1f2937"/>
+      <rect x="0" y="0" width="6" height="142" rx="3" fill="#22c55e"/>
+      <text x="28" y="42" fill="#86efac" font-size="24" font-weight="800">Durable State</text>
+      <text x="28" y="78" fill="#cbd5e1" font-size="19">runs · tasks · actions · events</text>
+      <text x="28" y="108" fill="#94a3b8" font-size="18">SQLite-backed trace and resume data</text>
+    </g>
+    <g transform="translate(72 372)">
+      <rect width="398" height="142" rx="14" fill="#0f172a" stroke="#1f2937"/>
+      <rect x="0" y="0" width="6" height="142" rx="3" fill="#a78bfa"/>
+      <text x="28" y="42" fill="#c4b5fd" font-size="24" font-weight="800">Multi-Agent</text>
+      <text x="28" y="78" fill="#cbd5e1" font-size="19">Planner · Builder · Tester · Reviewer</text>
+      <text x="28" y="108" fill="#94a3b8" font-size="18">role handoff, validation, rework branch</text>
+    </g>
+    <g transform="translate(522 372)">
+      <rect width="398" height="142" rx="14" fill="#0f172a" stroke="#1f2937"/>
+      <rect x="0" y="0" width="6" height="142" rx="3" fill="#f59e0b"/>
+      <text x="28" y="42" fill="#facc15" font-size="24" font-weight="800">Approval Gates</text>
+      <text x="28" y="78" fill="#cbd5e1" font-size="19">files · shell · browser · MCP · plan</text>
+      <text x="28" y="108" fill="#94a3b8" font-size="18">inspect risky actions before they run</text>
+    </g>
+    <g transform="translate(972 372)">
+      <rect width="398" height="142" rx="14" fill="#0f172a" stroke="#1f2937"/>
+      <rect x="0" y="0" width="6" height="142" rx="3" fill="#fb7185"/>
+      <text x="28" y="42" fill="#fda4af" font-size="24" font-weight="800">Windows-safe TUI</text>
+      <text x="28" y="78" fill="#cbd5e1" font-size="19">cursor editing · queue · pickers</text>
+      <text x="28" y="108" fill="#94a3b8" font-size="18">stable rendering in Windows Terminal</text>
+    </g>
+    <g transform="translate(72 554)">
+      <rect width="398" height="142" rx="14" fill="#0f172a" stroke="#1f2937"/>
+      <rect x="0" y="0" width="6" height="142" rx="3" fill="#14b8a6"/>
+      <text x="28" y="42" fill="#5eead4" font-size="24" font-weight="800">Project Memory</text>
+      <text x="28" y="78" fill="#cbd5e1" font-size="19">promotion · review · export · prune</text>
+      <text x="28" y="108" fill="#94a3b8" font-size="18">keep useful facts without raw transcript bloat</text>
+    </g>
+    <g transform="translate(522 554)">
+      <rect width="398" height="142" rx="14" fill="#0f172a" stroke="#1f2937"/>
+      <rect x="0" y="0" width="6" height="142" rx="3" fill="#60a5fa"/>
+      <text x="28" y="42" fill="#93c5fd" font-size="24" font-weight="800">Skills + Plugins</text>
+      <text x="28" y="78" fill="#cbd5e1" font-size="19">discovery · manifest · adapters</text>
+      <text x="28" y="108" fill="#94a3b8" font-size="18">local extension paths ready for growth</text>
+    </g>
+    <g transform="translate(972 554)">
+      <rect width="398" height="142" rx="14" fill="#0f172a" stroke="#1f2937"/>
+      <rect x="0" y="0" width="6" height="142" rx="3" fill="#818cf8"/>
+      <text x="28" y="42" fill="#a5b4fc" font-size="24" font-weight="800">MCP + Bridges</text>
+      <text x="28" y="78" fill="#cbd5e1" font-size="19">stdio · HTTP · browser · remote</text>
+      <text x="28" y="108" fill="#94a3b8" font-size="18">typed boundaries for external tools</text>
+    </g>
+  </g>
+</svg>
