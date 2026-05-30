@@ -9,7 +9,7 @@
   &nbsp;·&nbsp;
   <a href="./README.ja-JP.md">日本語</a>
   &nbsp;·&nbsp;
-  <a href="./website/">Website</a>
+  <a href="https://xh20010913-svg.github.io/DeepSeekCode/">Website</a>
   &nbsp;·&nbsp;
   <a href="./docs/WEBSITE_GUIDE.md">Guide</a>
   &nbsp;·&nbsp;
