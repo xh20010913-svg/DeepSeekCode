@@ -1,5 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
+import { isChineseUi, type UiLanguage } from "../services/ui/languageService.js";
 
 export interface VirtualMessageWindow<T> {
   visible: T[];
@@ -16,6 +17,7 @@ export function VirtualMessageList<T>(props: {
   renderEntry(entry: T, index: number): React.ReactNode;
   empty?: React.ReactNode;
   scrollOffset?: number;
+  language?: UiLanguage;
 }): React.ReactElement {
   const window = virtualMessageWindow(
     props.entries,
@@ -32,7 +34,7 @@ export function VirtualMessageList<T>(props: {
         <>
           {window.hidden > 0 && (
             <Box>
-              <Text color="gray">{`^ ${window.hidden} earlier message${window.hidden === 1 ? "" : "s"} hidden`}</Text>
+              <Text color="gray">{hiddenBeforeText(window.hidden, props.language)}</Text>
             </Box>
           )}
           {window.visible.map((entry, index) => (
@@ -42,13 +44,23 @@ export function VirtualMessageList<T>(props: {
           ))}
           {window.hiddenAfter > 0 && (
             <Box>
-              <Text color="gray">{`v ${window.hiddenAfter} newer message${window.hiddenAfter === 1 ? "" : "s"} hidden`}</Text>
+              <Text color="gray">{hiddenAfterText(window.hiddenAfter, props.language)}</Text>
             </Box>
           )}
         </>
       )}
     </Box>
   );
+}
+
+function hiddenBeforeText(count: number, language?: UiLanguage): string {
+  if (isChineseUi(language)) return `^ ${count} 条更早消息已隐藏`;
+  return `^ ${count} earlier message${count === 1 ? "" : "s"} hidden`;
+}
+
+function hiddenAfterText(count: number, language?: UiLanguage): string {
+  if (isChineseUi(language)) return `v ${count} 条更新消息已隐藏`;
+  return `v ${count} newer message${count === 1 ? "" : "s"} hidden`;
 }
 
 export function virtualMessageWindow<T>(

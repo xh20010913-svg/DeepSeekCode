@@ -61,7 +61,7 @@ cd DeepSeekCode
 npm install
 npm run build
 npm run start -- --project "D:\code\DeepSeekTest"</code></pre>
-            <p>Inside the TUI, run <code>/model</code> to open the model selector. Keep <code>deepseek-v4-flash</code> for routine tests, and switch to <code>deepseek-v4-pro</code> for harder capability checks.</p>
+            <p>Inside the TUI, run <code>/model</code> to open the model selector. Keep <code>deepseek-v4-flash</code> for routine tests, and switch to <code>deepseek-v4-pro</code> for harder capability checks. The TUI defaults to Chinese; use <code>/language en</code> or <code>/language zh</code> to switch.</p>
           </article>
 
           <article id="resume" class="guide-block reveal">
@@ -82,6 +82,7 @@ npm run start -- --project "D:\code\DeepSeekTest" --resume session_xxx -p "Conti
               <div><b>Recent conversation</b><span>The last high-value turns that explain current intent.</span></div>
               <div><b>tool_result_summary</b><span>Failed commands, important paths, artifacts, and validation results.</span></div>
               <div><b>runtime_run_state</b><span>Recent or paused runs, task DAG, actions, artifacts, gates, and progress checkpoints.</span></div>
+              <div><b>Usage telemetry</b><span>Current-session input, output, cache hit/miss, and estimated cost are refreshed as provider calls report usage.</span></div>
             </div>
           </article>
 
@@ -99,6 +100,7 @@ npm run start -- --project "D:\code\DeepSeekTest" --resume session_xxx -p "Conti
             <pre><code>npm run typecheck
 npm run build</code></pre>
             <p>Live release checks were run in <code>D:\code\DeepSeekTest</code> for cross-process resume and multi-agent workflows. The prompt audit verified that <code>recent_conversation</code>, <code>tool_result_summary</code>, and <code>runtime_run_state</code> reached provider prompts.</p>
+            <p>Use <code>/usage</code> and <code>/cost</code> to inspect persisted token snapshots. Cost estimates use DeepSeek defaults and can be overridden with <code>DEEPSEEKCODE_PRICE_*</code> variables.</p>
           </article>
 
           <article id="release" class="guide-block reveal">

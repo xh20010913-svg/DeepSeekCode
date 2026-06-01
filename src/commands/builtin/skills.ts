@@ -110,6 +110,7 @@ export const skillsCommand: Command = {
           config: context.config,
           provider: context.provider,
           permissions: context.permissions,
+          onUsage: (usage) => context.recordUsageEvent?.(usage),
         });
         return {
           message: [

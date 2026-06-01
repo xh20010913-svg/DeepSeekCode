@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { RuntimeConfig } from "../bootstrap/config.js";
-import type { DeepSeekProviderClient } from "../protocol/provider.js";
+import type { DeepSeekProviderClient, UsageSnapshot } from "../protocol/provider.js";
 import type { RuntimePermissionState } from "../services/permissions/permissionProfiles.js";
 import type { StateStore } from "../state/sqlite.js";
 
@@ -13,6 +13,8 @@ export interface CommandContext {
   requestClear?: () => void;
   requestModelSelector?: () => void;
   switchModel?: (model: string) => boolean;
+  switchLanguage?: (language: string) => boolean;
+  recordUsageEvent?: (usage: UsageSnapshot) => void;
 }
 
 export interface CommandResult {

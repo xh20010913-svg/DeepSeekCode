@@ -71,6 +71,7 @@ export interface QueryEngineOptions {
   requestClear?: () => void;
   requestModelSelector?: () => void;
   switchModel?: (model: string) => boolean;
+  switchLanguage?: (language: string) => boolean;
   awaitUserDecisions?: boolean;
   sessionPersistence?: "managed" | "external" | "off";
 }
@@ -85,6 +86,7 @@ export class QueryEngine {
   private readonly requestClear?: () => void;
   private readonly requestModelSelector?: () => void;
   private readonly switchModel?: (model: string) => boolean;
+  private readonly switchLanguage?: (language: string) => boolean;
   private readonly awaitUserDecisions: boolean;
   private readonly sessionPersistence: "managed" | "external" | "off";
   private readonly actionPrefix = new PrefixStabilityManager();
@@ -106,6 +108,7 @@ export class QueryEngine {
     this.requestClear = options.requestClear;
     this.requestModelSelector = options.requestModelSelector;
     this.switchModel = options.switchModel;
+    this.switchLanguage = options.switchLanguage;
     this.awaitUserDecisions = Boolean(options.awaitUserDecisions);
     this.sessionPersistence = options.sessionPersistence ?? "managed";
   }
@@ -120,6 +123,7 @@ export class QueryEngine {
       requestClear: this.requestClear,
       requestModelSelector: this.requestModelSelector,
       switchModel: this.switchModel,
+      switchLanguage: this.switchLanguage,
     };
   }
 
@@ -141,12 +145,22 @@ export class QueryEngine {
 
     if (trimmed.startsWith("/")) {
       let result;
+      const commandUsageEvents: UsageSnapshot[] = [];
       try {
-        result = await runSlashCommand(trimmed, this.commandContext());
+        result = await runSlashCommand(trimmed, {
+          ...this.commandContext(),
+          recordUsageEvent: (usage) => {
+            const snapshot = usageSnapshotFromEvent(usage);
+            if (hasUsageTokens(snapshot)) commandUsageEvents.push(snapshot);
+          },
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         yield { type: "error", text: `Command failed: ${message}` };
         return;
+      }
+      for (const usage of commandUsageEvents) {
+        yield { type: "usage", usage };
       }
       if (result.clear) this.requestClear?.();
       if (result.display) {
@@ -183,9 +197,8 @@ export class QueryEngine {
       throwIfAborted(signal);
       const classification = await this.provider.classifyTurn(this.classificationInput(trimmed), { signal });
       const classifyUsage = this.provider.takeLastUsage();
-      if (classifyUsage) {
-        this.state.recordUsage(runId, classifyUsage, "turn_classification");
-        recordUsageSnapshot(classifyUsage);
+      if (this.recordProviderUsage(runId, classifyUsage, "turn_classification")) {
+        yield { type: "usage", usage: classifyUsage! };
       }
       this.state.appendEvent(runId, "provider_request_diagnostics", buildRequestDiagnostics({
         provider: this.provider.providerName,
@@ -308,14 +321,28 @@ export class QueryEngine {
       } else if (event.type === "reasoning_delta") {
         yield { type: "reasoning_delta", text: event.text };
       } else {
-        this.state.recordUsage(runId, event, "chat_stream");
-        recordUsageSnapshot(event);
-        yield { type: "usage", usage: event };
+        const usage = usageSnapshotFromEvent(event);
+        if (this.recordProviderUsage(runId, usage, "chat_stream")) {
+          yield { type: "usage", usage };
+        }
       }
     }
     this.rememberTurn(userMessage, assistant, runId);
     this.state.appendEvent(runId, "chat_finished", { text_chars: assistant.length });
     yield { type: "assistant", text: assistant };
+  }
+
+  private recordProviderUsage(
+    runId: string,
+    usage: UsageSnapshot | undefined,
+    source: string,
+    onEvent?: (event: QueryEvent) => void,
+  ): boolean {
+    if (!usage || !hasUsageTokens(usage)) return false;
+    this.state.recordUsage(runId, usage, source);
+    recordUsageSnapshot(usage);
+    onEvent?.({ type: "usage", usage });
+    return true;
   }
 
   private async runActionLoop(
@@ -435,10 +462,7 @@ export class QueryEngine {
           onEvent?.({ type: "reasoning_delta", text: nonStreamReasoning });
         }
         const planUsage = this.provider!.takeLastUsage();
-        if (planUsage) {
-          this.state.recordUsage(runId, planUsage, `action_plan_attempt_${attempt + 1}`);
-          recordUsageSnapshot(planUsage);
-        }
+        this.recordProviderUsage(runId, planUsage, `action_plan_attempt_${attempt + 1}`, onEvent);
         this.state.appendEvent(runId, "action_plan_failed", {
           attempt: attempt + 1,
           message,
@@ -458,10 +482,7 @@ export class QueryEngine {
         onEvent?.({ type: "reasoning_delta", text: nonStreamReasoning });
       }
       const planUsage = this.provider!.takeLastUsage();
-      if (planUsage) {
-        this.state.recordUsage(runId, planUsage, `action_plan_attempt_${attempt + 1}`);
-        recordUsageSnapshot(planUsage);
-      }
+      this.recordProviderUsage(runId, planUsage, `action_plan_attempt_${attempt + 1}`, onEvent);
       this.state.saveCheckpoint(runId, `action_envelope_attempt_${attempt + 1}`, envelope);
       this.state.appendEvent(runId, "action_envelope_received", {
         attempt: attempt + 1,
@@ -500,6 +521,9 @@ export class QueryEngine {
             state: this.state,
             runId,
             signal,
+            onUsage: (usage, source) => {
+              this.recordProviderUsage(runId, usage, source, onEvent);
+            },
           });
           return {
             skill: {
@@ -1076,6 +1100,24 @@ function withLatestRunDetails(message: string): string {
 
 function uniquePaths(paths: string[]): string[] {
   return [...new Set(paths.map((item) => item.replace(/\\/g, "/")))];
+}
+
+function hasUsageTokens(usage: UsageSnapshot): boolean {
+  return [
+    usage.inputTokens,
+    usage.outputTokens,
+    usage.cacheHitTokens,
+    usage.cacheMissTokens,
+  ].some((value) => typeof value === "number" && value > 0);
+}
+
+function usageSnapshotFromEvent(event: UsageSnapshot): UsageSnapshot {
+  return {
+    inputTokens: event.inputTokens,
+    outputTokens: event.outputTokens,
+    cacheHitTokens: event.cacheHitTokens,
+    cacheMissTokens: event.cacheMissTokens,
+  };
 }
 
 function hasImplementationProgress(report: ActionExecutionReport): boolean {

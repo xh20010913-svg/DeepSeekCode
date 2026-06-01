@@ -2,7 +2,7 @@ import type { RuntimeConfig } from "../../bootstrap/config.js";
 import { recordUsageSnapshot } from "../../cost-tracker.js";
 import { buildContextBundle, contextBundlePrompt } from "../../context/contextBundle.js";
 import type { ActionEnvelope, ActionExecutionReport, ActionRequest, ActionResult } from "../../protocol/actions.js";
-import type { DeepSeekProviderClient } from "../../protocol/provider.js";
+import type { DeepSeekProviderClient, UsageSnapshot } from "../../protocol/provider.js";
 import { buildActionSystemPrompt } from "../../query/systemPrompt.js";
 import type { StateStore } from "../../state/sqlite.js";
 import { loadSkill, type LoadedSkill } from "../../skills/loader.js";
@@ -34,6 +34,7 @@ export async function runSkillTask(input: {
   state?: StateStore;
   runId?: string;
   signal?: AbortSignal;
+  onUsage?: (usage: UsageSnapshot, source: string) => void;
 }): Promise<SkillRunResult> {
   const skill = loadSkill(input.config.projectPath, input.config.dataDir, input.name);
   if (!skill) throw new Error(`skill not found: ${input.name}`);
@@ -80,8 +81,11 @@ export async function runSkillTask(input: {
       signal: input.signal,
     });
     const planUsage = input.provider.takeLastUsage();
-    if (planUsage && input.state && input.runId) {
-      input.state.recordUsage(input.runId, planUsage, `skill_${skill.name}_action_plan_turn_${index}`);
+    const usageSource = `skill_${skill.name}_action_plan_turn_${index}`;
+    if (planUsage && input.onUsage) {
+      input.onUsage(planUsage, usageSource);
+    } else if (planUsage && input.state && input.runId) {
+      input.state.recordUsage(input.runId, planUsage, usageSource);
       recordUsageSnapshot(planUsage);
     }
     const execution = await executeEnvelope(input.config.projectPath, envelope, {

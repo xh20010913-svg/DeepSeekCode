@@ -9,6 +9,7 @@ import {
 } from "../services/permissions/permissionProfiles.js";
 import { budgetFor, readInferenceEffort } from "../services/inference/inferenceSettingsService.js";
 import { DEFAULT_DEEPSEEK_MODEL } from "../services/deepseek/models.js";
+import { UiLanguageService, type UiLanguage } from "../services/ui/languageService.js";
 
 export interface RuntimeConfig {
   projectPath: string;
@@ -19,6 +20,7 @@ export interface RuntimeConfig {
   shellEnabled: boolean;
   browserEnabled: boolean;
   permissionProfile: PermissionProfileName;
+  language: UiLanguage;
 }
 
 export interface BootstrapOptions {
@@ -57,6 +59,7 @@ export function bootstrapConfig(options: BootstrapOptions): RuntimeConfig {
   fs.mkdirSync(stateDir, { recursive: true });
 
   const model = options.model ?? process.env.DEEPSEEK_MODEL ?? DEFAULT_DEEPSEEK_MODEL;
+  const language = new UiLanguageService(projectPath).current().language;
   const permissionProfile = normalizeProfileName(
     options.permissionProfile ?? process.env.DEEPSEEKCODE_PERMISSION_PROFILE ?? "safe",
   ) ?? "safe";
@@ -70,6 +73,7 @@ export function bootstrapConfig(options: BootstrapOptions): RuntimeConfig {
     shellEnabled: Boolean(options.allowShell) || grants.allowShell,
     browserEnabled: Boolean(options.allowBrowser) || grants.allowBrowser,
     permissionProfile,
+    language,
   };
 }
 

@@ -85,7 +85,7 @@ export function costPanelModel(scope: string, estimate: CostEstimate): MetricsPa
     cacheHitTokens: estimate.usage.cacheHitTokens,
     cacheMissTokens: estimate.usage.cacheMissTokens,
     rows: [
-      metric("estimated", estimate.configured ? money(estimate.totalCost ?? 0, estimate.price.currency) : "unconfigured", estimate.configured ? "success" : "warning", estimate.configured ? "from DEEPSEEKCODE_PRICE_*" : "set DEEPSEEKCODE_PRICE_* env vars"),
+      metric("estimated", estimate.configured ? money(estimate.totalCost ?? 0, estimate.price.currency) : "unconfigured", estimate.configured ? "success" : "warning", estimate.configured ? priceSourceLabel(estimate.price.source) : "set DEEPSEEKCODE_PRICE_* env vars"),
       metric("input cost", optionalMoney(estimate.inputCost, estimate.price.currency), "muted", `input=${rate(estimate.price.inputPerMillion)}`),
       metric("output cost", optionalMoney(estimate.outputCost, estimate.price.currency), "muted", `output=${rate(estimate.price.outputPerMillion)}`),
       metric("cache savings", optionalMoney(estimate.estimatedCacheSavings, estimate.price.currency), estimate.estimatedCacheSavings ? "success" : "muted", `hit=${rate(estimate.price.cacheHitPerMillion)} miss=${rate(estimate.price.cacheMissPerMillion)}`),
@@ -162,4 +162,11 @@ function optionalMoney(value: number | undefined, currency: string): string {
 
 function money(value: number, currency: string): string {
   return `${currency} ${value.toFixed(6)}`;
+}
+
+function priceSourceLabel(source: CostEstimate["price"]["source"]): string {
+  if (source === "deepseek-default") return "DeepSeek default estimate";
+  if (source === "deepseek-default+env") return "DeepSeek default + env";
+  if (source === "env") return "DEEPSEEKCODE_PRICE_*";
+  return "configured estimate";
 }

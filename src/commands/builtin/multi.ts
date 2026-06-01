@@ -20,6 +20,7 @@ export const multiCommand: Command = {
       state: context.state,
       provider: context.provider,
       permissions: context.permissions,
+      onUsage: (usage) => context.recordUsageEvent?.(usage),
     });
     return { message: result };
   },

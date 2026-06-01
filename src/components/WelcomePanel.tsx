@@ -6,6 +6,7 @@ import { Divider } from "./design/Divider.js";
 import { StatusBadge } from "./design/StatusBadge.js";
 import { toneColor } from "./design/terminalTheme.js";
 import { StatusNotices } from "./StatusNotices.js";
+import { isChineseUi, type UiLanguage } from "../services/ui/languageService.js";
 
 export interface WelcomeActionRow {
   group: string;
@@ -21,23 +22,25 @@ export function WelcomePanel(props: {
   permissionProfile: string;
   shellEnabled: boolean;
   browserEnabled: boolean;
+  language?: UiLanguage;
 }): React.ReactElement {
   const panelWidth = Math.max(44, Math.min(props.width - 2, 96));
   const detailWidth = Math.max(18, panelWidth - 38);
-  const rows = welcomeActionRows(props.providerReady);
+  const zh = isChineseUi(props.language);
+  const rows = welcomeActionRows(props.providerReady, props.language);
 
   return (
     <Box flexDirection="column" paddingTop={1} width={props.width}>
       <Box flexDirection="row">
-        <Text color={toneColor("brand")} bold>Welcome to DeepSeekCode</Text>
+        <Text color={toneColor("brand")} bold>{zh ? "欢迎使用 DeepSeekCode" : "Welcome to DeepSeekCode"}</Text>
         <Text> </Text>
         <StatusBadge
-          label={props.providerReady ? "ready" : "provider missing"}
+          label={props.providerReady ? (zh ? "就绪" : "ready") : (zh ? "provider 缺失" : "provider missing")}
           tone={props.providerReady ? "success" : "warning"}
         />
       </Box>
       <Text color="gray">
-        {`project ${compactWelcomePath(props.projectPath, Math.max(20, panelWidth - 8))}`}
+        {`${zh ? "项目" : "project"} ${compactWelcomePath(props.projectPath, Math.max(20, panelWidth - 8))}`}
       </Text>
       <Text color="gray">
         {formatWelcomeRuntimeStatus({
@@ -45,6 +48,7 @@ export function WelcomePanel(props: {
           permissionProfile: props.permissionProfile,
           shellEnabled: props.shellEnabled,
           browserEnabled: props.browserEnabled,
+          language: props.language,
         })}
       </Text>
       <StatusNotices
@@ -69,32 +73,33 @@ export function WelcomePanel(props: {
 
       {props.providerReady ? (
         <Box flexDirection="row">
-          <Text color="gray">Use </Text>
+          <Text color="gray">{zh ? "可用 " : "Use "}</Text>
           <Byline>
-            <ConfigurableShortcutHint action="prompt:fileMention" fallback="@file" description="attach context" />
-            <ConfigurableShortcutHint action="app:commandPalette" fallback="Ctrl+P" description="commands" />
-            <ConfigurableShortcutHint action="app:quickOpen" fallback="Ctrl+O" description="quick open" />
+            <ConfigurableShortcutHint action="prompt:fileMention" fallback="@file" description={zh ? "添加上下文" : "attach context"} />
+            <ConfigurableShortcutHint action="app:commandPalette" fallback="Ctrl+P" description={zh ? "命令" : "commands"} />
+            <ConfigurableShortcutHint action="app:quickOpen" fallback="Ctrl+O" description={zh ? "快速打开" : "quick open"} />
           </Byline>
         </Box>
       ) : (
-        <Text color="yellow">Set DEEPSEEK_API_KEY in .env, then run /doctor.</Text>
+        <Text color="yellow">{zh ? "请在 .env 设置 DEEPSEEK_API_KEY，然后运行 /doctor。" : "Set DEEPSEEK_API_KEY in .env, then run /doctor."}</Text>
       )}
     </Box>
   );
 }
 
-export function welcomeActionRows(providerReady: boolean): WelcomeActionRow[] {
+export function welcomeActionRows(providerReady: boolean, language?: UiLanguage): WelcomeActionRow[] {
+  const zh = isChineseUi(language);
   const setupRow = providerReady
-    ? { group: "status", command: "/status", detail: "provider, git, cache, gates" }
-    : { group: "setup", command: "/doctor", detail: "check provider and local config" };
+    ? { group: zh ? "状态" : "status", command: "/status", detail: zh ? "provider、git、缓存、权限" : "provider, git, cache, gates" }
+    : { group: zh ? "配置" : "setup", command: "/doctor", detail: zh ? "检查 provider 和本地配置" : "check provider and local config" };
 
   return [
     setupRow,
-    { group: "ask", command: "type a task", detail: "plan, edit, review, or explain code" },
-    { group: "files", command: "Ctrl+O / @file", detail: "quick open and attach project context" },
-    { group: "commands", command: "Ctrl+P / /help", detail: "browse command surface" },
-    { group: "cache", command: "/cache plan <goal>", detail: "preview stable prompt blocks first" },
-    { group: "safety", command: "/permissions", detail: "switch shell/browser profile" },
+    { group: zh ? "任务" : "ask", command: zh ? "输入任务" : "type a task", detail: zh ? "规划、编辑、审查或解释代码" : "plan, edit, review, or explain code" },
+    { group: zh ? "文件" : "files", command: "Ctrl+O / @file", detail: zh ? "快速打开并添加项目上下文" : "quick open and attach project context" },
+    { group: zh ? "命令" : "commands", command: "Ctrl+P / /help", detail: zh ? "浏览命令" : "browse command surface" },
+    { group: zh ? "缓存" : "cache", command: "/cache plan <goal>", detail: zh ? "先预览稳定 prompt 块" : "preview stable prompt blocks first" },
+    { group: zh ? "权限" : "safety", command: "/permissions", detail: zh ? "切换 shell/browser 权限" : "switch shell/browser profile" },
   ];
 }
 
@@ -103,12 +108,14 @@ export function formatWelcomeRuntimeStatus(props: {
   permissionProfile: string;
   shellEnabled: boolean;
   browserEnabled: boolean;
+  language?: UiLanguage;
 }): string {
+  const zh = isChineseUi(props.language);
   return [
     `model ${props.model}`,
-    `profile ${props.permissionProfile}`,
-    `shell ${props.shellEnabled ? "on" : "off"}`,
-    `browser ${props.browserEnabled ? "on" : "off"}`,
+    `${zh ? "权限" : "profile"} ${props.permissionProfile}`,
+    `shell ${props.shellEnabled ? (zh ? "开" : "on") : (zh ? "关" : "off")}`,
+    `browser ${props.browserEnabled ? (zh ? "开" : "on") : (zh ? "关" : "off")}`,
   ].join("  ");
 }
 

@@ -6,6 +6,7 @@ import { PromptInputModeIndicator } from "./PromptInputModeIndicator.js";
 import { PromptInputFooterSuggestions } from "./PromptInputFooterSuggestions.js";
 import { Spinner, spinnerLabel } from "./Spinner.js";
 import TextInput from "./TextInput.js";
+import { isChineseUi, type UiLanguage } from "../services/ui/languageService.js";
 
 export interface ComposerLayoutModel {
   busyLabel: string;
@@ -23,6 +24,7 @@ export function Composer(props: {
   suggestions: SlashCommandSuggestion[];
   selectedSuggestion: number;
   activePromptHint?: string;
+  language?: UiLanguage;
 }): React.ReactElement {
   const model = composerLayoutModel(props);
 
@@ -63,13 +65,15 @@ export function composerLayoutModel(input: {
   queuedCount: number;
   width: number;
   activePromptHint?: string;
+  language?: UiLanguage;
 }): ComposerLayoutModel {
   const busyLabel = input.busy ? ` - ${spinnerLabel("working", undefined, busyDetail(input.queuedCount), 28)}` : "";
+  const zh = isChineseUi(input.language);
   return {
     busyLabel,
     promptWidth: Math.max(8, input.width - 6 - busyLabel.length),
     hint: input.activePromptHint ?? "",
-    placeholder: input.activePromptHint ? "Type here or use shortcuts above" : "",
+    placeholder: input.activePromptHint ? (zh ? "在这里输入，或使用上方快捷键" : "Type here or use shortcuts above") : "",
   };
 }
 

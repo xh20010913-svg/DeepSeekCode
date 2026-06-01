@@ -65,12 +65,17 @@ npm run start -- --project . --prompt "Summarize this repository" --json
 | `DEEPSEEK_BASE_URL` | DeepSeek-compatible base URL. Defaults to `https://api.deepseek.com`. |
 | `DEEPSEEK_API_KEY` | API key used by the default DeepSeek provider. |
 | `DEEPSEEK_MODEL` | Default model. The release default is `deepseek-v4-flash`. |
+| `DEEPSEEKCODE_LANGUAGE` / `DEEPSEEKCODE_LANG` | TUI language. Use `zh-CN` or `en`; default is `zh-CN`. |
 | `DEEPSEEK_TIMEOUT_SECS` | Provider timeout in seconds. |
 | `DEEPSEEKCODE_HOME` | Runtime data directory override. |
 | `DEEPSEEKCODE_PROVIDER_CONFIG` | Path to a provider profile JSON file. |
 | `DEEPSEEKCODE_PERMISSION_PROFILE` | Default permission profile. |
 | `DEEPSEEKCODE_REASONING_EFFORT` | Reasoning effort used by provider config. |
 | `DEEPSEEKCODE_MAX_OUTPUT_TOKENS` | Max output tokens used by provider config. |
+| `DEEPSEEKCODE_PRICE_INPUT_PER_M` | Optional input-token price override per million tokens. |
+| `DEEPSEEKCODE_PRICE_OUTPUT_PER_M` | Optional output-token price override per million tokens. |
+| `DEEPSEEKCODE_PRICE_CACHE_HIT_PER_M` | Optional cache-hit input price override per million tokens. |
+| `DEEPSEEKCODE_PRICE_CACHE_MISS_PER_M` | Optional cache-miss input price override per million tokens. |
 | `DEEPSEEKCODE_BROWSER_CDP_URL` | Optional browser CDP endpoint. |
 | `DEEPSEEKCODE_SEARCH_ENGINE` | Optional search engine setting for browser/search adapters. |
 
@@ -100,6 +105,7 @@ The command list is available inside the workbench with `/help`. Common commands
 | `/model` | Open the in-TUI model selector. Use Up/Down and Enter to switch. |
 | `/model flash` / `/model pro` | Switch the current TUI session between `deepseek-v4-flash` and `deepseek-v4-pro`. |
 | `/model verify` | Verify configured model access. |
+| `/language zh` / `/language en` | Switch the TUI language. The default is Chinese. |
 | `/effort` | Inspect or adjust inference effort settings. |
 | `/project` | Inspect project scope. |
 | `/config` | Show runtime configuration. |

@@ -24,6 +24,7 @@ export const btwCommand: Command = {
       provider: context.provider,
       state: context.state,
     });
+    if (result.usage) context.recordUsageEvent?.(result.usage);
     const usage = result.usage
       ? [
           `input=${result.usage.inputTokens ?? 0}`,

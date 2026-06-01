@@ -42,6 +42,7 @@ DeepSeekCode is a TypeScript runtime for agentic local work. It keeps stable sys
 - Compact `tool_result_summary` persistence so long stdout, diffs, and logs do not get replayed into every prompt.
 - `runtime_run_state` summaries for continuing paused work across CLI process restarts.
 - Multi-agent Planner -> Builder -> Tester -> Reviewer flow with compact role feedback and progress checkpoints.
+- Real-time TUI session usage for provider calls, cache hit/miss tokens, and estimated cost using DeepSeek defaults with `.env` overrides.
 - GitHub Pages website and public README assets with local image paths that render on GitHub.
 
 ## Install
@@ -61,6 +62,7 @@ Configure DeepSeek locally:
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEKCODE_LANGUAGE=zh-CN
 ```
 
 Start the workbench against a separate test project:
@@ -97,7 +99,9 @@ The release was tested in `D:\code\DeepSeekTest` with realistic agent scenarios:
 | `/doctor` | Check provider, model, paths, and permissions. |
 | `/model` | Open the TUI model selector; use Up/Down and Enter to switch. |
 | `/model flash` / `/model pro` | Switch the current session between `deepseek-v4-flash` and `deepseek-v4-pro`. |
+| `/language zh` / `/language en` | Switch the TUI language; the default is Chinese. |
 | `/cache` | Inspect cache readiness, profiles, guard policy, and prompt shape. |
+| `/usage` / `/cost` | Inspect persisted token usage, cache hit/miss totals, and estimated cost. |
 | `/sessions` / `/resume` | List or focus persisted local transcript sessions. |
 | `/runs` / `/trace` | Inspect durable run/action/task state. |
 | `/queue` / `/pause` / `/run-resume` | Inspect and control durable task queues. |

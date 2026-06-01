@@ -4,7 +4,7 @@ import { recordUsageSnapshot } from "../cost-tracker.js";
 import { executeEnvelope } from "../tools/executor.js";
 import { buildActionSystemPrompt } from "../query/systemPrompt.js";
 import type { ActionEnvelope, ActionExecutionReport } from "../protocol/actions.js";
-import type { DeepSeekProviderClient } from "../protocol/provider.js";
+import type { DeepSeekProviderClient, UsageSnapshot } from "../protocol/provider.js";
 import type { RuntimePermissionState } from "../services/permissions/permissionProfiles.js";
 import { HookService } from "../services/hooks/hookService.js";
 import { toolRunEventPayload, toolRunEventToHookEvent } from "../services/hooks/toolHookBridge.js";
@@ -23,6 +23,7 @@ export interface ProviderMultiAgentInput {
   state: StateStore;
   provider: DeepSeekProviderClient;
   permissions: RuntimePermissionState;
+  onUsage?: (usage: UsageSnapshot) => void;
 }
 
 const ROLE_CHAIN = [
@@ -107,6 +108,7 @@ export async function runProviderMultiAgent(input: ProviderMultiAgentInput): Pro
         if (usage) {
           input.state.recordUsage(runId, usage, `multi_agent_${role.agent.toLowerCase()}_failed_attempt_${attempt + 1}`);
           recordUsageSnapshot(usage);
+          input.onUsage?.(usage);
         }
         const message = error instanceof Error ? error.message : String(error);
         input.state.appendEvent(runId, "agent_turn_plan_failed", {
@@ -141,6 +143,7 @@ export async function runProviderMultiAgent(input: ProviderMultiAgentInput): Pro
       if (usage) {
         input.state.recordUsage(runId, usage, `multi_agent_${role.agent.toLowerCase()}_attempt_${attempt + 1}`);
         recordUsageSnapshot(usage);
+        input.onUsage?.(usage);
       }
       input.state.saveCheckpoint(runId, `${role.agent}:action_envelope_attempt_${attempt + 1}`, envelope);
 

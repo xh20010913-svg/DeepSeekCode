@@ -3,6 +3,8 @@ import type { UsageTotals } from "../../state/sqlite.js";
 
 export interface TokenPriceConfig {
   currency: string;
+  model?: string;
+  source?: "deepseek-default" | "env" | "deepseek-default+env";
   inputPerMillion?: number;
   outputPerMillion?: number;
   cacheHitPerMillion?: number;
@@ -19,13 +21,57 @@ export interface CostEstimate {
   configured: boolean;
 }
 
-export function priceConfigFromEnv(env: NodeJS.ProcessEnv = process.env): TokenPriceConfig {
+const DEFAULT_DEEPSEEK_PRICE_BY_MODEL: Record<string, TokenPriceConfig> = {
+  "deepseek-v4-flash": {
+    model: "deepseek-v4-flash",
+    source: "deepseek-default",
+    currency: "USD",
+    inputPerMillion: 0.14,
+    outputPerMillion: 0.28,
+    cacheHitPerMillion: 0.0028,
+    cacheMissPerMillion: 0.14,
+  },
+  "deepseek-v4-pro": {
+    model: "deepseek-v4-pro",
+    source: "deepseek-default",
+    currency: "USD",
+    inputPerMillion: 0.435,
+    outputPerMillion: 0.87,
+    cacheHitPerMillion: 0.003625,
+    cacheMissPerMillion: 0.435,
+  },
+};
+
+export function defaultPriceConfigForModel(model: string | undefined): TokenPriceConfig {
+  const normalized = model?.trim().toLowerCase() ?? "";
+  const defaults = DEFAULT_DEEPSEEK_PRICE_BY_MODEL[normalized];
+  return defaults ? { ...defaults } : { currency: "USD", model };
+}
+
+export function priceConfigFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+  model?: string,
+): TokenPriceConfig {
+  const defaults = defaultPriceConfigForModel(model);
+  const hasEnvRate = [
+    env.DEEPSEEKCODE_PRICE_INPUT_PER_M,
+    env.DEEPSEEKCODE_PRICE_OUTPUT_PER_M,
+    env.DEEPSEEKCODE_PRICE_CACHE_HIT_PER_M,
+    env.DEEPSEEKCODE_PRICE_CACHE_MISS_PER_M,
+  ].some((value) => value !== undefined && value.trim() !== "");
+  const source = hasEnvRate
+    ? defaults.source
+      ? "deepseek-default+env"
+      : "env"
+    : defaults.source;
   return {
-    currency: env.DEEPSEEKCODE_PRICE_CURRENCY || "USD",
-    inputPerMillion: optionalNumber(env.DEEPSEEKCODE_PRICE_INPUT_PER_M),
-    outputPerMillion: optionalNumber(env.DEEPSEEKCODE_PRICE_OUTPUT_PER_M),
-    cacheHitPerMillion: optionalNumber(env.DEEPSEEKCODE_PRICE_CACHE_HIT_PER_M),
-    cacheMissPerMillion: optionalNumber(env.DEEPSEEKCODE_PRICE_CACHE_MISS_PER_M),
+    currency: env.DEEPSEEKCODE_PRICE_CURRENCY || defaults.currency || "USD",
+    model: defaults.model ?? model,
+    source,
+    inputPerMillion: optionalNumber(env.DEEPSEEKCODE_PRICE_INPUT_PER_M) ?? defaults.inputPerMillion,
+    outputPerMillion: optionalNumber(env.DEEPSEEKCODE_PRICE_OUTPUT_PER_M) ?? defaults.outputPerMillion,
+    cacheHitPerMillion: optionalNumber(env.DEEPSEEKCODE_PRICE_CACHE_HIT_PER_M) ?? defaults.cacheHitPerMillion,
+    cacheMissPerMillion: optionalNumber(env.DEEPSEEKCODE_PRICE_CACHE_MISS_PER_M) ?? defaults.cacheMissPerMillion,
   };
 }
 
@@ -70,7 +116,7 @@ export function formatCostEstimate(scope: string, estimate: CostEstimate): strin
       ? `estimated=${formatMoney(estimate.totalCost ?? 0, currency)} input=${formatOptionalMoney(estimate.inputCost, currency)} output=${formatOptionalMoney(estimate.outputCost, currency)} cacheSavings=${formatOptionalMoney(estimate.estimatedCacheSavings, currency)}`
       : "estimated=unconfigured",
     estimate.configured
-      ? "pricing: configured from DEEPSEEKCODE_PRICE_* environment variables"
+      ? `pricing: ${pricingSourceText(estimate.price.source)}${estimate.price.model ? ` model=${estimate.price.model}` : ""}; override with DEEPSEEKCODE_PRICE_* environment variables`
       : "pricing: set DEEPSEEKCODE_PRICE_INPUT_PER_M, DEEPSEEKCODE_PRICE_OUTPUT_PER_M, DEEPSEEKCODE_PRICE_CACHE_HIT_PER_M, and DEEPSEEKCODE_PRICE_CACHE_MISS_PER_M for estimates",
   ].join("\n");
 }
@@ -108,4 +154,11 @@ function formatOptionalMoney(value: number | undefined, currency: string): strin
 
 function formatMoney(value: number, currency: string): string {
   return `${currency} ${value.toFixed(6)}`;
+}
+
+function pricingSourceText(source: TokenPriceConfig["source"]): string {
+  if (source === "deepseek-default") return "DeepSeek official default estimate";
+  if (source === "deepseek-default+env") return "DeepSeek official default estimate with env overrides";
+  if (source === "env") return "configured from env";
+  return "configured";
 }

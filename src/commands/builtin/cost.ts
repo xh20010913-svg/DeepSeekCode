@@ -11,7 +11,7 @@ export const costCommand: Command = {
   usage: "[run-id|attached|current|process]",
   execute(args, context) {
     const trimmed = args.trim();
-    const price = priceConfigFromEnv();
+    const price = priceConfigFromEnv(process.env, context.config.model);
     if (trimmed === "process") {
       const totals = getUsageTotals();
       const estimate = estimateUsageCost({

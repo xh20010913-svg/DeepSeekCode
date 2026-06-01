@@ -14,6 +14,7 @@ import {
 } from "./ToolActivityGroup.js";
 import { VirtualMessageList, virtualMessageWindow } from "./VirtualMessageList.js";
 import { WelcomePanel } from "./WelcomePanel.js";
+import type { UiLanguage } from "../services/ui/languageService.js";
 
 export interface TranscriptItem extends TranscriptMessageItem {
   display?: ReactNode;
@@ -34,6 +35,7 @@ export function Transcript(props: {
   shellEnabled: boolean;
   browserEnabled: boolean;
   scrollOffset?: number;
+  language?: UiLanguage;
 }): React.ReactElement {
   const entries = groupTranscriptItems(props.items);
   return (
@@ -51,9 +53,11 @@ export function Transcript(props: {
           permissionProfile={props.permissionProfile}
           shellEnabled={props.shellEnabled}
           browserEnabled={props.browserEnabled}
+          language={props.language}
         />
       )}
       scrollOffset={props.scrollOffset}
+      language={props.language}
       renderEntry={(entry, index) => renderTranscriptEntry(entry, index, props.width)}
     />
   );

@@ -25,6 +25,7 @@ import { filesCommand } from "./builtin/files.js";
 import { createHelpCommand } from "./builtin/help.js";
 import { hooksCommand } from "./builtin/hooks.js";
 import { initCommand } from "./builtin/init.js";
+import { languageCommand } from "./builtin/language.js";
 import { logsCommand } from "./builtin/logs.js";
 import { memoryCommand } from "./builtin/memory.js";
 import { mcpCommand } from "./builtin/mcp.js";
@@ -70,6 +71,7 @@ export function buildCommandCatalog(context?: CommandContext): Command[] {
     initCommand,
     addDirCommand,
     modelCommand,
+    languageCommand,
     effortCommand,
     projectCommand,
     configCommand,

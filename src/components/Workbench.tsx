@@ -32,6 +32,7 @@ import { QueryEngine } from "../query/QueryEngine.js";
 import { SessionStorage } from "../services/session/sessionStorage.js";
 import { setCurrentSessionId } from "../services/session/resumeService.js";
 import { ThemeService } from "../services/theme/themeService.js";
+import { isChineseUi, normalizeUiLanguage } from "../services/ui/languageService.js";
 import { useInputHistory } from "../hooks/useInputHistory.js";
 import { useApprovals } from "../hooks/useApprovals.js";
 import { usePromptEditor } from "../hooks/usePromptEditor.js";
@@ -106,7 +107,9 @@ export function Workbench(props: {
   );
   const switchModel = useCallback((model: string): boolean => {
     if (busy) {
-      const text = "Finish or cancel the current run before switching models.";
+      const text = isChineseUi(activeConfig.language)
+        ? "请先完成或取消当前任务，再切换模型。"
+        : "Finish or cancel the current run before switching models.";
       sessionStorage.append({ role: "system", text });
       setItems((previous) => [...previous, { role: "system", text, timestamp: Date.now() }]);
       return false;
@@ -121,11 +124,23 @@ export function Workbench(props: {
     }));
     setActiveProvider(providerConfig ? new DeepSeekClient(providerConfig) : null);
     setModelSelectorOpen(false);
-    const text = `Model switched to ${model}`;
+    const text = isChineseUi(activeConfig.language) ? `模型已切换到 ${model}` : `Model switched to ${model}`;
     sessionStorage.append({ role: "system", text });
     setItems((previous) => [...previous, { role: "system", text, timestamp: Date.now(), model }]);
     return true;
   }, [activeConfig, busy, sessionStorage]);
+  const switchLanguage = useCallback((language: string): boolean => {
+    const normalized = normalizeUiLanguage(language);
+    if (!normalized) return false;
+    setActiveConfig((previous) => ({
+      ...previous,
+      language: normalized,
+    }));
+    const text = isChineseUi(normalized) ? "界面语言已切换为中文。" : "UI language switched to English.";
+    sessionStorage.append({ role: "system", text });
+    setItems((previous) => [...previous, { role: "system", text, timestamp: Date.now() }]);
+    return true;
+  }, [sessionStorage]);
   const openModelSelector = useCallback(() => {
     const current = DEEPSEEK_MODEL_OPTIONS.findIndex((option) => option.id === activeConfig.model);
     setModelSelectedIndex(Math.max(0, current));
@@ -147,10 +162,11 @@ export function Workbench(props: {
         requestClear: () => setItems([]),
         requestModelSelector: openModelSelector,
         switchModel,
+        switchLanguage,
         awaitUserDecisions: true,
         sessionPersistence: "external",
       }),
-    [activeConfig, activeProvider, props.state, permissions, app, openModelSelector, switchModel],
+    [activeConfig, activeProvider, props.state, permissions, app, openModelSelector, switchModel, switchLanguage],
   );
   const commands = useMemo(
     () => getCommands(engine.commandContext()),
@@ -240,9 +256,10 @@ export function Workbench(props: {
     if (key.ctrl && character === "c") {
       if (busy && engine.cancelActiveRun()) {
         setQueuedPrompts([]);
+        const text = isChineseUi(activeConfig.language) ? "正在取消当前任务..." : "Cancelling current run...";
         setItems((previous) => [
           ...previous,
-          { role: "system", text: "Cancelling current run...", timestamp: Date.now() },
+          { role: "system", text, timestamp: Date.now() },
         ]);
         return;
       }
@@ -757,6 +774,7 @@ export function Workbench(props: {
     setClearPromptPending(false);
     history.add(text);
     setBusy(true);
+    setLastTurnUsage({});
     let streamingAssistant = "";
     let reasoningText = "";
     let turnUsage: UsageSnapshot = {};
@@ -779,11 +797,12 @@ export function Workbench(props: {
           reasoningText += event.text;
           setItems((previous) => replaceThinkingLine(previous, reasoningText));
         } else if (event.type === "usage") {
-          turnUsage = addUsage(turnUsage, event.usage);
-          setLastTurnUsage(event.usage);
+          const nextTurnUsage = addUsage(turnUsage, event.usage);
+          turnUsage = nextTurnUsage;
+          setLastTurnUsage(nextTurnUsage);
           setSessionUsage((previous) => addUsage(previous, event.usage));
           if (reasoningText.trim()) {
-            setItems((previous) => markThinkingDone(previous, event.usage));
+            setItems((previous) => markThinkingDone(previous, nextTurnUsage));
           }
         } else if (event.type === "tool_start") {
           setItems((previous) => [...previous, { role: "tool-start", text: event.text, timestamp: Date.now() }]);
@@ -879,6 +898,7 @@ export function Workbench(props: {
             permissionProfile={permissions.profile ?? activeConfig.permissionProfile}
             shellEnabled={permissions.allowShell}
             browserEnabled={permissions.allowBrowser}
+            language={activeConfig.language}
           />
         </Box>
         {showSidePanel && (
@@ -903,6 +923,7 @@ export function Workbench(props: {
         <PromptHelpPanel
           width={columns}
           busy={busy}
+          language={activeConfig.language}
         />
       )}
       {paletteOpen && (
@@ -956,7 +977,8 @@ export function Workbench(props: {
         width={columns}
         suggestions={suggestions}
         selectedSuggestion={selectedSuggestion}
-        activePromptHint={activeGate ? gateComposerHint(activeGate.subjectType) : undefined}
+        activePromptHint={activeGate ? gateComposerHint(activeGate.subjectType, activeConfig.language) : undefined}
+        language={activeConfig.language}
       />
       <Footer
         busy={busy}
@@ -976,10 +998,21 @@ export function Workbench(props: {
   );
 }
 
-function gateComposerHint(subjectType: string): string {
-  if (subjectType === "question") return "Answer prompt active: type an answer, choose a number, or Esc to reject.";
-  if (subjectType === "plan") return "Plan approval active: use Up/Down, Enter/Y to approve, N to reject, Esc to cancel.";
-  return "Permission prompt active: use Up/Down, Enter/Y to allow once, N to reject, Esc to cancel.";
+function gateComposerHint(subjectType: string, language = "zh-CN"): string {
+  const zh = isChineseUi(language === "en" ? "en" : "zh-CN");
+  if (subjectType === "question") {
+    return zh
+      ? "问题等待回答：直接输入答案，或选数字，Esc 拒绝。"
+      : "Answer prompt active: type an answer, choose a number, or Esc to reject.";
+  }
+  if (subjectType === "plan") {
+    return zh
+      ? "计划等待确认：Up/Down 选择，Enter/Y 通过，N 拒绝，Esc 取消。"
+      : "Plan approval active: use Up/Down, Enter/Y to approve, N to reject, Esc to cancel.";
+  }
+  return zh
+    ? "权限等待确认：Up/Down 选择，Enter/Y 允许一次，N 拒绝，Esc 取消。"
+    : "Permission prompt active: use Up/Down, Enter/Y to allow once, N to reject, Esc to cancel.";
 }
 
 export function gateTypedQuestionAnswerCommand(subjectType: string, value: string): string | null {
