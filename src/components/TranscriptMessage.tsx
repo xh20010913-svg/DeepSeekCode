@@ -48,7 +48,7 @@ export function TranscriptMessage(props: {
       ) : props.item.role === "tool" ? (
         <ToolResultMessage text={text} />
       ) : props.item.role === "thinking" ? (
-        <ThinkingMessage text={text} />
+        <ThinkingMessage text={props.item.text} previewWidth={Math.max(24, (props.width ?? 120) - 6)} />
       ) : props.item.role === "system" ? (
         <SystemTextMessage text={text} />
       ) : props.item.role === "user" ? (

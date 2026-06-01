@@ -16,6 +16,13 @@ export function truncateCells(value: string, width: number): string {
   return `${takeCells(value, max - 3)}...`;
 }
 
+export function truncateStartCells(value: string, width: number): string {
+  const max = Math.max(0, width);
+  if (cellWidth(value) <= max) return value;
+  if (max <= 3) return takeEndCells(value, max);
+  return `...${takeEndCells(value, max - 3)}`;
+}
+
 export function takeCells(value: string, width: number): string {
   let used = 0;
   let output = "";
@@ -23,6 +30,20 @@ export function takeCells(value: string, width: number): string {
     const next = cellWidth(char);
     if (used + next > width) break;
     output += char;
+    used += next;
+  }
+  return output;
+}
+
+export function takeEndCells(value: string, width: number): string {
+  let used = 0;
+  let output = "";
+  const chars = Array.from(value);
+  for (let index = chars.length - 1; index >= 0; index -= 1) {
+    const char = chars[index] ?? "";
+    const next = cellWidth(char);
+    if (used + next > width) break;
+    output = `${char}${output}`;
     used += next;
   }
   return output;

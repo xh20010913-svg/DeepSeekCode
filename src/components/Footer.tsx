@@ -24,6 +24,7 @@ export function Footer(props: {
   providerReady: boolean;
   width: number;
   compact?: boolean;
+  transcriptScrollOffset?: number;
 }): React.ReactElement {
   const profile = props.permissions.profile ?? inferProfile(props.permissions);
   const effort = readInferenceEffort(props.config.projectPath);
@@ -41,6 +42,7 @@ export function Footer(props: {
     browserEnabled: props.permissions.allowBrowser,
     providerReady: props.providerReady,
     providerModel: props.config.model,
+    transcriptScrollOffset: props.transcriptScrollOffset ?? 0,
     effort,
     lastTurnUsage: props.lastTurnUsage,
     sessionUsage: props.sessionUsage,
@@ -71,6 +73,7 @@ export interface FooterModelInput {
   browserEnabled: boolean;
   providerReady: boolean;
   providerModel: string;
+  transcriptScrollOffset: number;
   effort?: EffortLevel;
   lastTurnUsage?: UsageSnapshot;
   sessionUsage?: UsageSnapshot;
@@ -103,11 +106,13 @@ export function buildFooterModel(input: FooterModelInput): FooterModel {
     statusLabel: input.busy ? "working" : "idle",
     statusTone: input.busy ? "warning" : "muted",
     left: `${cacheText} | ${usageText} | ${effortText}${queueText}`,
-    hint: input.pendingGates > 0
+    hint: input.transcriptScrollOffset > 0
+      ? "Viewing earlier transcript: Down/PageDown returns to latest"
+      : input.pendingGates > 0
       ? "Permission prompt: Up/Down select | Enter confirm | Esc cancel/reject"
       : input.busy
         ? "Enter queues next prompt | /cancel stops run | ? shortcuts"
-        : "/model switch | Ctrl+P commands | Ctrl+O files | Ctrl+R history | ? shortcuts",
+        : "Up/Down scroll | Ctrl+Up/Ctrl+Down history | /model switch | ? shortcuts",
     right: input.compact
       ? `${permissionText} | ${gatesText} | ${providerText}`
       : `${permissionText} | ${gatesText} | ${providerText}`,

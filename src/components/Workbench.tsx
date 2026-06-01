@@ -52,7 +52,7 @@ import { PromptNoticePanel } from "./PromptNoticePanel.js";
 import { QuickOpenPanel } from "./QuickOpenPanel.js";
 import { QueuedPromptPanel } from "./QueuedPromptPanel.js";
 import { SidePanel } from "./SidePanel.js";
-import { Transcript, type TranscriptItem } from "./Transcript.js";
+import { groupTranscriptItems, Transcript, type TranscriptItem } from "./Transcript.js";
 import { setActiveTerminalTheme } from "./design/terminalTheme.js";
 
 export function Workbench(props: {
@@ -70,6 +70,7 @@ export function Workbench(props: {
   const [activeConfig, setActiveConfig] = useState(props.config);
   const [activeProvider, setActiveProvider] = useState(props.provider);
   const [items, setItems] = useState<TranscriptItem[]>([]);
+  const [transcriptScrollOffset, setTranscriptScrollOffset] = useState(0);
   const [busy, setBusy] = useState(false);
   const [selectedSuggestion, setSelectedSuggestion] = useState(0);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -171,6 +172,11 @@ export function Workbench(props: {
     () => getQuickOpenItems(quickOpenFiles, quickOpenQuery, 9),
     [quickOpenFiles, quickOpenQuery],
   );
+  const transcriptEntryCount = useMemo(
+    () => groupTranscriptItems(items).length,
+    [items],
+  );
+  const maxTranscriptScrollOffset = Math.max(0, transcriptEntryCount - 1);
   const pendingGates = useApprovals(props.state, "pending", 20);
   const visiblePendingGates = useMemo(
     () => currentSessionPendingGates(pendingGates, sessionStartedAtMs),
@@ -207,6 +213,10 @@ export function Workbench(props: {
   useEffect(() => {
     setGateSelectedIndex((previous) => Math.min(previous, Math.max(0, activeGateOptions.length - 1)));
   }, [activeGate?.id, activeGateOptions.length]);
+
+  useEffect(() => {
+    setTranscriptScrollOffset((previous) => Math.min(previous, maxTranscriptScrollOffset));
+  }, [maxTranscriptScrollOffset]);
 
   useEffect(() => {
     setModelSelectedIndex((previous) => Math.min(previous, Math.max(0, DEEPSEEK_MODEL_OPTIONS.length - 1)));
@@ -444,6 +454,14 @@ export function Workbench(props: {
       setSelectedSuggestion(0);
       return;
     }
+    if (isPageUpKey(key)) {
+      scrollTranscript(10);
+      return;
+    }
+    if (isPageDownKey(key)) {
+      scrollTranscript(-10);
+      return;
+    }
     if (key.return) {
       if (busy) {
         queuePrompt(editor.value);
@@ -473,8 +491,12 @@ export function Workbench(props: {
         setSelectedSuggestion((previous) => (previous - 1 + suggestions.length) % suggestions.length);
         return;
       }
-      const previous = history.previous(editor.value);
-      if (previous !== null) editor.set(previous, "end");
+      if (key.ctrl) {
+        const previous = history.previous(editor.value);
+        if (previous !== null) editor.set(previous, "end");
+        return;
+      }
+      scrollTranscript(1);
       return;
     }
     if (key.downArrow) {
@@ -482,8 +504,12 @@ export function Workbench(props: {
         setSelectedSuggestion((previous) => (previous + 1) % suggestions.length);
         return;
       }
-      const next = history.next();
-      if (next !== null) editor.set(next, "end");
+      if (key.ctrl) {
+        const next = history.next();
+        if (next !== null) editor.set(next, "end");
+        return;
+      }
+      scrollTranscript(-1);
       return;
     }
     if (key.ctrl && character === "a") {
@@ -726,6 +752,7 @@ export function Workbench(props: {
   async function submit(value: string, options: { resetEditor?: boolean } = {}): Promise<void> {
     const text = value.trim();
     if (!text) return;
+    setTranscriptScrollOffset(0);
     if (options.resetEditor ?? true) editor.reset();
     setClearPromptPending(false);
     history.add(text);
@@ -779,6 +806,14 @@ export function Workbench(props: {
     } finally {
       setBusy(false);
     }
+  }
+
+  function scrollTranscript(delta: number): void {
+    setClearPromptPending(false);
+    setTranscriptScrollOffset((previous) => {
+      const next = Math.max(0, Math.min(maxTranscriptScrollOffset, previous + delta));
+      return next;
+    });
   }
 
   function handleModelSelectorInput(
@@ -837,6 +872,7 @@ export function Workbench(props: {
             items={items}
             height={height}
             width={mainWidth}
+            scrollOffset={transcriptScrollOffset}
             providerReady={Boolean(activeProvider)}
             model={activeConfig.model}
             projectPath={activeConfig.projectPath}
@@ -934,6 +970,7 @@ export function Workbench(props: {
         providerReady={Boolean(activeProvider)}
         width={columns}
         compact={!showSidePanel}
+        transcriptScrollOffset={transcriptScrollOffset}
       />
     </Box>
   );
@@ -958,6 +995,16 @@ function shouldCompleteSelectedSuggestion(value: string, commandName: string | u
   const trimmed = value.trim();
   if (!trimmed.startsWith("/") || /\s/.test(trimmed)) return false;
   return trimmed !== `/${commandName}`;
+}
+
+function isPageUpKey(key: unknown): boolean {
+  return Boolean((key as { pageUp?: boolean; pageup?: boolean }).pageUp)
+    || Boolean((key as { pageUp?: boolean; pageup?: boolean }).pageup);
+}
+
+function isPageDownKey(key: unknown): boolean {
+  return Boolean((key as { pageDown?: boolean; pagedown?: boolean }).pageDown)
+    || Boolean((key as { pageDown?: boolean; pagedown?: boolean }).pagedown);
 }
 
 export function gateDirectShortcutIntent(
@@ -1013,7 +1060,7 @@ function markThinkingDone(items: TranscriptItem[], usage: UsageSnapshot): Transc
     ...items.slice(0, -1),
     {
       ...last,
-      text: `${last.text}${suffix ? `\nthinking done · ${suffix}` : "\nthinking done"}`,
+      text: `${last.text}${suffix ? `\nthinking done - ${suffix}` : "\nthinking done"}`,
     },
   ];
 }
@@ -1038,5 +1085,7 @@ function usageSummary(usage: UsageSnapshot): string {
   const hit = usage.cacheHitTokens ?? 0;
   const miss = usage.cacheMissTokens ?? 0;
   const cache = hit + miss > 0 ? `cache ${Math.round((hit / (hit + miss)) * 100)}%` : "";
-  return [`tokens+${output}`, cache].filter(Boolean).join(" · ");
+  return [`tokens+${output}`, cache].filter(Boolean).join(" - ");
 }
+
+

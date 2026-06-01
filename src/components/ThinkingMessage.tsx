@@ -1,6 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
-import { flattenCellText, truncateCells } from "./design/textLayout.js";
+import { flattenCellText, truncateStartCells } from "./design/textLayout.js";
 
 const DEFAULT_THINKING_PREVIEW_WIDTH = 120;
 
@@ -10,7 +10,7 @@ export function ThinkingMessage(props: {
 }): React.ReactElement {
   return (
     <Box flexDirection="row">
-      <Text dimColor italic>
+      <Text dimColor italic wrap="truncate">
         {formatThinkingPreview(props.text, props.previewWidth)}
       </Text>
     </Box>
@@ -23,7 +23,7 @@ export function formatThinkingPreview(
 ): string {
   const normalized = normalizeThinkingText(text);
   if (!normalized) return "thinking...";
-  return truncateCells(normalized, width);
+  return truncateStartCells(normalized, width);
 }
 
 export function normalizeThinkingText(text: string): string {
@@ -31,6 +31,6 @@ export function normalizeThinkingText(text: string): string {
   const doneLine = lines.find((line) => /thinking done/i.test(line));
   const body = flattenCellText(lines.filter((line) => line !== doneLine).join(" "))
     .replace(/^(thinking|reasoning)\s*:\s*/i, "");
-  if (doneLine) return `${doneLine} · ${body}`;
+  if (doneLine) return `${doneLine} - ${body}`;
   return body;
 }

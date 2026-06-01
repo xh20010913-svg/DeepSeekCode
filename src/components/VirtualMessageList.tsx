@@ -4,6 +4,7 @@ import { Box, Text } from "ink";
 export interface VirtualMessageWindow<T> {
   visible: T[];
   hidden: number;
+  hiddenAfter: number;
   rows: number;
 }
 
@@ -14,8 +15,15 @@ export function VirtualMessageList<T>(props: {
   estimateRows(entry: T, width: number): number;
   renderEntry(entry: T, index: number): React.ReactNode;
   empty?: React.ReactNode;
+  scrollOffset?: number;
 }): React.ReactElement {
-  const window = virtualMessageWindow(props.entries, props.height, props.width, props.estimateRows);
+  const window = virtualMessageWindow(
+    props.entries,
+    props.height,
+    props.width,
+    props.estimateRows,
+    props.scrollOffset,
+  );
   return (
     <Box flexDirection="column" height={props.height} paddingX={1} width={props.width}>
       {window.visible.length === 0 && props.empty ? (
@@ -24,7 +32,7 @@ export function VirtualMessageList<T>(props: {
         <>
           {window.hidden > 0 && (
             <Box>
-              <Text color="gray">{`↑ ${window.hidden} earlier message${window.hidden === 1 ? "" : "s"} hidden`}</Text>
+              <Text color="gray">{`^ ${window.hidden} earlier message${window.hidden === 1 ? "" : "s"} hidden`}</Text>
             </Box>
           )}
           {window.visible.map((entry, index) => (
@@ -32,6 +40,11 @@ export function VirtualMessageList<T>(props: {
               {props.renderEntry(entry, index)}
             </React.Fragment>
           ))}
+          {window.hiddenAfter > 0 && (
+            <Box>
+              <Text color="gray">{`v ${window.hiddenAfter} newer message${window.hiddenAfter === 1 ? "" : "s"} hidden`}</Text>
+            </Box>
+          )}
         </>
       )}
     </Box>
@@ -43,11 +56,14 @@ export function virtualMessageWindow<T>(
   height: number,
   width: number,
   estimateRows: (entry: T, width: number) => number,
+  scrollOffset = 0,
 ): VirtualMessageWindow<T> {
   const selected: T[] = [];
   let rows = 0;
   const budget = Math.max(3, height);
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
+  const safeOffset = Math.max(0, Math.min(entries.length, Math.floor(scrollOffset)));
+  const endExclusive = Math.max(0, entries.length - safeOffset);
+  for (let index = endExclusive - 1; index >= 0; index -= 1) {
     const entry = entries[index];
     if (entry === undefined) continue;
     const nextRows = rows + Math.max(1, estimateRows(entry, width));
@@ -57,7 +73,8 @@ export function virtualMessageWindow<T>(
   }
   return {
     visible: selected,
-    hidden: Math.max(0, entries.length - selected.length),
+    hidden: Math.max(0, endExclusive - selected.length),
+    hiddenAfter: Math.max(0, entries.length - endExclusive),
     rows,
   };
 }

@@ -33,6 +33,7 @@ export function Transcript(props: {
   permissionProfile: string;
   shellEnabled: boolean;
   browserEnabled: boolean;
+  scrollOffset?: number;
 }): React.ReactElement {
   const entries = groupTranscriptItems(props.items);
   return (
@@ -52,6 +53,7 @@ export function Transcript(props: {
           browserEnabled={props.browserEnabled}
         />
       )}
+      scrollOffset={props.scrollOffset}
       renderEntry={(entry, index) => renderTranscriptEntry(entry, index, props.width)}
     />
   );

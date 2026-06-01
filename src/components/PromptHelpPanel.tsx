@@ -61,6 +61,8 @@ export function buildPromptHelpSections(busy: boolean): PromptHelpSection[] {
         { key: "Ctrl+P", action: "open command palette" },
         { key: "Ctrl+O", action: "quick open files, Enter adds @file" },
         { key: "Ctrl+R", action: "search prompt history" },
+        { key: "Up / Down", action: "scroll transcript when no picker is open" },
+        { key: "PageUp / PageDown", action: "scroll transcript by a larger step" },
         { key: "?", action: "show or hide this shortcut panel" },
       ],
     },
@@ -69,6 +71,7 @@ export function buildPromptHelpSections(busy: boolean): PromptHelpSection[] {
       rows: [
         { key: "Tab", action: "complete selected slash command" },
         { key: "Shift+Enter", action: "insert newline" },
+        { key: "Ctrl+Up / Ctrl+Down", action: "cycle prompt history" },
         { key: "Ctrl+A / Ctrl+E", action: "move to start or end" },
         { key: "Ctrl+U / Ctrl+K", action: "clear before or after cursor" },
         { key: "Ctrl+W", action: "delete word before cursor" },
