@@ -12,10 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dev": "tsx src/cli/main.tsx",
     "start": "node dist/cli/main.js",
-    "doctor": "node dist/cli/main.js --doctor",
-    "smoke": "node scripts/run-tests.mjs",
-    "smoke:user": "node scripts/smoke-user-prompts.mjs",
-    "parity": "node scripts/parity-check.mjs"
+    "doctor": "node dist/cli/main.js --doctor"
   },
   "dependencies": {
     "commander": "^14.0.2",

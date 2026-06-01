@@ -25,6 +25,7 @@ import { summarizeCacheTelemetry } from "../services/cache/telemetry.js";
 import { buildResonixPromptPlan } from "../services/cache/resonixPolicy.js";
 import { HookService } from "../services/hooks/hookService.js";
 import { toolRunEventPayload, toolRunEventToHookEvent } from "../services/hooks/toolHookBridge.js";
+import type { ToolRunEvent } from "../services/tools/toolOrchestration.js";
 import { InferenceSettingsService } from "../services/inference/inferenceSettingsService.js";
 import { OutputStyleService } from "../services/outputStyles/outputStyleService.js";
 import type { RuntimePermissionState } from "../services/permissions/permissionProfiles.js";
@@ -39,6 +40,7 @@ import { buildRequestDiagnostics } from "../services/telemetry/requestDiagnostic
 import type { ApprovalGateRecord, StateStore } from "../state/sqlite.js";
 import { discoverSkills } from "../skills/discovery.js";
 import type { CommandContext } from "../types/command.js";
+import type { QueryActivityPhase } from "../types/activity.js";
 import { executeEnvelope, type ExecutionOptions } from "../tools/executor.js";
 import { baseTools } from "../tools/registry.js";
 import { defaultShellPolicy } from "../tools/shell.js";
@@ -60,6 +62,7 @@ export type QueryEvent =
   | { type: "tool_start"; text: string }
   | { type: "tool_result"; text: string }
   | { type: "error"; text: string }
+  | { type: "status"; phase: QueryActivityPhase; text: string; detail?: string }
   | { type: "usage"; usage: UsageSnapshot };
 
 export interface QueryEngineOptions {
@@ -146,6 +149,7 @@ export class QueryEngine {
     if (trimmed.startsWith("/")) {
       let result;
       const commandUsageEvents: UsageSnapshot[] = [];
+      yield { type: "status", phase: "command", text: "Running slash command", detail: trimmed };
       try {
         result = await runSlashCommand(trimmed, {
           ...this.commandContext(),
@@ -195,6 +199,7 @@ export class QueryEngine {
 
     try {
       throwIfAborted(signal);
+      yield { type: "status", phase: "classifying", text: "Classifying request", detail: this.provider.model };
       const classification = await this.provider.classifyTurn(this.classificationInput(trimmed), { signal });
       const classifyUsage = this.provider.takeLastUsage();
       if (this.recordProviderUsage(runId, classifyUsage, "turn_classification")) {
@@ -217,6 +222,7 @@ export class QueryEngine {
 
       const guard = this.tryBuildPreRunCacheGuard(runId, trimmed);
       if (guard) {
+        yield { type: "status", phase: "cache_guard", text: "Checking cache guard", detail: guard.decision };
         const guardPolicy = new CacheGuardPolicyService(this.config.projectPath).current();
         this.state.appendEvent(runId, "cache_guard", {
           decision: guard.decision,
@@ -313,6 +319,7 @@ export class QueryEngine {
   ): AsyncGenerator<QueryEvent, void, void> {
     const messages = this.buildChatMessages(userMessage);
     let assistant = "";
+    yield { type: "status", phase: "chatting", text: "Streaming answer", detail: this.provider!.model };
     for await (const event of this.provider!.streamChat(messages, { signal })) {
       throwIfAborted(signal);
       if (event.type === "text_delta") {
@@ -429,6 +436,12 @@ export class QueryEngine {
         dropped_chars: promptPlan.droppedChars,
         blocks: promptPlan.blocks,
       });
+      onEvent?.({
+        type: "status",
+        phase: "planning",
+        text: `Planning action batch ${attempt + 1}/${maxActionTurns}`,
+        detail: `context ${promptPlan.approxTokens} tok`,
+      });
       this.state.appendEvent(runId, "provider_request_diagnostics", buildRequestDiagnostics({
         provider: this.provider!.providerName,
         model: this.provider!.model,
@@ -494,6 +507,7 @@ export class QueryEngine {
       });
 
       if (!envelope.needs_local_tools) {
+        onEvent?.({ type: "status", phase: "finishing", text: "Preparing final response", detail: envelope.task_kind });
         this.state.updateRunStatus(runId, "succeeded", envelope.final_message);
         return envelope.final_message || "已完成。";
       }
@@ -542,6 +556,9 @@ export class QueryEngine {
           this.state.appendEvent(runId, `tool_${event.phase}`, {
             action: event.action,
             result: event.result,
+            started_at_ms: event.startedAtMs,
+            finished_at_ms: event.finishedAtMs,
+            duration_ms: event.durationMs,
           });
           const hookEvent = toolRunEventToHookEvent(event);
           const payload = toolRunEventPayload(event);
@@ -583,9 +600,21 @@ export class QueryEngine {
         },
         abortSignal: signal,
       };
+      onEvent?.({
+        type: "status",
+        phase: "tool",
+        text: `Running ${envelope.actions.length} tool action${envelope.actions.length === 1 ? "" : "s"}`,
+        detail: summarizeActionTypes(envelope.actions),
+      });
       let report = await executeEnvelope(this.config.projectPath, envelope, executionOptions);
       const validationEnvelope = this.autoValidationEnvelope(userMessage, report);
       if (validationEnvelope) {
+        onEvent?.({
+          type: "status",
+          phase: "validating",
+          text: "Validating generated artifacts",
+          detail: summarizeActionTypes(validationEnvelope.actions),
+        });
         const validationReport = await executeEnvelope(this.config.projectPath, validationEnvelope, executionOptions);
         report = mergeReports(report, validationReport);
       }
@@ -620,6 +649,12 @@ export class QueryEngine {
           this.state.appendEvent(runId, "user_decision_wait_started", {
             gate_id: pendingGate.id,
             subject_type: pendingGate.subjectType,
+          });
+          onEvent?.({
+            type: "status",
+            phase: "waiting_user",
+            text: "Waiting for user decision",
+            detail: pendingGate.subjectType,
           });
           const decidedGate = await this.waitForGateDecision(pendingGate.id, signal);
           this.state.appendEvent(runId, "user_decision_received", {
@@ -1218,6 +1253,18 @@ function summarizePlannedAction(action: ActionEnvelope["actions"][number]): Reco
   };
 }
 
+function summarizeActionTypes(actions: ActionEnvelope["actions"]): string {
+  const counts = new Map<string, number>();
+  for (const action of actions) {
+    const type = (action as { type?: string }).type ?? "action";
+    counts.set(type, (counts.get(type) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([type, count]) => count > 1 ? `${type} x${count}` : type)
+    .slice(0, 4)
+    .join(", ");
+}
+
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -1240,7 +1287,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-function renderToolRunEvent(event: import("../services/tools/toolOrchestration.js").ToolRunEvent): QueryEvent | null {
+function renderToolRunEvent(event: ToolRunEvent): QueryEvent | null {
   if (event.phase === "start") {
     return {
       type: "tool_start",
@@ -1248,10 +1295,11 @@ function renderToolRunEvent(event: import("../services/tools/toolOrchestration.j
     };
   }
   if (!event.result) return null;
+  const duration = event.durationMs === undefined ? "" : ` (${formatDuration(event.durationMs)})`;
   return {
     type: "tool_result",
     text: [
-      `${event.result.action_type} ${event.result.status}${event.result.path ? ` ${event.result.path}` : actionTarget(event.action)}`,
+      `${event.result.action_type} ${event.result.status}${event.result.path ? ` ${event.result.path}` : actionTarget(event.action)}${duration}`,
       event.result.message ?? "",
     ].filter(Boolean).join("\n"),
   };
@@ -1270,4 +1318,10 @@ function actionTarget(action: unknown): string {
 
 function compact(value: string, max: number): string {
   return value.length <= max ? value : `${value.slice(0, max - 3)}...`;
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1_000) return `${ms}ms`;
+  if (ms < 10_000) return `${(ms / 1_000).toFixed(1)}s`;
+  return `${Math.round(ms / 1_000)}s`;
 }

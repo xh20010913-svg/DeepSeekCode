@@ -9,6 +9,7 @@ import {
   isPrintableInput,
 } from "../keybindings/inputKeys.js";
 import type { DeepSeekProviderClient, UsageSnapshot } from "../protocol/provider.js";
+import type { QueryActivityPhase, RunActivityView } from "../types/activity.js";
 import {
   commandPaletteInsertText,
   getCommandPaletteItems,
@@ -73,6 +74,8 @@ export function Workbench(props: {
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [transcriptScrollOffset, setTranscriptScrollOffset] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [runActivity, setRunActivity] = useState<RunActivityView | null>(null);
+  const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
   const [selectedSuggestion, setSelectedSuggestion] = useState(0);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
@@ -251,6 +254,12 @@ export function Workbench(props: {
     const timeout = setTimeout(() => setClearPromptPending(false), 900);
     return () => clearTimeout(timeout);
   }, [clearPromptPending]);
+
+  useEffect(() => {
+    if (!busy) return;
+    const timer = setInterval(() => setActivityNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [busy]);
 
   useInput((character, key) => {
     if (key.ctrl && character === "c") {
@@ -509,11 +518,11 @@ export function Workbench(props: {
         return;
       }
       if (key.ctrl) {
-        const previous = history.previous(editor.value);
-        if (previous !== null) editor.set(previous, "end");
+        scrollTranscript(1);
         return;
       }
-      scrollTranscript(1);
+      const previous = history.previous(editor.value);
+      if (previous !== null) editor.set(previous, "end");
       return;
     }
     if (key.downArrow) {
@@ -522,11 +531,11 @@ export function Workbench(props: {
         return;
       }
       if (key.ctrl) {
-        const next = history.next();
-        if (next !== null) editor.set(next, "end");
+        scrollTranscript(-1);
         return;
       }
-      scrollTranscript(-1);
+      const next = history.next();
+      if (next !== null) editor.set(next, "end");
       return;
     }
     if (key.ctrl && character === "a") {
@@ -766,6 +775,53 @@ export function Workbench(props: {
     setSelectedSuggestion(0);
   }
 
+  function updateRunActivity(phase: QueryActivityPhase, text: string, detail?: string): void {
+    const now = Date.now();
+    setActivityNowMs(now);
+    setRunActivity((previous) => {
+      const sameActivity = previous
+        && previous.phase === phase
+        && previous.text === text
+        && previous.detail === detail;
+      return {
+        phase,
+        text,
+        detail,
+        startedAtMs: sameActivity ? previous.startedAtMs : now,
+        updatedAtMs: now,
+      };
+    });
+  }
+
+  function touchRunActivity(phase: QueryActivityPhase, text: string, detail?: string): void {
+    const now = Date.now();
+    setActivityNowMs(now);
+    setRunActivity((previous) => {
+      if (!previous) {
+        return {
+          phase,
+          text,
+          detail,
+          startedAtMs: now,
+          updatedAtMs: now,
+        };
+      }
+      if (previous.phase !== phase || previous.text !== text || previous.detail !== detail) {
+        return {
+          phase,
+          text,
+          detail,
+          startedAtMs: now,
+          updatedAtMs: now,
+        };
+      }
+      return {
+        ...previous,
+        updatedAtMs: now,
+      };
+    });
+  }
+
   async function submit(value: string, options: { resetEditor?: boolean } = {}): Promise<void> {
     const text = value.trim();
     if (!text) return;
@@ -774,6 +830,7 @@ export function Workbench(props: {
     setClearPromptPending(false);
     history.add(text);
     setBusy(true);
+    updateRunActivity("starting", "Starting run", activeConfig.model);
     setLastTurnUsage({});
     let streamingAssistant = "";
     let reasoningText = "";
@@ -784,9 +841,11 @@ export function Workbench(props: {
           sessionStorage.append({ role: "user", text: event.text });
           setItems((previous) => [...previous, { role: "user", text: event.text, timestamp: Date.now() }]);
         } else if (event.type === "assistant_delta") {
+          touchRunActivity("chatting", "Streaming answer", activeConfig.model);
           streamingAssistant += event.text;
           setItems((previous) => replaceStreamingAssistant(previous, streamingAssistant, activeConfig.model));
         } else if (event.type === "assistant") {
+          updateRunActivity("finishing", "Preparing final response", activeConfig.model);
           streamingAssistant = "";
           if (reasoningText.trim()) {
             setItems((previous) => markThinkingDone(previous, turnUsage));
@@ -794,9 +853,11 @@ export function Workbench(props: {
           sessionStorage.append({ role: "assistant", text: event.text });
           setItems((previous) => replaceFinalAssistant(previous, event.text, activeConfig.model));
         } else if (event.type === "reasoning_delta") {
+          touchRunActivity("planning", "Receiving model reasoning", activeConfig.model);
           reasoningText += event.text;
           setItems((previous) => replaceThinkingLine(previous, reasoningText));
         } else if (event.type === "usage") {
+          touchRunActivity(runActivity?.phase ?? "planning", "Updating usage", activeConfig.model);
           const nextTurnUsage = addUsage(turnUsage, event.usage);
           turnUsage = nextTurnUsage;
           setLastTurnUsage(nextTurnUsage);
@@ -805,8 +866,10 @@ export function Workbench(props: {
             setItems((previous) => markThinkingDone(previous, nextTurnUsage));
           }
         } else if (event.type === "tool_start") {
+          updateRunActivity("tool", "Running tool", event.text);
           setItems((previous) => [...previous, { role: "tool-start", text: event.text, timestamp: Date.now() }]);
         } else if (event.type === "tool_result") {
+          touchRunActivity("tool", "Tool result received", event.text.split("\n")[0]);
           setItems((previous) => [...previous, { role: "tool", text: event.text, timestamp: Date.now() }]);
         } else if (event.type === "command") {
           sessionStorage.append({ role: "system", text: event.text });
@@ -820,10 +883,13 @@ export function Workbench(props: {
         } else if (event.type === "error") {
           sessionStorage.append({ role: "error", text: event.text });
           setItems((previous) => [...previous, { role: "error", text: event.text, timestamp: Date.now() }]);
+        } else if (event.type === "status") {
+          updateRunActivity(event.phase, event.text, event.detail);
         }
       }
     } finally {
       setBusy(false);
+      setRunActivity(null);
     }
   }
 
@@ -979,6 +1045,8 @@ export function Workbench(props: {
         selectedSuggestion={selectedSuggestion}
         activePromptHint={activeGate ? gateComposerHint(activeGate.subjectType, activeConfig.language) : undefined}
         language={activeConfig.language}
+        activity={runActivity}
+        activityNowMs={activityNowMs}
       />
       <Footer
         busy={busy}
@@ -993,6 +1061,8 @@ export function Workbench(props: {
         width={columns}
         compact={!showSidePanel}
         transcriptScrollOffset={transcriptScrollOffset}
+        activity={runActivity}
+        activityNowMs={activityNowMs}
       />
     </Box>
   );

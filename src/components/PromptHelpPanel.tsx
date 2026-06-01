@@ -65,7 +65,7 @@ export function buildPromptHelpSections(busy: boolean, language?: UiLanguage): P
         { key: "Ctrl+P", action: zh ? "打开命令面板" : "open command palette" },
         { key: "Ctrl+O", action: zh ? "快速打开文件，Enter 添加 @file" : "quick open files, Enter adds @file" },
         { key: "Ctrl+R", action: zh ? "搜索输入历史" : "search prompt history" },
-        { key: "Up / Down", action: zh ? "无选择器时滚动对话记录" : "scroll transcript when no picker is open" },
+        { key: "Up / Down", action: zh ? "切换输入历史；选择器打开时切换选项" : "cycle prompt history; select items in pickers" },
         { key: "PageUp / PageDown", action: zh ? "大步滚动对话记录" : "scroll transcript by a larger step" },
         { key: "?", action: zh ? "显示或隐藏快捷键" : "show or hide this shortcut panel" },
       ],
@@ -75,7 +75,7 @@ export function buildPromptHelpSections(busy: boolean, language?: UiLanguage): P
       rows: [
         { key: "Tab", action: zh ? "补全选中的 slash 命令" : "complete selected slash command" },
         { key: "Shift+Enter", action: zh ? "插入换行" : "insert newline" },
-        { key: "Ctrl+Up / Ctrl+Down", action: zh ? "切换输入历史" : "cycle prompt history" },
+        { key: "Ctrl+Up / Ctrl+Down", action: zh ? "小步滚动对话记录" : "scroll transcript one step" },
         { key: "Ctrl+A / Ctrl+E", action: zh ? "移动到开头或结尾" : "move to start or end" },
         { key: "Ctrl+U / Ctrl+K", action: zh ? "清除光标前或后的内容" : "clear before or after cursor" },
         { key: "Ctrl+W", action: zh ? "删除光标前一个词" : "delete word before cursor" },

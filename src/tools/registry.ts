@@ -116,13 +116,15 @@ export const baseTools: Tools = [
           throw new Error(`refusing stale write: ${freshness.reason}`);
         }
       }
-      const target = writeFile(context.root, input.path, actionContent(input), Boolean(input.overwrite));
+      const content = actionContent(input);
+      const target = writeFile(context.root, input.path, content, Boolean(input.overwrite));
       context.fileStateCache?.rememberRead(context.root, input.path);
       return {
         result: {
           action_type: input.type,
           status: "succeeded",
           path: target,
+          message: `${content.length} chars`,
           artifact_kind: artifactKindFromPath(input.path),
         },
       };

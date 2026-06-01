@@ -7,6 +7,9 @@ export interface ToolRunEvent {
   action: ActionRequest;
   phase: "start" | "finish";
   result?: ActionResult;
+  startedAtMs?: number;
+  finishedAtMs?: number;
+  durationMs?: number;
 }
 
 export interface ToolOrchestrationOptions {
@@ -106,17 +109,18 @@ async function runOneTool(
   context: ToolExecutionContext,
   options: ToolOrchestrationOptions,
 ): Promise<ActionResult> {
+  const startedAtMs = Date.now();
   try {
     throwIfAborted(context.abortSignal);
-    const preflight = await options.onEvent?.({ action: input, phase: "start" });
+    const preflight = await options.onEvent?.({ action: input, phase: "start", startedAtMs });
     throwIfAborted(context.abortSignal);
-    if (preflight) return finish(input, preflight, options);
+    if (preflight) return finish(input, preflight, options, startedAtMs);
     if (!tool.isEnabled(context)) {
       return finish(input, {
         action_type: actionType(input),
         status: "failed",
         message: `${tool.name} is disabled`,
-      }, options);
+      }, options, startedAtMs);
     }
     const permission = tool.checkPermissions(input, context);
     if (permission.behavior === "deny") {
@@ -124,22 +128,22 @@ async function runOneTool(
         action_type: actionType(input),
         status: "failed",
         message: permission.message ?? `${tool.name} denied by policy`,
-      }, options);
+      }, options, startedAtMs);
     }
     throwIfAborted(context.abortSignal);
     const beforeTool = await options.onBeforeTool?.(tool, input, context);
     throwIfAborted(context.abortSignal);
-    if (beforeTool) return finish(input, beforeTool, options);
+    if (beforeTool) return finish(input, beforeTool, options, startedAtMs);
     const output = await tool.run(input, context);
     throwIfAborted(context.abortSignal);
-    return finish(input, output.result, options);
+    return finish(input, output.result, options, startedAtMs);
   } catch (error) {
     if (isAbortError(error, context.abortSignal)) throw error;
     return finish(input, {
       action_type: actionType(input),
       status: "failed",
       message: error instanceof Error ? error.message : String(error),
-    }, options);
+    }, options, startedAtMs);
   }
 }
 
@@ -147,8 +151,17 @@ async function finish(
   action: ActionRequest,
   result: ActionResult,
   options: ToolOrchestrationOptions,
+  startedAtMs: number,
 ): Promise<ActionResult> {
-  await options.onEvent?.({ action, phase: "finish", result });
+  const finishedAtMs = Date.now();
+  await options.onEvent?.({
+    action,
+    phase: "finish",
+    result,
+    startedAtMs,
+    finishedAtMs,
+    durationMs: finishedAtMs - startedAtMs,
+  });
   return result;
 }
 
