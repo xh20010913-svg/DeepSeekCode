@@ -2,12 +2,15 @@ import React from "react";
 import { Box, Text } from "ink";
 import { parseActionSummary } from "./ActionSummaryBlock.js";
 import { SelectList } from "./design/SelectList.js";
+import { gateDecisionOptions, type GateDecisionOption } from "../services/approval/gateDecisionOptions.js";
+import type { ApprovalGateRecord } from "../state/sqlite.js";
 import type { TerminalTone } from "./design/terminalTheme.js";
 
 export interface ApprovalDecisionOptionModel {
   label: string;
   command: string;
   description: string;
+  shortcut?: string;
   tone: "allow" | "reject" | "inspect" | "neutral";
 }
 
@@ -16,21 +19,26 @@ export function ApprovalDecisionOptions(props: {
   subjectType: string;
   status: string;
   summary: string;
+  gate?: ApprovalGateRecord;
+  projectPath?: string;
+  selectedIndex?: number;
 }): React.ReactElement | null {
-  const options = approvalDecisionOptionsModel(props);
+  const options = props.gate
+    ? gateDecisionOptions({ gate: props.gate, projectPath: props.projectPath })
+    : approvalDecisionOptionsModel(props);
   if (options.length === 0) return null;
 
   return (
     <Box flexDirection="column">
-      <Text color="gray">options</Text>
+      <Text color="gray">choices</Text>
       <SelectList
-        selectedIndex={0}
+        selectedIndex={props.selectedIndex ?? 0}
         visibleCount={5}
         width={104}
         options={options.map((option) => ({
           id: option.command,
           label: option.label,
-          detail: option.command,
+          detail: option.shortcut ?? option.command,
           description: option.description,
           tone: decisionTone(option.tone),
         }))}
@@ -50,20 +58,23 @@ export function approvalDecisionOptionsModel(input: {
     return [
       {
         label: "inspect",
-        command: `/question show ${input.gateId}`,
+        command: "/question show latest",
         description: "read the prompt and choices",
+        shortcut: "Enter",
         tone: "inspect",
       },
       {
         label: "answer",
-        command: `/question answer ${input.gateId} <answer>`,
+        command: "/question answer latest <answer>",
         description: "resume with your answer",
+        shortcut: "type answer",
         tone: "allow",
       },
       {
         label: "reject",
-        command: `/question reject ${input.gateId} <reason>`,
+        command: "/question reject latest <reason>",
         description: "send it back with feedback",
+        shortcut: "N",
         tone: "reject",
       },
     ];
@@ -73,20 +84,23 @@ export function approvalDecisionOptionsModel(input: {
     return [
       {
         label: "approve",
-        command: `/plan approve ${input.gateId} <reason>`,
+        command: "/plan approve latest <reason>",
         description: "let the planned run continue",
+        shortcut: "Enter / Y",
         tone: "allow",
       },
       {
         label: "reject",
-        command: `/plan reject ${input.gateId} <reason>`,
+        command: "/plan reject latest <reason>",
         description: "request a different plan",
+        shortcut: "N",
         tone: "reject",
       },
       {
         label: "cancel",
-        command: `/plan cancel ${input.gateId} <reason>`,
+        command: "/plan cancel latest <reason>",
         description: "close the plan gate",
+        shortcut: "Esc",
         tone: "neutral",
       },
     ];
@@ -95,20 +109,23 @@ export function approvalDecisionOptionsModel(input: {
   const options: ApprovalDecisionOptionModel[] = [
     {
       label: "approve once",
-      command: `/approval approve ${input.gateId} <reason>`,
+      command: "/approval approve latest <reason>",
       description: "allow this exact action fingerprint",
+      shortcut: "Enter / Y",
       tone: "allow",
     },
     {
       label: "reject",
-      command: `/approval reject ${input.gateId} <reason>`,
+      command: "/approval reject latest <reason>",
       description: "block and send feedback",
+      shortcut: "N",
       tone: "reject",
     },
     {
       label: "cancel",
-      command: `/approval cancel ${input.gateId} <reason>`,
+      command: "/approval cancel latest <reason>",
       description: "close without approving",
+      shortcut: "Esc",
       tone: "neutral",
     },
   ];
@@ -119,6 +136,7 @@ export function approvalDecisionOptionsModel(input: {
       label: "inspect diff",
       command: diffCommand,
       description: "run after retrying the approved edit",
+      shortcut: "D",
       tone: "inspect",
     });
   }
@@ -134,7 +152,7 @@ function diffCommandForSummary(summary: string): string {
   return `/diff git ${path}`;
 }
 
-function decisionTone(tone: ApprovalDecisionOptionModel["tone"]): TerminalTone {
+function decisionTone(tone: GateDecisionOption["tone"]): TerminalTone {
   if (tone === "allow") return "success";
   if (tone === "reject") return "error";
   if (tone === "inspect") return "brand";

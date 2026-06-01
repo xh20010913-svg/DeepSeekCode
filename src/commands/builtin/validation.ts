@@ -23,7 +23,7 @@ export const validationCommand: Command = {
     if (gates.length === 0) return { message: "No validation gates.", display };
     return {
       message: gates
-        .map((gate) => `${gate.id} ${gate.status} ${gate.runId} ${gate.subjectType}:${gate.subjectId} - ${gate.summary}`)
+        .map((gate, index) => `${index + 1}. ${gate.status} validation\n   target: ${gate.subjectType}:${gate.subjectId}\n   ${gate.summary}`)
         .join("\n"),
       display,
     };

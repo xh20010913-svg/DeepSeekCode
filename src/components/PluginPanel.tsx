@@ -172,8 +172,8 @@ function pluginRow(plugin: LoadedPlugin | PluginSummary): PluginPanelRow {
     tone: loaded?.manifestError ? "error" : plugin.enabled ? toneForScope(plugin.scope) : "muted",
     detail: loaded?.manifestError ?? manifest?.description ?? "(manifest not loaded)",
     note: [
-      manifest?.commands.length ? `commands=${manifest.commands.map((command) => `/${manifest.name}:${command.name}`).join(",")}` : "commands=none",
-      componentCounts(loaded),
+    manifest?.commands.length ? `commands=${manifest.commands.map((command) => `/${manifest.name}:${command.name}`).join(",")}` : "commands=none",
+    componentCounts(loaded),
       plugin.path,
     ].filter(Boolean).join(" "),
   };
@@ -190,6 +190,7 @@ function componentCounts(plugin: LoadedPlugin | undefined): string {
   if (!manifest) return "";
   return [
     manifest.agents.length ? `agents=${manifest.agents.length}` : "",
+    manifest.skills.length ? `skills=${manifest.skills.length}` : "",
     manifest.output_styles.length ? `styles=${manifest.output_styles.length}` : "",
     manifest.hooks.length ? `hooks=${manifest.hooks.length}` : "",
   ].filter(Boolean).join(" ");
@@ -203,6 +204,7 @@ function pluginComponentPreview(plugin: LoadedPlugin): string[] {
     `description: ${manifest.description || "(none)"}`,
     `commands: ${manifest.commands.length ? manifest.commands.map((command) => `/${manifest.name}:${command.name}`).join(", ") : "none"}`,
     `agents: ${manifest.agents.length ? manifest.agents.join(", ") : "none"}`,
+    `skills: ${manifest.skills.length ? manifest.skills.join(", ") : "none"}`,
     `output styles: ${manifest.output_styles.length ? manifest.output_styles.join(", ") : "none"}`,
     `hooks: ${manifest.hooks.length ? manifest.hooks.map((hook) => `${hook.event}:${hook.id}`).join(", ") : "none"}`,
   ];

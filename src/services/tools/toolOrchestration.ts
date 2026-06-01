@@ -1,6 +1,7 @@
 import type { Tool, ToolExecutionContext, Tools } from "../../Tool.js";
 import { findToolByName, parseToolInput } from "../../Tool.js";
 import { actionType, type ActionRequest, type ActionResult } from "../../protocol/actions.js";
+import { isAbortError, throwIfAborted } from "../../utils/abort.js";
 
 export interface ToolRunEvent {
   action: ActionRequest;
@@ -23,10 +24,12 @@ export async function executeToolPlan(
   context: ToolExecutionContext,
   options: ToolOrchestrationOptions = {},
 ): Promise<ActionResult[]> {
+  throwIfAborted(context.abortSignal);
   const results: ActionResult[] = [];
   const batches = partitionActions(tools, actions, context);
 
   for (const batch of batches) {
+    throwIfAborted(context.abortSignal);
     if (batch.parallel) {
       const batchResults = await Promise.all(
         batch.items.map((item) => runOneTool(item.tool, item.input, context, options)),
@@ -34,6 +37,7 @@ export async function executeToolPlan(
       results.push(...batchResults);
     } else {
       for (const item of batch.items) {
+        throwIfAborted(context.abortSignal);
         results.push(await runOneTool(item.tool, item.input, context, options));
       }
     }
@@ -103,7 +107,9 @@ async function runOneTool(
   options: ToolOrchestrationOptions,
 ): Promise<ActionResult> {
   try {
+    throwIfAborted(context.abortSignal);
     const preflight = await options.onEvent?.({ action: input, phase: "start" });
+    throwIfAborted(context.abortSignal);
     if (preflight) return finish(input, preflight, options);
     if (!tool.isEnabled(context)) {
       return finish(input, {
@@ -120,11 +126,15 @@ async function runOneTool(
         message: permission.message ?? `${tool.name} denied by policy`,
       }, options);
     }
+    throwIfAborted(context.abortSignal);
     const beforeTool = await options.onBeforeTool?.(tool, input, context);
+    throwIfAborted(context.abortSignal);
     if (beforeTool) return finish(input, beforeTool, options);
     const output = await tool.run(input, context);
+    throwIfAborted(context.abortSignal);
     return finish(input, output.result, options);
   } catch (error) {
+    if (isAbortError(error, context.abortSignal)) throw error;
     return finish(input, {
       action_type: actionType(input),
       status: "failed",

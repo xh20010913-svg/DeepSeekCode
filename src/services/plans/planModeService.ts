@@ -47,7 +47,7 @@ export class PlanModeService {
   exit(runId: string, content: string, summary = ""): PlanRecord {
     const record = this.save(runId, content);
     const gate = this.ensureApprovalGate(runId, summary || summarizePlan(content));
-    this.state?.updateRunStatus(runId, "paused", `plan awaiting approval: ${gate.id}`);
+    this.state?.updateRunStatus(runId, "paused", "plan awaiting approval");
     this.state?.appendEvent(runId, "plan_mode_exit_requested", {
       gate_id: gate.id,
       plan_path: record.relativePath,
@@ -125,12 +125,12 @@ export class PlanModeService {
 
 export function formatPlanStatus(record: PlanRecord): string {
   const lines = [
-    `plan ${record.runId}`,
-    `path: ${record.relativePath}`,
+    `plan: ${displayRunReference(record.runId)}`,
+    `path: ${formatPlanReference(record.relativePath)}`,
     `chars: ${record.content.length}`,
   ];
   if (record.gate) {
-    lines.push(`approval: ${record.gate.id} ${record.gate.status}`);
+    lines.push(`approval: ${record.gate.status}`);
   } else {
     lines.push("approval: none");
   }
@@ -139,7 +139,7 @@ export function formatPlanStatus(record: PlanRecord): string {
 
 function planTemplate(runId: string, goal: string): string {
   return [
-    `# DeepSeekCode Plan ${runId}`,
+    "# DeepSeekCode Plan",
     "",
     `Goal: ${goal.trim() || "(fill in the implementation goal)"}`,
     "",
@@ -153,6 +153,16 @@ function planTemplate(runId: string, goal: string): string {
     "- Run the focused tests/build required for this change.",
     "",
   ].join("\n");
+}
+
+export function formatPlanReference(relativePath: string): string {
+  return /^\.deepseekcode[\\/]+plans[\\/]+run_[^\\/]+\.md$/i.test(relativePath.trim())
+    ? "draft plan"
+    : relativePath;
+}
+
+function displayRunReference(runId: string): string {
+  return /^run_[0-9a-f-]{8,}$/i.test(runId) ? "current run" : runId;
 }
 
 function summarizePlan(content: string): string {

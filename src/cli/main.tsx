@@ -9,12 +9,16 @@ import { runSlashCommand } from "../commands/index.js";
 import { QueryEngine, type QueryEvent } from "../query/QueryEngine.js";
 import { DeepSeekClient } from "../services/deepseek/client.js";
 import { StateStore } from "../state/sqlite.js";
+import { resumeSession, setCurrentSessionId } from "../services/session/resumeService.js";
+import { SessionStorage } from "../services/session/sessionStorage.js";
 
 interface CliOptions {
   project?: string;
   dataDir?: string;
   model?: string;
   prompt?: string;
+  resume?: string;
+  continue?: boolean;
   doctor?: boolean;
   verifyModel?: boolean;
   allowShell?: boolean;
@@ -30,6 +34,8 @@ const program = new Command()
   .option("--data-dir <path>", "runtime data directory")
   .option("--model <model>", "DeepSeek model")
   .option("-p, --prompt <text>", "run one headless prompt")
+  .option("--resume <session-id>", "resume a persisted local transcript session before running")
+  .option("-c, --continue", "continue the most recent local transcript session before running")
   .option("--doctor", "print runtime diagnostics")
   .option("--verify-model", "verify DeepSeek model access")
   .option("--allow-shell", "allow shell tool execution")
@@ -49,6 +55,7 @@ const config = bootstrapConfig({
 });
 const state = new StateStore(config.stateDbPath);
 const provider = config.provider ? new DeepSeekClient(config.provider) : null;
+selectHeadlessSession();
 
 process.on("exit", () => {
   restoreTerminalScreen();
@@ -99,6 +106,7 @@ async function runHeadless(prompt: string, json: boolean): Promise<void> {
       allowBrowser: config.browserEnabled,
       profile: config.permissionProfile,
     },
+    sessionPersistence: "managed",
   });
   let streamed = false;
   for await (const event of engine.submit(prompt)) {
@@ -111,6 +119,30 @@ async function runHeadless(prompt: string, json: boolean): Promise<void> {
     }, streamed);
   }
   if (streamed) process.stdout.write("\n");
+}
+
+function selectHeadlessSession(): string | undefined {
+  if (options.resume) {
+    const preview = resumeSession(
+      state,
+      config.dataDir,
+      config.projectPath,
+      options.resume,
+    );
+    return preview.sessionId;
+  }
+  if (options.continue) {
+    const latest = SessionStorage.list(config.dataDir, 1)[0];
+    if (latest) {
+      setCurrentSessionId(state, config.projectPath, latest.sessionId);
+      state.appendEvent(null, "session_continued", {
+        session_id: latest.sessionId,
+        project_path: config.projectPath,
+      });
+      return latest.sessionId;
+    }
+  }
+  return undefined;
 }
 
 function renderEvent(

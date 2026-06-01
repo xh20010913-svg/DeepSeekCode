@@ -12,7 +12,7 @@ import { AttachService } from "../../services/attach/attachService.js";
 export const attachCommand: Command = {
   name: "attach",
   description: "Attach the TUI focus to an unfinished run.",
-  usage: "list|latest|use <run-id>|current|clear",
+  usage: "list|latest|current|clear",
   execute(args, context) {
     const service = new AttachService(context.state, context.config.projectPath);
     const trimmed = args.trim();
@@ -21,7 +21,7 @@ export const attachCommand: Command = {
       const current = service.current();
       const display = React.createElement(WorkspacePanel, { model: attachCurrentPanelModel(current) });
       if (!current.runId) return { message: "No attached run.", display };
-      if (!current.run) return { message: `Attached run is missing: ${current.runId}`, display };
+      if (!current.run) return { message: "Attached run record is missing. Use /attach clear, then /attach latest.", display };
       return { message: formatRun(current.run), display };
     }
 
@@ -32,7 +32,7 @@ export const attachCommand: Command = {
         model: attachListPanelModel(runs, current.runId),
       });
       if (runs.length === 0) return { message: "No unfinished runs for this project.", display };
-      return { message: runs.map(formatRun).join("\n"), display };
+      return { message: runs.map((run, index) => formatRun(run, index)).join("\n"), display };
     }
 
     if (trimmed === "latest") {
@@ -49,7 +49,7 @@ export const attachCommand: Command = {
 
     if (trimmed.startsWith("use ")) {
       const runId = trimmed.slice("use ".length).trim();
-      if (!runId) return { message: "Usage: /attach use <run-id>" };
+      if (!runId) return { message: "Usage: /attach latest | /attach current | /attach clear" };
       try {
         const run = service.attach(runId);
         return {
@@ -70,10 +70,14 @@ export const attachCommand: Command = {
       };
     }
 
-    return { message: "Usage: /attach list|latest|use <run-id>|current|clear" };
+    return { message: "Usage: /attach list|latest|current|clear" };
   },
 };
 
-function formatRun(run: { id: string; status: string; actionCount: number; artifactCount: number; message: string }): string {
-  return `${run.id} ${run.status} actions=${run.actionCount} artifacts=${run.artifactCount} ${run.message}`;
+function formatRun(
+  run: { status: string; actionCount: number; artifactCount: number; message: string },
+  index?: number,
+): string {
+  const label = typeof index === "number" ? `run ${index + 1}` : "current run";
+  return `${label} ${run.status} actions=${run.actionCount} artifacts=${run.artifactCount} ${run.message}`;
 }

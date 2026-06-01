@@ -6,13 +6,13 @@
     <title>DeepSeekCode - DeepSeek-first Local Coding Agent</title>
     <meta
       name="description"
-      content="DeepSeekCode is a DeepSeek-first local coding agent with cache guard, typed tools, durable multi-agent state, and an Ink/React terminal workbench."
+      content="DeepSeekCode is a DeepSeek-first local coding agent with session restore, compact tool results, durable multi-agent state, and cache-aware prompts."
     />
     <meta name="theme-color" content="#050605" />
     <meta name="color-scheme" content="dark" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="DeepSeekCode - DeepSeek-first Local Coding Agent" />
-    <meta property="og:description" content="Cache-first DeepSeek coding agent for terminal work, local tools, and long-running tasks." />
+    <meta property="og:description" content="Cache-aware DeepSeek coding agent for terminal work, local tools, and long-running tasks." />
     <meta property="og:image" content="https://raw.githubusercontent.com/xh20010913-svg/DeepSeekCode/main/assets/deepseekcode-tui-preview.svg" />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="stylesheet" href="src/styles.css" />
@@ -32,7 +32,7 @@
       <nav class="nav-links" aria-label="Primary navigation">
         <a href="#install" data-i18n="navInstall">安装</a>
         <a href="#cache" data-i18n="navCache">缓存</a>
-        <a href="#features" data-i18n="navFeatures">特性</a>
+        <a href="#features" data-i18n="navFeatures">能力</a>
         <a href="guide.html">GUIDE</a>
         <a href="#roadmap">ROADMAP</a>
         <a href="#faq">FAQ</a>
@@ -43,7 +43,7 @@
           <button class="lang-btn" type="button" data-lang="en">EN</button>
         </div>
         <a class="ghost-button" href="https://github.com/xh20010913-svg/DeepSeekCode">GitHub</a>
-        <a class="solid-button" href="#install" data-i18n="navStart">立即开始</a>
+        <a class="solid-button" href="#install" data-i18n="navStart">开始使用</a>
       </div>
     </header>
 
@@ -56,11 +56,9 @@
             <span class="line"></span>
             <span>open source</span>
           </div>
-          <h1 data-i18n="heroTitle">
-            为 <em>DeepSeek</em> 缓存而生的 Code Agent。
-          </h1>
+          <h1 data-i18n="heroTitle">围绕 <em>DeepSeek</em> 缓存稳定性构建的 Code Agent。</h1>
           <p class="hero-lede" data-i18n="heroLede">
-            DeepSeekCode 不是普通聊天壳。它把缓存命中、结构化工具、审批门、多 Agent 长任务和 Windows 终端输入体验放进同一个 TypeScript runtime。
+            DeepSeekCode 不是聊天壳。它把稳定 prompt 前缀、类型化工具、会话恢复、工具结果压缩、多 Agent 长任务和 Windows 终端体验放进同一个 TypeScript runtime。
           </p>
           <div class="hero-actions">
             <a class="solid-button large" href="#install" data-i18n="heroPrimary">立即开始</a>
@@ -74,26 +72,25 @@
               <span class="dot dot-a"></span>
               <span class="dot dot-b"></span>
               <span class="dot dot-c"></span>
-              <span class="term-path">D:\code\DeepSeekTest · deepseekcode</span>
+              <span class="term-path">D:\code\DeepSeekTest | deepseekcode</span>
               <span class="term-tab">SESSION</span>
               <span>EVENTS</span>
               <span>+</span>
             </div>
             <div class="terminal-body">
-              <p><span class="prompt">›</span> npm run start -- --project D:\code\DeepSeekTest</p>
-              <p><span class="ok">●</span> DeepSeekCode 0.1 · model: deepseek-v4-flash · workspace: DeepSeekTest</p>
-              <p><span class="dim">●</span> cache: <strong>58%</strong> hit · shell off · browser off · approval gates 0</p>
+              <p><span class="prompt">$</span> npm run start -- --project D:\code\DeepSeekTest --continue</p>
+              <p><span class="ok">*</span> session_context_loaded | latest transcript restored</p>
+              <p><span class="dim">*</span> runtime_run_state | paused run, tasks, artifacts, failures</p>
               <p class="spacer"></p>
-              <p><span class="prompt">›</span> 继续优化关卡和爆炸粒子</p>
-              <p><span class="dim">▸</span> cache_guard → reusable prefix found</p>
-              <p><span class="dim">▸</span> tool&lt;read_file&gt; → js/game.js</p>
-              <p><span class="dim">▸</span> tool&lt;apply_patch&gt; → particles + level tuning</p>
-              <p><span class="think">thinking</span> · action envelope repaired · context refreshed</p>
-              <pre><code>spawnExplosion(x, y, color)
-updateParticles(delta)
-drawParticles(ctx)</code></pre>
-              <p><span class="ok">✓</span> validate_artifact html · ok</p>
-              <p><span class="ok">✓</span> queued next prompt remains editable</p>
+              <p><span class="prompt">&gt;</span> 继续上一个订单项目，加入优惠券并跑测试</p>
+              <p><span class="dim">1</span> cache_guard -> reusable prefix checked</p>
+              <p><span class="dim">2</span> tool&lt;read_file&gt; -> src/orders.js</p>
+              <p><span class="dim">3</span> tool&lt;write_file&gt; -> src/discounts.js</p>
+              <p><span class="think">thinking</span> compact tool_result_summary persisted</p>
+              <pre><code>recent_conversation
+ tool_result_summary
+ runtime_run_state</code></pre>
+              <p><span class="ok">*</span> npm test passed | acceptance report created</p>
             </div>
           </div>
           <div class="orbit orbit-one"></div>
@@ -102,12 +99,12 @@ drawParticles(ctx)</code></pre>
 
         <div class="metric-strip reveal delay-2" aria-label="DeepSeekCode metrics">
           <div>
-            <strong>58<span>%</span></strong>
-            <small data-i18n="metricCache">live cache smoke</small>
+            <strong>2</strong>
+            <small data-i18n="metricCache">live cache check</small>
           </div>
           <div>
-            <strong>667</strong>
-            <small data-i18n="metricTests">smoke checks</small>
+            <strong>4</strong>
+            <small data-i18n="metricTests">release checks</small>
           </div>
           <div>
             <strong>0</strong>
@@ -123,8 +120,8 @@ drawParticles(ctx)</code></pre>
       <section id="install" class="section-shell split-section">
         <div class="section-copy reveal">
           <span class="eyebrow">INSTALL</span>
-          <h2 data-i18n="installTitle">三条命令启动本地 Agent。</h2>
-          <p data-i18n="installText">默认使用 deepseek-v4-flash 做低成本测试，适合先验证 TUI、工具执行和缓存策略。</p>
+          <h2 data-i18n="installTitle">三步启动本地 Agent。</h2>
+          <p data-i18n="installText">先在独立测试目录里使用 deepseek-v4-flash 验证工具执行、会话恢复、缓存命中和产物生成。</p>
         </div>
         <div class="code-panel reveal delay-1">
           <button class="copy-button" type="button" data-copy="#install-code" data-i18n="copy">复制</button>
@@ -138,35 +135,23 @@ npm run start -- --project "D:\code\DeepSeekTest"</code></pre>
 
       <section id="cache" class="section-shell cache-section">
         <div class="section-copy reveal">
-          <span class="eyebrow">CACHE COCKPIT</span>
-          <h2 data-i18n="cacheTitle">先预热上下文，再花 token。</h2>
-          <p data-i18n="cacheText">DeepSeekCode 在大任务前先跑 no-model preflight：看稳定前缀、动态压力、cache pin、profile forecast 和 prompt churn。</p>
+          <span class="eyebrow">CONTEXT</span>
+          <h2 data-i18n="cacheTitle">不要靠全量历史硬撑长任务。</h2>
+          <p data-i18n="cacheText">DeepSeekCode 会把旧历史压成 conversation summary、tool_result_summary 和 runtime_run_state，并把稳定前缀保持在 prompt 前段。</p>
         </div>
         <div class="cache-console reveal delay-1">
           <div class="radar">
             <div class="radar-ring"></div>
             <div class="radar-ring ring-2"></div>
             <div class="radar-sweep"></div>
-            <span>82</span>
-            <small>readiness</small>
+            <span>3</span>
+            <small>context layers</small>
           </div>
           <div class="cache-bars">
-            <div>
-              <span>stable prefix</span>
-              <i style="--w: 76%"></i>
-            </div>
-            <div>
-              <span>cache pins</span>
-              <i style="--w: 68%"></i>
-            </div>
-            <div>
-              <span>dynamic pressure</span>
-              <i class="warn" style="--w: 31%"></i>
-            </div>
-            <div>
-              <span>prompt churn</span>
-              <i class="safe" style="--w: 8%"></i>
-            </div>
+            <div><span>stable prefix</span><i style="--w: 78%"></i></div>
+            <div><span>recent conversation</span><i style="--w: 44%"></i></div>
+            <div><span>tool summaries</span><i class="safe" style="--w: 31%"></i></div>
+            <div><span>raw log replay</span><i class="warn" style="--w: 8%"></i></div>
           </div>
         </div>
       </section>
@@ -174,38 +159,38 @@ npm run start -- --project "D:\code\DeepSeekTest"</code></pre>
       <section id="features" class="section-shell">
         <div class="section-head reveal">
           <span class="eyebrow">FEATURES</span>
-          <h2 data-i18n="featuresTitle">不是 demo，是运行时骨架。</h2>
+          <h2 data-i18n="featuresTitle">这次发布重点补齐后端长任务链路。</h2>
         </div>
         <div class="feature-grid">
           <article class="feature-card reveal">
             <span>01</span>
             <h3>Typed action loop</h3>
-            <p data-i18n="featureAction">模型输出结构化动作，本地 runtime 再做路径、权限、工具和产物校验。</p>
+            <p data-i18n="featureAction">模型返回结构化 action envelope，本地 runtime 再处理路径、权限、工具执行、产物验证和失败反馈。</p>
           </article>
           <article class="feature-card reveal delay-1">
             <span>02</span>
-            <h3>Windows-safe TUI</h3>
-            <p data-i18n="featureTui">输入、删除、光标、队列、picker 和状态栏都按真实终端行为处理。</p>
+            <h3>Session restore</h3>
+            <p data-i18n="featureTui">CLI 支持 --continue 和 --resume &lt;session-id&gt;，新进程也能恢复会话上下文。</p>
           </article>
           <article class="feature-card reveal delay-2">
             <span>03</span>
             <h3>Durable agents</h3>
-            <p data-i18n="featureAgents">Planner、Builder、Tester、Reviewer 的任务状态写入 SQLite，可 trace 和 rework。</p>
+            <p data-i18n="featureAgents">Planner、Builder、Tester、Reviewer 的角色反馈使用 compact tool summary，并写入 agent progress checkpoint。</p>
           </article>
           <article class="feature-card reveal">
             <span>04</span>
             <h3>Approval gates</h3>
-            <p data-i18n="featureApproval">文件、shell、browser、MCP、plan 都可以先展示风险，再让用户决定。</p>
+            <p data-i18n="featureApproval">文件、shell、browser、MCP、plan 都可以进入审批或验证门，状态写入 SQLite。</p>
           </article>
           <article class="feature-card reveal delay-1">
             <span>05</span>
             <h3>Skills / Plugins / MCP</h3>
-            <p data-i18n="featureMcp">保留扩展边界，适配本地 skill、plugin manifest、stdio/HTTP MCP。</p>
+            <p data-i18n="featureMcp">保留 skills、plugins、MCP、Office 产物和 browser action 的扩展边界。</p>
           </article>
           <article class="feature-card reveal delay-2">
             <span>06</span>
             <h3>Cache telemetry</h3>
-            <p data-i18n="featureTelemetry">记录 provider 返回的 cache hit/miss，并显示 shape drift 和准备建议。</p>
+            <p data-i18n="featureTelemetry">记录 provider cache hit/miss、prompt shape、run progress 和真实测试审计结果。</p>
           </article>
         </div>
       </section>
@@ -213,26 +198,26 @@ npm run start -- --project "D:\code\DeepSeekTest"</code></pre>
       <section class="section-shell architecture-strip">
         <div class="section-copy reveal">
           <span class="eyebrow">ARCHITECTURE</span>
-          <h2 data-i18n="archTitle">DeepSeekCode 的工作循环。</h2>
+          <h2 data-i18n="archTitle">DeepSeekCode 的后端工作流。</h2>
         </div>
         <div class="flow-line reveal delay-1">
-          <div><b>01</b><span>cache guard</span></div>
+          <div><b>01</b><span>stable prefix</span></div>
           <div><b>02</b><span>action envelope</span></div>
           <div><b>03</b><span>typed tools</span></div>
-          <div><b>04</b><span>validation</span></div>
-          <div><b>05</b><span>memory + trace</span></div>
+          <div><b>04</b><span>tool summary</span></div>
+          <div><b>05</b><span>run state</span></div>
         </div>
       </section>
 
       <section id="roadmap" class="section-shell roadmap">
         <div class="section-head reveal">
           <span class="eyebrow">ROADMAP</span>
-          <h2 data-i18n="roadmapTitle">先前端体验，再后端深水区。</h2>
+          <h2 data-i18n="roadmapTitle">下一步继续补真实 Agent 能力。</h2>
         </div>
         <div class="roadmap-list">
-          <article class="reveal"><b>Now</b><span data-i18n="roadNow">完善 TUI、官网、文档、cache guard 和 action-loop 稳定性。</span></article>
-          <article class="reveal delay-1"><b>Next</b><span data-i18n="roadNext">加强 MCP、skills、plugins、browser snapshot、approval diff 和多 Agent rework。</span></article>
-          <article class="reveal delay-2"><b>Later</b><span data-i18n="roadLater">长时间 worker、远程通道、桌面控制、文档/PDF/PPTX 工具和更完整的网站面板。</span></article>
+          <article class="reveal"><b>Now</b><span data-i18n="roadNow">已补 CLI session restore、tool_result 压缩、runtime_run_state、多 Agent checkpoint 和真实场景测试。</span></article>
+          <article class="reveal delay-1"><b>Next</b><span data-i18n="roadNext">继续增强后台 job queue、子 Agent 隔离上下文、Office/网页/大型项目真实任务能力和 TUI 交互。</span></article>
+          <article class="reveal delay-2"><b>Later</b><span data-i18n="roadLater">补更完整的插件生态、浏览器自动化、远程执行、长任务 worker 和更细的 token/cache 优化。</span></article>
         </div>
       </section>
 
@@ -242,16 +227,16 @@ npm run start -- --project "D:\code\DeepSeekTest"</code></pre>
           <h2 data-i18n="faqTitle">常见问题。</h2>
         </div>
         <details class="reveal" open>
-          <summary data-i18n="faqOneQ">DeepSeekCode 的技术架构是什么？</summary>
-          <p data-i18n="faqOneA">核心是 TypeScript runtime：QueryEngine 负责对话和动作循环，Tools 执行本地能力，State 持久化 run/task/action/event，TUI 用 Ink/React 呈现交互。</p>
+          <summary data-i18n="faqOneQ">DeepSeekCode 现在的核心链路是什么？</summary>
+          <p data-i18n="faqOneA">QueryEngine 负责分类和 action loop，Tools 执行本地能力，StateStore 持久化 run/task/action/event，SessionStorage 保存对话和 compact tool result。</p>
         </details>
         <details class="reveal">
-          <summary data-i18n="faqTwoQ">缓存命中是怎么优化的？</summary>
-          <p data-i18n="faqTwoA">稳定规则、工具 schema、项目记忆、仓库 map 和 cache pin 放在 prompt 前段；用户当前输入、工具反馈和验证结果放在后段，减少稳定前缀漂移。</p>
+          <summary data-i18n="faqTwoQ">怎么降低历史对话的 token 消耗？</summary>
+          <p data-i18n="faqTwoA">不全量塞历史。稳定规则和工具 schema 放前面吃缓存；最近几轮保留；旧对话压成结构化摘要；工具输出只保留失败原因、路径、产物和关键结果。</p>
         </details>
         <details class="reveal">
-          <summary data-i18n="faqThreeQ">怎么测试真实效果？</summary>
-          <p data-i18n="faqThreeA">先跑 npm run typecheck 和 npm run build，再用 deepseek-v4-flash 在测试目录启动，观察 cache、tool、approval 和最终产物。</p>
+          <summary data-i18n="faqThreeQ">怎么验证不是只跑了基础检查？</summary>
+          <p data-i18n="faqThreeA">发布前在测试目录跑了跨进程会话恢复和多 Agent 真实任务，并检查提交给模型的 prompt 是否包含 recent_conversation、tool_result_summary 和 runtime_run_state。</p>
         </details>
       </section>
     </main>

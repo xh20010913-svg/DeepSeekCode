@@ -2,96 +2,106 @@ const copy = {
   zh: {
     navInstall: "安装",
     navCache: "缓存",
-    navFeatures: "特性",
-    navStart: "立即开始",
-    heroTitle: "为 <em>DeepSeek</em> 缓存而生的 Code Agent。",
+    navFeatures: "能力",
+    navStart: "开始使用",
+    heroTitle: "围绕 <em>DeepSeek</em> 缓存稳定性构建的 Code Agent。",
     heroLede:
-      "DeepSeekCode 不是普通聊天壳。它把缓存命中、结构化工具、审批门、多 Agent 长任务和 Windows 终端输入体验放进同一个 TypeScript runtime。",
+      "DeepSeekCode 不是聊天壳。它把稳定 prompt 前缀、类型化工具、会话恢复、工具结果压缩、多 Agent 长任务和 Windows 终端体验放进同一个 TypeScript runtime。",
     heroPrimary: "立即开始",
     heroSecondary: "查看 Guide",
-    metricCache: "live provider check",
-    metricTests: "build checks",
+    metricCache: "live cache check",
+    metricTests: "release checks",
     metricGates: "open gates",
-    installTitle: "三条命令启动本地 Agent。",
+    installTitle: "三步启动本地 Agent。",
     installText:
-      "默认使用 deepseek-v4-flash 做低成本测试，适合先验证 TUI、工具执行和缓存策略。",
+      "先在独立测试目录里使用 deepseek-v4-flash 验证工具执行、会话恢复、缓存命中和产物生成。",
     copy: "复制",
-    cacheTitle: "先预热上下文，再花 token。",
+    cacheTitle: "不要靠全量历史硬撑长任务。",
     cacheText:
-      "DeepSeekCode 在大任务前先跑 no-model preflight：看稳定前缀、动态压力、cache pin、profile forecast 和 prompt churn。",
-    featuresTitle: "不是 demo，是运行时骨架。",
-    featureAction: "模型输出结构化动作，本地 runtime 再做路径、权限、工具和产物校验。",
-    featureTui: "输入、删除、光标、队列、picker 和状态栏都按真实终端行为处理。",
-    featureAgents: "Planner、Builder、Tester、Reviewer 的任务状态写入 SQLite，可 trace 和 rework。",
-    featureApproval: "文件、shell、browser、MCP、plan 都可以先展示风险，再让用户决定。",
-    featureMcp: "保留扩展边界，适配本地 skill、plugin manifest、stdio/HTTP MCP。",
-    featureTelemetry: "记录 provider 返回的 cache hit/miss，并显示 shape drift 和准备建议。",
-    archTitle: "DeepSeekCode 的工作循环。",
-    roadmapTitle: "先前端体验，再后端深水区。",
-    roadNow: "完善 TUI、官网、文档、cache guard 和 action-loop 稳定性。",
-    roadNext: "加强 MCP、skills、plugins、browser snapshot、approval diff 和多 Agent rework。",
-    roadLater: "长时间 worker、远程通道、桌面控制、文档/PDF/PPTX 工具和更完整的网站面板。",
+      "DeepSeekCode 会把旧历史压成 conversation summary、tool_result_summary 和 runtime_run_state，并把稳定前缀保持在 prompt 前段。",
+    featuresTitle: "这次发布重点补齐后端长任务链路。",
+    featureAction:
+      "模型返回结构化 action envelope，本地 runtime 再处理路径、权限、工具执行、产物验证和失败反馈。",
+    featureTui:
+      "CLI 支持 --continue 和 --resume <session-id>，新进程也能恢复会话上下文。",
+    featureAgents:
+      "Planner、Builder、Tester、Reviewer 的角色反馈使用 compact tool summary，并写入 agent progress checkpoint。",
+    featureApproval:
+      "文件、shell、browser、MCP、plan 都可以进入审批或验证门，状态写入 SQLite。",
+    featureMcp:
+      "保留 skills、plugins、MCP、Office 产物和 browser action 的扩展边界。",
+    featureTelemetry:
+      "记录 provider cache hit/miss、prompt shape、run progress 和真实测试审计结果。",
+    archTitle: "DeepSeekCode 的后端工作流。",
+    roadmapTitle: "下一步继续补真实 Agent 能力。",
+    roadNow:
+      "已补 CLI session restore、tool_result 压缩、runtime_run_state、多 Agent checkpoint 和真实场景测试。",
+    roadNext:
+      "继续增强后台 job queue、子 Agent 隔离上下文、Office/网页/大型项目真实任务能力和 TUI 交互。",
+    roadLater:
+      "补更完整的插件生态、浏览器自动化、远程执行、长任务 worker 和更细的 token/cache 优化。",
     faqTitle: "常见问题。",
-    faqOneQ: "DeepSeekCode 的技术架构是什么？",
+    faqOneQ: "DeepSeekCode 现在的核心链路是什么？",
     faqOneA:
-      "核心是 TypeScript runtime：QueryEngine 负责对话和动作循环，Tools 执行本地能力，State 持久化 run/task/action/event，TUI 用 Ink/React 呈现交互。",
-    faqTwoQ: "缓存命中是怎么优化的？",
+      "QueryEngine 负责分类和 action loop，Tools 执行本地能力，StateStore 持久化 run/task/action/event，SessionStorage 保存对话和 compact tool result。",
+    faqTwoQ: "怎么降低历史对话的 token 消耗？",
     faqTwoA:
-      "稳定规则、工具 schema、项目记忆、仓库 map 和 cache pin 放在 prompt 前段；用户当前输入、工具反馈和验证结果放在后段，减少稳定前缀漂移。",
-    faqThreeQ: "怎么测试真实效果？",
+      "不全量塞历史。稳定规则和工具 schema 放前面吃缓存；最近几轮保留；旧对话压成结构化摘要；工具输出只保留失败原因、路径、产物和关键结果。",
+    faqThreeQ: "怎么验证不是只跑了基础检查？",
     faqThreeA:
-      "先跑 npm run typecheck 和 npm run build，再用 deepseek-v4-flash 在测试目录启动，观察 cache、tool、approval 和最终产物。",
+      "发布前在测试目录跑了跨进程会话恢复和多 Agent 真实任务，并检查提交给模型的 prompt 是否包含 recent_conversation、tool_result_summary 和 runtime_run_state。",
   },
   en: {
     navInstall: "Install",
-    navCache: "Cache",
+    navCache: "Context",
     navFeatures: "Features",
     navStart: "Start",
     heroTitle: "A Code Agent built around <em>DeepSeek</em> cache stability.",
     heroLede:
-      "DeepSeekCode is not a chat wrapper. It combines cache hits, typed tools, approval gates, multi-agent long-running work, and Windows-safe terminal input in one TypeScript runtime.",
+      "DeepSeekCode is not a chat wrapper. It combines stable prompt prefixes, typed tools, session restore, compact tool feedback, multi-agent long-running work, and a Windows terminal runtime in TypeScript.",
     heroPrimary: "Start now",
     heroSecondary: "Read Guide",
-    metricCache: "live provider check",
-    metricTests: "build checks",
+    metricCache: "live cache check",
+    metricTests: "release checks",
     metricGates: "open gates",
-    installTitle: "Start the local agent in three commands.",
+    installTitle: "Start the local agent in three steps.",
     installText:
-      "Use deepseek-v4-flash for low-cost live tests before checking TUI behavior, tool execution, and cache strategy.",
+      "Use deepseek-v4-flash against a separate test project before trusting tool execution, session restore, cache behavior, and generated artifacts.",
     copy: "Copy",
-    cacheTitle: "Warm context before spending tokens.",
+    cacheTitle: "Long tasks should not replay raw history forever.",
     cacheText:
-      "DeepSeekCode runs a no-model preflight before large tasks: stable prefix, dynamic pressure, cache pins, profile forecast, and prompt churn.",
-    featuresTitle: "Not a demo. A runtime skeleton.",
+      "DeepSeekCode compacts old history into conversation summaries, tool_result_summary records, and runtime_run_state while keeping stable prefix blocks early.",
+    featuresTitle: "This release strengthens the backend long-task loop.",
     featureAction:
-      "The model returns structured actions; the local runtime validates paths, permissions, tools, and artifacts.",
+      "The model returns a typed action envelope; the local runtime handles paths, permissions, tool execution, artifact validation, and failure feedback.",
     featureTui:
-      "Input, deletion, cursor movement, queued prompts, pickers, and status footer follow real terminal behavior.",
+      "The CLI supports --continue and --resume <session-id>, so a new process can restore useful session context.",
     featureAgents:
-      "Planner, Builder, Tester, and Reviewer task states are stored in SQLite for trace and rework.",
+      "Planner, Builder, Tester, and Reviewer pass compact tool summaries and write agent progress checkpoints.",
     featureApproval:
-      "Files, shell, browser, MCP, and plans can show risk before the user decides.",
+      "Files, shell, browser, MCP, and plan actions can pass through approval or validation gates stored in SQLite.",
     featureMcp:
-      "Extension boundaries are ready for local skills, plugin manifests, and stdio/HTTP MCP.",
+      "Skills, plugins, MCP, Office artifacts, and browser actions remain first-class extension boundaries.",
     featureTelemetry:
-      "Provider cache hit/miss telemetry is tracked alongside shape drift and preparation advice.",
-    archTitle: "The DeepSeekCode loop.",
-    roadmapTitle: "Frontend feel first, backend depth next.",
-    roadNow: "Polish TUI, website, docs, cache guard, and action-loop stability.",
+      "Provider cache hit/miss, prompt shape, run progress, and live test audit results are recorded.",
+    archTitle: "The DeepSeekCode backend loop.",
+    roadmapTitle: "Next: more real agent capability.",
+    roadNow:
+      "Added CLI session restore, compact tool results, runtime_run_state, multi-agent checkpoints, and live scenario tests.",
     roadNext:
-      "Strengthen MCP, skills, plugins, browser snapshots, approval diffs, and multi-agent rework.",
+      "Improve background job queue, sub-agent isolated context, Office/web/large-project task quality, and TUI interaction.",
     roadLater:
-      "Long-running workers, remote channels, desktop control, document/PDF/PPTX tools, and richer website panels.",
+      "Richer plugin ecosystem, browser automation, remote execution, long-running workers, and finer token/cache optimization.",
     faqTitle: "FAQ.",
-    faqOneQ: "What is the DeepSeekCode architecture?",
+    faqOneQ: "What is the core DeepSeekCode loop?",
     faqOneA:
-      "DeepSeekCode is a TypeScript runtime: QueryEngine owns chat/action loops, Tools execute local capabilities, State persists runs/tasks/actions/events, and the TUI is built with Ink/React.",
-    faqTwoQ: "How does cache optimization work?",
+      "QueryEngine handles classification and the action loop, Tools execute local capabilities, StateStore persists run/task/action/event data, and SessionStorage keeps chat plus compact tool results.",
+    faqTwoQ: "How does it reduce history token cost?",
     faqTwoA:
-      "Stable rules, tool schemas, project memory, repository maps, and cache pins stay early in the prompt; current user input, tool feedback, and validation results stay late to reduce prefix drift.",
-    faqThreeQ: "How do I test the real behavior?",
+      "It does not replay everything. Stable rules and tool schemas stay early for cache reuse, recent turns are kept, old chat is summarized, and tool output is reduced to failures, paths, artifacts, and key results.",
+    faqThreeQ: "How was this verified beyond basic checks?",
     faqThreeA:
-      "Run npm run typecheck and npm run build, then launch deepseek-v4-flash against a test directory and watch cache, tools, approvals, and output artifacts.",
+      "The release ran live cross-process resume and multi-agent tasks in a test directory, then audited provider prompts for recent_conversation, tool_result_summary, and runtime_run_state.",
   },
 };
 

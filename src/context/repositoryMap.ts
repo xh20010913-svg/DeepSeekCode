@@ -21,6 +21,15 @@ const SKIP_DIRS = new Set([
   "coverage",
   ".next",
   ".cache",
+  ".pytest_cache",
+  ".turbo",
+  "__pycache__",
+  "npm-cache",
+  "playwright-report",
+  "results",
+  "runtime-scenarios",
+  "test-results",
+  "tmp",
 ]);
 
 export function buildRepositoryMap(root: string, limit = 300): RepositoryMap {
@@ -34,7 +43,7 @@ export function buildRepositoryMap(root: string, limit = 300): RepositoryMap {
       return;
     }
     for (const name of fs.readdirSync(dir)) {
-      if (SKIP_DIRS.has(name)) continue;
+      if (shouldSkipDir(name)) continue;
       const full = path.join(dir, name);
       const stat = fs.statSync(full);
       if (stat.isDirectory()) {
@@ -62,6 +71,12 @@ export function buildRepositoryMap(root: string, limit = 300): RepositoryMap {
   };
 }
 
+function shouldSkipDir(name: string): boolean {
+  if (SKIP_DIRS.has(name)) return true;
+  const lower = name.toLowerCase();
+  return lower.startsWith(".deepseekcode-");
+}
+
 function shouldSkipFile(name: string): boolean {
   const lower = name.toLowerCase();
   return (
@@ -71,6 +86,8 @@ function shouldSkipFile(name: string): boolean {
     lower.endsWith(".key") ||
     lower.endsWith(".p12") ||
     lower.endsWith(".sqlite") ||
+    lower.endsWith(".sqlite-shm") ||
+    lower.endsWith(".sqlite-wal") ||
     lower.endsWith(".db")
   );
 }

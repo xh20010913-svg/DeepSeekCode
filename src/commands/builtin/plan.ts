@@ -2,7 +2,7 @@ import React from "react";
 import { PlanPanel } from "../../components/PlanPanel.js";
 import type { Command, CommandContext } from "../../types/command.js";
 import { ApprovalService } from "../../services/approval/approvalService.js";
-import { PlanModeService, formatPlanStatus } from "../../services/plans/planModeService.js";
+import { PlanModeService, formatPlanReference, formatPlanStatus } from "../../services/plans/planModeService.js";
 import { resolveRunId } from "../runSelection.js";
 
 export const planCommand: Command = {
@@ -13,13 +13,14 @@ export const planCommand: Command = {
     const [verb = "status", ...rest] = args.trim().split(/\s+/).filter(Boolean);
     const service = new PlanModeService(context.config.projectPath, context.state);
     if (verb === "approve" || verb === "reject" || verb === "cancel") {
-      const [gateId, ...rationaleParts] = rest;
-      if (!gateId) return { message: "Usage: /plan approve|reject|cancel <approval-id> [reason]" };
+      const [gateIdArg, ...rationaleParts] = rest;
+      const gateId = resolvePlanGateId(context, gateIdArg);
+      if (!gateId) return { message: "Usage: /plan approve|reject|cancel latest [reason]" };
       const status = verb === "approve" ? "approved" : verb === "reject" ? "rejected" : "cancelled";
       const gate = new ApprovalService(context.state).decide(gateId, status, rationaleParts.join(" "));
       const record = service.read(gate.runId);
       return {
-        message: `${gate.id} -> ${gate.status}`,
+        message: `plan ${gate.status}`,
         display: React.createElement(PlanPanel, { record, title: "Plan decided" }),
       };
     }
@@ -30,8 +31,8 @@ export const planCommand: Command = {
       const record = service.enter(runId, text);
       return {
         message: [
-          `entered plan mode for ${runId}`,
-          `path: ${record.relativePath}`,
+          "entered plan mode",
+          `draft: ${formatPlanReference(record.relativePath)}`,
           "write the plan, then run /plan exit when it is ready for approval",
         ].join("\n"),
         display: React.createElement(PlanPanel, { record, title: "Plan draft" }),
@@ -43,7 +44,7 @@ export const planCommand: Command = {
       if (!runId) return { message: "No run records yet." };
       const record = service.read(runId);
       return {
-        message: record.content || `${runId} has no plan draft.`,
+        message: record.content || "No plan draft yet.",
         display: React.createElement(PlanPanel, { record, title: "Plan detail" }),
       };
     }
@@ -57,9 +58,9 @@ export const planCommand: Command = {
       const record = service.exit(runId, plan);
       return {
         message: [
-          `plan awaiting approval: ${record.gate?.id}`,
-          `path: ${record.relativePath}`,
-          `approve with /approval approve ${record.gate?.id} <reason>`,
+          "plan awaiting approval",
+          `draft: ${formatPlanReference(record.relativePath)}`,
+          "approve with /plan approve latest <reason>",
         ].join("\n"),
         display: React.createElement(PlanPanel, { record, title: "Plan awaiting approval" }),
       };
@@ -106,4 +107,12 @@ function resolvePlanArgs(
     message: parts.join(" ") || "manual plan",
   });
   return { runId, text: parts.join(" ") };
+}
+
+function resolvePlanGateId(context: CommandContext, gateId: string | undefined): string | undefined {
+  if (gateId && gateId !== "latest") return gateId;
+  return new ApprovalService(context.state)
+    .list("pending")
+    .find((gate) => gate.subjectType === "plan")
+    ?.id;
 }

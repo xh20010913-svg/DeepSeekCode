@@ -18,7 +18,7 @@ export function enabledPluginManifests(projectPath: string, dataDir: string): Lo
 export function pluginExtensionDirs(
   projectPath: string,
   dataDir: string,
-  kind: "agents" | "output_styles",
+  kind: "agents" | "output_styles" | "skills",
 ): PluginExtensionDir[] {
   const dirs: PluginExtensionDir[] = [];
   for (const plugin of enabledPluginManifests(projectPath, dataDir)) {

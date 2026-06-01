@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { discoverPlugins, type PluginSummary } from "../../plugins/registry.js";
-import { loadPlugin, type LoadedPlugin } from "../../plugins/loader.js";
+import { loadPlugin, pluginManifestPath, type LoadedPlugin } from "../../plugins/loader.js";
 import {
   normalizePluginName,
   renderPluginManifest,
@@ -75,9 +75,9 @@ export class PluginService {
     const sourcePath = path.isAbsolute(input.sourcePath)
       ? path.resolve(input.sourcePath)
       : path.resolve(this.projectPath, input.sourcePath);
-    const sourceManifestPath = path.join(sourcePath, ".codex-plugin", "plugin.json");
+    const sourceManifestPath = pluginManifestPath(sourcePath);
     if (!fs.existsSync(sourceManifestPath)) {
-      throw new Error(`plugin manifest not found: ${sourceManifestPath}`);
+      throw new Error(`plugin manifest not found: ${path.join(sourcePath, ".codex-plugin", "plugin.json")} or ${path.join(sourcePath, ".claude-plugin", "plugin.json")}`);
     }
     const rawManifest = JSON.parse(fs.readFileSync(sourceManifestPath, "utf8")) as { name?: unknown };
     const name = normalizePluginName(input.name ?? (typeof rawManifest.name === "string" ? rawManifest.name : ""));
@@ -96,7 +96,7 @@ export class PluginService {
       recursive: true,
       filter: (source) => shouldCopyPluginPath(source),
     });
-    const manifestPath = path.join(targetPath, ".codex-plugin", "plugin.json");
+    const manifestPath = pluginManifestPath(targetPath);
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
     if (manifest.name !== name) {
       manifest.name = name;
@@ -137,7 +137,7 @@ export class PluginService {
     const source = readSourceMetadata(plugin.path);
     if (!source) throw new Error(`plugin has no tracked source: ${name}`);
     if (source.kind !== "path") throw new Error(`unsupported plugin source kind: ${source.kind}`);
-    if (!fs.existsSync(path.join(source.sourcePath, ".codex-plugin", "plugin.json"))) {
+    if (!fs.existsSync(pluginManifestPath(source.sourcePath))) {
       throw new Error(`plugin source is missing: ${source.sourcePath}`);
     }
     const updated = this.installFromPath({
@@ -190,7 +190,7 @@ export class PluginService {
       }];
     }
     return plugins.map((plugin) => {
-      const manifestPath = path.join(plugin.path, ".codex-plugin", "plugin.json");
+      const manifestPath = pluginManifestPath(plugin.path);
       return validatePluginManifest(
         plugin.name,
         plugin.path,

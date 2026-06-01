@@ -23,7 +23,7 @@ import {
 export const agentsCommand: Command = {
   name: "agents",
   description: "List, show, create, validate, and run DeepSeekCode agents.",
-  usage: "[show <name>|create <name> <description>|suggest <goal>|create-smart <name> <goal>|runs|detail [run-id|attached]|start <name> <task>|add <run-id|attached> <name> <task>|step [run-id|attached]|drain [run-id|attached] [max-steps]|daemon [run-id|all|attached] [max-runs] [max-steps]|run <name> <task>|validate [name]|path [name]]",
+  usage: "[show <name>|create <name> <description>|suggest <goal>|create-smart <name> <goal>|runs|detail [attached|current]|start <name> <task>|add <attached|current> <name> <task>|step [attached|current]|drain [attached|current] [max-steps]|daemon [all|attached|current] [max-runs] [max-steps]|run <name> <task>|validate [name]|path [name]]",
   async execute(args, context) {
     const trimmed = args.trim();
     const service = new AgentService(context.config.projectPath, context.config.dataDir);
@@ -92,11 +92,11 @@ export const agentsCommand: Command = {
         };
       }
       return {
-        message: runs.map(({ run, tasks }) => {
+        message: runs.map(({ run, tasks }, index) => {
           const taskSummary = tasks.length
             ? tasks.map((task) => `${task.status}:${task.agent}`).join(",")
             : "no-tasks";
-          return `${run.id} ${run.status} actions=${run.actionCount} tasks=${taskSummary} ${run.message}`;
+          return `run ${index + 1} ${run.status} actions=${run.actionCount} tasks=${taskSummary} ${run.message}`;
         }).join("\n"),
         display: React.createElement(AgentPanel, { model: agentRunsPanelModel(runs) }),
       };
@@ -108,12 +108,12 @@ export const agentsCommand: Command = {
         const detail = new AgentRunService(context.state, context.config).detail(runId);
         return {
           message: [
-            `${detail.run.id} ${detail.run.status} actions=${detail.run.actionCount} artifacts=${detail.run.artifactCount}`,
+            `agent run ${detail.run.status} actions=${detail.run.actionCount} artifacts=${detail.run.artifactCount}`,
             detail.run.message,
             "",
             "tasks:",
             ...(detail.tasks.length
-              ? detail.tasks.map((task) => `- ${task.id} ${task.status} ${task.agent}: ${task.title}${task.detail ? ` (${task.detail})` : ""}`)
+              ? detail.tasks.map((task) => `- ${task.status} ${task.agent}: ${task.title}${task.detail ? ` (${task.detail})` : ""}`)
               : ["- none"]),
             "",
             "events:",
@@ -142,7 +142,7 @@ export const agentsCommand: Command = {
         });
         return {
           message: [
-            `agent run ${result.runId} task=${result.taskId} completed: ${result.status}`,
+            `agent run completed: ${result.status}`,
             result.message || "(no final message)",
             `turns=${result.result?.turns.length ?? 0}`,
             `actions=${result.result?.envelope.actions.length ?? 0}`,
@@ -164,9 +164,9 @@ export const agentsCommand: Command = {
         });
         return {
           message: [
-            `started agent run ${result.runId}`,
-            `task=${result.taskId}`,
-            "Use /agents step attached after /attach use <run-id>, or /agents step <run-id>.",
+            "agent run started",
+            "task queued",
+            "Use /attach latest, then /agents step attached when you want to advance it.",
           ].join("\n"),
           display: React.createElement(AgentPanel, { model: agentStartedPanelModel(result) }),
         };
@@ -177,26 +177,27 @@ export const agentsCommand: Command = {
     if (trimmed.startsWith("add ")) {
       const [runSelector, name, ...taskParts] = parseArgs(trimmed.slice("add ".length));
       if (!runSelector || !name || taskParts.length === 0) {
-        return { message: "Usage: /agents add <run-id|attached> <name> <task>" };
+        return { message: "Usage: /agents add <attached|current> <name> <task>" };
       }
       const runId = resolveRunId(runSelector, context);
       if (!runId) return { message: "No run records yet." };
       try {
-        const taskId = new AgentRunService(context.state, context.config).addTask({
+        new AgentRunService(context.state, context.config).addTask({
           runId,
           agent: name,
           task: taskParts.join(" "),
         });
         return {
-          message: `added agent task ${taskId} to ${runId}`,
+          message: "agent task added to the selected run",
           display: React.createElement(AgentPanel, {
             model: agentOperationPanelModel({
               title: "Agent task added",
-              subtitle: runId,
-              name: taskId,
+              subtitle: "selected run",
+              name: `${name} task`,
               status: "queued",
               detail: `${name}: ${taskParts.join(" ")}`,
-              footer: `/agents detail ${runId} | /agents step ${runId}`,
+              note: "task recorded",
+              footer: "/agents detail attached | /agents step attached",
             }),
           }),
         };
@@ -218,8 +219,8 @@ export const agentsCommand: Command = {
         });
         return {
           message: [
-            `agent step ${result.runId}: ${result.status}`,
-            result.task ? `task=${result.task.id} agent=${result.task.agent}` : "",
+            `agent step: ${result.status}`,
+            result.task ? `task=${result.task.agent}` : "",
             result.message,
             `turns=${result.result?.turns.length ?? 0}`,
             `actions=${result.result?.envelope.actions.length ?? 0}`,
@@ -247,7 +248,7 @@ export const agentsCommand: Command = {
         });
         return {
           message: [
-            `agent drain ${result.runId}: ${result.status}`,
+            `agent drain: ${result.status}`,
             result.message,
             `steps=${result.steps.length}`,
             ...result.steps.map((step) => `- ${step.status}${step.task ? ` ${step.task.agent}:${step.task.title}` : ""} ${step.message}`),
@@ -280,7 +281,7 @@ export const agentsCommand: Command = {
           message: [
             `agent daemon: ${result.status}`,
             result.message,
-            ...result.runs.map((run) => `- ${run.runId} ${run.drain.status} steps=${run.drain.steps.length} ${run.drain.message}`),
+            ...result.runs.map((run, index) => `- run ${index + 1} ${run.drain.status} steps=${run.drain.steps.length} ${run.drain.message}`),
           ].join("\n"),
           display: React.createElement(AgentPanel, { model: agentDaemonPanelModel(result) }),
         };
@@ -352,6 +353,12 @@ function parseArgs(args: string): string[] {
 }
 
 function summarizePayload(payload: unknown): string {
-  const text = JSON.stringify(payload ?? {});
+  const text = redactInternalAgentIds(JSON.stringify(payload ?? {}));
   return text.length > 160 ? `${text.slice(0, 157)}...` : text;
+}
+
+function redactInternalAgentIds(text: string): string {
+  return text
+    .replace(/\brun_[0-9a-f-]{8,}\b/gi, "agent run")
+    .replace(/\btask_[0-9a-f-]{8,}\b/gi, "agent task");
 }

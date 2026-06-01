@@ -59,7 +59,7 @@ export function fileEditPreviewModel(summary: string): FileEditPreviewModel | nu
       change,
       fingerprint: fields.sha || "",
       risk: overwrite ? "high" : "medium",
-      hint: overwrite ? "approve, then inspect with /diff git" : "approve to create, then inspect with /diff git",
+      hint: overwrite ? "approve once, then review the diff" : "approve once to create, then review the diff",
     };
   }
 
@@ -80,7 +80,7 @@ export function fileEditPreviewModel(summary: string): FileEditPreviewModel | nu
       change,
       fingerprint: fields.sha || "",
       risk: "high",
-      hint: "approve, then inspect with /diff git",
+      hint: "approve once, then review the diff",
     };
   }
 

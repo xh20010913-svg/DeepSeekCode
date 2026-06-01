@@ -4,17 +4,17 @@
 
 <p align="center">
   <a href="./README.md">English</a>
-  &nbsp;·&nbsp;
+  &nbsp;|&nbsp;
   <strong>简体中文</strong>
-  &nbsp;·&nbsp;
+  &nbsp;|&nbsp;
   <a href="./README.ja-JP.md">日本語</a>
-  &nbsp;·&nbsp;
+  &nbsp;|&nbsp;
   <a href="https://xh20010913-svg.github.io/DeepSeekCode/">Website</a>
-  &nbsp;·&nbsp;
+  &nbsp;|&nbsp;
   <a href="./GUIDE.md">Guide</a>
-  &nbsp;·&nbsp;
+  &nbsp;|&nbsp;
   <a href="./ARCHITECTURE.md">Architecture</a>
-  &nbsp;·&nbsp;
+  &nbsp;|&nbsp;
   <a href="./CLI_REFERENCE.md">CLI</a>
 </p>
 
@@ -24,33 +24,29 @@
   <a href="./package.json"><img src="https://img.shields.io/badge/node-%3E%3D22-5fa04e.svg?style=flat-square&labelColor=161b22&logo=nodedotjs&logoColor=white" alt="Node >= 22"/></a>
   <a href="./package.json"><img src="https://img.shields.io/badge/runtime-TypeScript-3178c6.svg?style=flat-square&labelColor=161b22&logo=typescript&logoColor=white" alt="TypeScript"/></a>
   <a href="https://platform.deepseek.com"><img src="https://img.shields.io/badge/provider-DeepSeek-38bdf8.svg?style=flat-square&labelColor=161b22" alt="DeepSeek provider"/></a>
-  <a href="./ARCHITECTURE.md#pillar-1-cache-first-loop"><img src="https://img.shields.io/badge/cache-prefix%20stable-22c55e.svg?style=flat-square&labelColor=161b22" alt="Prefix cache strategy"/></a>
 </p>
 
-<br/>
-
 <h3 align="center">面向终端工作、本地工具和长任务的 DeepSeek-first 编程 Agent。</h3>
-<p align="center">DeepSeekCode 围绕 DeepSeek 缓存命中、TypeScript 模块、持久化状态和显式本地工具执行设计。</p>
-
-<br/>
 
 <p align="center">
   <img src="assets/readme-runtime-terminal.png" alt="DeepSeekCode running in Windows Terminal" width="880"/>
 </p>
 
-<br/>
+DeepSeekCode 是一个 TypeScript 本地 Agent 运行时。它把稳定的系统规则、工具 schema、项目记忆、仓库事实和 cache pins 放在 prompt 前段，把当前用户请求和压缩后的工具反馈放在后段，用来提升 DeepSeek 前缀缓存复用率。
 
-> [!TIP]
-> DeepSeekCode 把前缀缓存稳定性当作运行时不变量：稳定规则、工具 schema、项目记忆、仓库 map、cache pin 放在前面且保持确定顺序；用户当前输入和工具反馈放在后面。
+## 当前能力
 
-> [!IMPORTANT]
-> DeepSeekCode 把 DeepSeek 缓存保护、结构化动作、审批门、Windows-safe TUI 输入和项目记忆做成核心能力。
-
-<br/>
+- 文件读取、写入、补丁、shell、浏览器、Office 产物、MCP、skills 和产物验证等类型化本地工具。
+- SQLite 持久化 runs、actions、artifacts、tasks、approvals、validations、usage 和 cache telemetry。
+- CLI 重启后可用 `--continue` 或 `--resume <session-id>` 恢复会话。
+- 持久化 compact `tool_result_summary`，避免把完整 stdout、长 diff、长日志反复塞回 prompt。
+- `runtime_run_state` 会把未完成 run、任务 DAG、失败原因、产物、剩余工作压缩后传回下一轮。
+- 多 Agent Planner -> Builder -> Tester -> Reviewer 链路，带角色级 compact 反馈和 progress checkpoint。
+- GitHub Pages 官网、README 图片和公开资源均使用 GitHub 可渲染路径。
 
 ## 安装
 
-需要 Node.js >= 22。支持 Windows Terminal / PowerShell、macOS、Linux。
+需要 Node.js >= 22。
 
 ```bash
 git clone https://github.com/xh20010913-svg/DeepSeekCode.git
@@ -67,159 +63,71 @@ DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_MODEL=deepseek-v4-flash
 ```
 
-启动到任意项目目录：
+先在独立测试目录启动：
 
 ```bash
 npm run start -- --project "D:\code\DeepSeekTest"
 ```
 
-开发和检查：
+CLI 重启后继续最新会话：
 
 ```bash
-npm run dev -- --project "D:\code\DeepSeekTest"
-npm run doctor
-npm run typecheck
-npm run build
+npm run start -- --project "D:\code\DeepSeekTest" --continue -p "继续上一个任务"
 ```
+
+恢复指定会话：
+
+```bash
+npm run start -- --project "D:\code\DeepSeekTest" --resume session_xxx -p "继续暂停的工作"
+```
+
+## 真实场景验证
+
+这个发布版在 `D:\code\DeepSeekTest` 跑过真实 agent 场景：
+
+- 跨进程会话恢复：创建 Node.js 订单项目，继续加入优惠券能力，再继续写验收报告。
+- 多 Agent 流程：通过 Planner、Builder、Tester、Reviewer 生成 SaaS incident handoff package。
+- Prompt 审计确认 `recent_conversation`、`tool_result_summary`、`runtime_run_state` 都进入了提交给模型的 prompt。
+- `.release` 目录内 typecheck 和 build 均通过。
+
+## 常用命令
 
 | 命令 | 用途 |
 | --- | --- |
-| `npm run start -- --project <dir>` | 启动 Ink/React 终端 Agent。 |
-| `npm run dev -- --project <dir>` | 开发时直接运行 TypeScript。 |
-| `npm run doctor` | 检查 Node、项目路径、provider、权限和状态路径。 |
-| `npm run typecheck` | 只检查 TypeScript 类型，不写入构建产物。 |
-| `npm run build` | 编译运行时代码到 `dist/`。 |
+| `/doctor` | 检查 provider、模型、路径和权限。 |
+| `/cache` | 查看缓存准备度、profile、guard policy 和 prompt shape。 |
+| `/sessions` / `/resume` | 查看或聚焦持久化会话。 |
+| `/runs` / `/trace` | 查看持久化 run/action/task 状态。 |
+| `/queue` / `/pause` / `/run-resume` | 查看和控制任务队列。 |
+| `/multi provider <task>` | 运行 Planner -> Builder -> Tester -> Reviewer 工作流。 |
+| `/validation` / `/approval` | 查看验证门和审批门。 |
 
-<details>
-<summary><strong>Slash 命令、项目边界和安全默认值</strong></summary>
+完整命令见 [CLI Reference](./CLI_REFERENCE.md)。
 
-DeepSeekCode 会把文件工具限制在 `--project` 指定的项目目录内。Shell 和浏览器默认关闭，需要显式开启。
+## 架构
 
-```text
-/help
-/doctor
-/status
-/config
-/cache
-/cache guard <goal>
-/cache prepare <goal>
-/cache profile save <name> <goal>
-/model verify
-/shell on|off
-/browser on|off
-/cmd <command>
-/diff git
-/approval list
-/plan start|show|approve|reject|cancel
-/memory list|accepted|export
-/skills
-/plugins
-/mcp
-/multi provider <task>
-/quit
-```
+DeepSeekCode 参考 ClaudeCode 风格的工具调用链路，并针对 DeepSeek 做了缓存和上下文恢复适配：
 
-完整 flags、环境变量、权限 profile 和公开命令面见 [CLI Reference](./CLI_REFERENCE.md)。
+1. 构建稳定 prompt 前缀和动态上下文块。
+2. 判断本轮是否需要本地工具。
+3. 让 provider 返回类型化 action envelope。
+4. 本地 runtime 执行工具，并处理路径、权限和验证。
+5. 持久化 compact tool feedback、run checkpoint、产物、usage 和 cache telemetry。
+6. 下一轮只把高价值摘要传回 prompt。
 
-</details>
+更多细节见 [Architecture](./ARCHITECTURE.md)。
 
-<br/>
+## 发布范围
 
-## 配置
+发布树只包含运行源码、官网、README、公开资源和用户文档；不提交 `.env`、本地测试产物、research notes、staging 目录、运行时数据库、`node_modules` 和私有开发交接文档。
 
-DeepSeekCode 从环境变量和本地项目配置读取运行参数。
+## 链接
 
-| 主题 | 快速说明 |
-| --- | --- |
-| DeepSeek provider | `DEEPSEEK_BASE_URL`、`DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL`；真实 provider 检查默认使用 `deepseek-v4-flash`。 |
-| 缓存保护 | `/cache guard`、`/cache prepare`、`/cache profile` 和 `.deepseekcode/cache-guard.json` 会在大任务前检查 prompt shape。 |
-| 工具 | 文件、patch、shell、browser-open、validation、diff、approval、memory、skills、plugins、MCP 都走 typed tool 边界。 |
-| 权限 | Shell/browser 默认关闭；文件修改、命令、浏览器、MCP、plan 决策都有审批和 trace。 |
-| 状态 | runs、tasks、actions、events、artifacts、usage、memory、approval、cache telemetry 都是持久化的。 |
-| Guide | [Guide](./GUIDE.md) 说明安装、首次运行、项目边界、权限、缓存流程和发布检查。 |
-| Website | [Website Guide](./website/guide.html) 说明静态官网、截图、页面结构和 GitHub Pages 发布方式。 |
-
-<br/>
-
-## DeepSeekCode 的不同点
-
-DeepSeekCode 围绕三根主线设计：
-
-1. **Cache-first loop**：稳定前缀、内容无关的 shape 记录、cache pin、preflight/guard/prepare 命令、provider cache hit/miss 统计。
-2. **Typed local action runtime**：模型只提出结构化动作，DeepSeekCode 再校验路径、权限、工具和产物。
-3. **Durable long-running work**：run、任务 DAG、Planner/Builder/Tester/Reviewer、rework、approval、memory promotion、trace 都能跨终端刷新保留。
-
-完整运行时结构、状态模型、工具边界和扩展点见 [Architecture](./ARCHITECTURE.md)。
-
-<br/>
-
-## 能力图
-
-<p align="center">
-  <img src="assets/deepseekcode-feature-grid.svg" alt="DeepSeekCode capabilities" width="880"/>
-</p>
-
-<br/>
-
-## 对比
-
-| 方向 | DeepSeekCode | 终端 SaaS 工具 | IDE Agent | Patch-first CLI |
-| --- | --- | --- | --- | --- |
-| 主要 provider | DeepSeek-first | 混合 | 混合 | 多 provider |
-| UI | Ink/React 终端工作台 | Web 或桌面 | IDE 面板 | CLI |
-| 缓存策略 | Cache guard、pins、profiles、telemetry、prompt-shape tracking | 隐式或依赖 provider | 隐式或依赖 provider | 依赖 provider |
-| 本地工具 | 结构化 action envelope + approval gates | workspace integrations | IDE integrations | Git/file edit loop |
-| 多 Agent | Planner -> Builder -> Tester -> Reviewer 持久任务 | workflow automation | agent tabs/tasks | 有限 |
-| 扩展性 | Skills、plugins、MCP、hooks、bridge | marketplace-oriented | extension-oriented | 脚本/config |
-| 项目状态 | SQLite runs/tasks/actions/events/memory | 云端或 workspace state | IDE state | repository diff |
-
-目标不是扮演某个现成工具，而是做一个 DeepSeek-native、本地可控、长时间工作也省 token 的编程 Agent。
-
-<br/>
-
-## 发布链接
-
-- [Website](https://xh20010913-svg.github.io/DeepSeekCode/)
 - [Guide](./GUIDE.md)
 - [Architecture](./ARCHITECTURE.md)
 - [CLI Reference](./CLI_REFERENCE.md)
 - [Website Guide](./website/guide.html)
-- [安装](#安装)
-- [配置](#配置)
-- [能力图](#能力图)
 
-<br/>
+## License
 
-## 社区
-
-欢迎在 [xh20010913-svg/DeepSeekCode](https://github.com/xh20010913-svg/DeepSeekCode) 提 issue、discussion、截图和使用反馈。适合作为 first contribution 的方向包括 UI polish、文档、缓存 telemetry 检查、命令面板、Windows terminal 行为和安全工具适配。
-
-提 issue 或 PR 时，请附上 `npm run typecheck`、`npm run build` 或真实 `deepseek-v4-flash` provider 检查的验证结果。
-
-<br/>
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=xh20010913-svg%2FDeepSeekCode&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=xh20010913-svg/DeepSeekCode&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=xh20010913-svg/DeepSeekCode&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=xh20010913-svg/DeepSeekCode&type=date&legend=top-left" />
- </picture>
-</a>
-
-<br/>
-
-## 致谢
-
-DeepSeekCode 吸收了公开终端编码 Agent、DeepSeek cache-first runtime、MCP、typed tools、本地 approval flow 等方向的经验。公开代码、命名、文档和产品行为都保持 DeepSeekCode 自己的设计。
-
-<br/>
-
----
-
-<p align="center">
-  <sub>MIT · see <a href="./LICENSE">LICENSE</a></sub>
-  <br/>
-  <sub>Built for DeepSeek-first local coding at <a href="https://github.com/xh20010913-svg/DeepSeekCode">xh20010913-svg/DeepSeekCode</a></sub>
-</p>
+MIT

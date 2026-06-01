@@ -31,6 +31,8 @@ export interface QuestionPanelModel {
   title: string;
   gateId: string;
   runId: string;
+  runLabel: string;
+  statusDetail: string;
   status: string;
   answer: string;
   questions: QuestionItemModel[];
@@ -49,9 +51,9 @@ export function QuestionPanel(props: {
       <Text>
         <StatusBadge label={model.status} tone={toneForStatus(model.status)} />
         {" "}
-        <Text color="gray">{model.gateId}</Text>
+        <Text color="gray">{model.statusDetail}</Text>
       </Text>
-      <QuestionRow label="run" value={model.runId} />
+      <QuestionRow label="run" value={model.runLabel} />
       {model.answer ? <QuestionRow label="answer" value={model.answer} color="green" /> : null}
       {model.questions.map((question, index) => (
         <Box key={`${index}-${question.question}`} flexDirection="column" marginTop={1}>
@@ -82,6 +84,8 @@ export function questionPanelModel(record: QuestionRecord, title = "Question"): 
     title,
     gateId: record.gateId,
     runId: record.runId,
+    runLabel: displayRunLabel(record.runId),
+    statusDetail: questionStatusDetail(record),
     status: record.status,
     answer: record.answer ?? "",
     questions: record.questions.map((question) => ({
@@ -102,7 +106,7 @@ function questionCommands(record: QuestionRecord): QuestionPanelCommand[] {
   const commands: QuestionPanelCommand[] = [
     {
       label: "show",
-      command: `/question show ${record.gateId}`,
+      command: record.status === "pending" ? "/question show latest" : `/question show ${record.gateId}`,
       description: "print the full prompt",
       tone: "inspect",
     },
@@ -111,13 +115,13 @@ function questionCommands(record: QuestionRecord): QuestionPanelCommand[] {
     commands.push(
       {
         label: "answer",
-        command: `/question answer ${record.gateId} <answer>`,
+        command: "/question answer latest <answer>",
         description: "resume the paused run",
         tone: "allow",
       },
       {
         label: "reject",
-        command: `/question reject ${record.gateId} <reason>`,
+        command: "/question reject latest <reason>",
         description: "ask DeepSeekCode to revise",
         tone: "reject",
       },
@@ -154,6 +158,17 @@ function QuestionRow(props: {
       <Text color={props.color ?? "gray"}>{props.value}</Text>
     </Box>
   );
+}
+
+function questionStatusDetail(record: QuestionRecord): string {
+  if (record.status === "pending") return "waiting for answer";
+  if (record.status === "approved") return "answered";
+  if (record.status === "cancelled") return "cancelled";
+  return record.status;
+}
+
+function displayRunLabel(runId: string): string {
+  return /^run_[0-9a-f-]{8,}$/i.test(runId) ? "current run" : runId;
 }
 
 function toneForStatus(status: string): TerminalTone {

@@ -173,9 +173,9 @@ export function agentRunsPanelModel(runs: AgentRunSummary[]): AgentPanelModel {
   return {
     title: "Agent runs",
     subtitle: `${runs.length} recent run${runs.length === 1 ? "" : "s"}`,
-    rows: runs.map(({ run, tasks }) => ({
+    rows: runs.map(({ run, tasks }, index) => ({
       key: run.id,
-      name: run.id,
+      name: runListLabel(index),
       status: run.status,
       tone: toneForRunStatus(run.status),
       detail: run.message,
@@ -185,7 +185,7 @@ export function agentRunsPanelModel(runs: AgentRunSummary[]): AgentPanelModel {
       if (tasks.length > 0) return agentTaskProgressLines(tasks);
       return [agentProgressLineModel({
         key: run.id,
-        agent: run.id,
+        agent: runListLabel(runIndex),
         description: run.message || "(no message)",
         status: run.status,
         index: runIndex,
@@ -195,13 +195,13 @@ export function agentRunsPanelModel(runs: AgentRunSummary[]): AgentPanelModel {
         activity: `artifacts=${run.artifactCount} events=${run.eventCount}`,
       })];
     }),
-    footer: "/agents detail <run-id|attached> | /agents step <run-id|attached> | /attach use <run-id>",
+    footer: "/attach latest | /agents detail attached | /agents step attached",
   };
 }
 
 export function agentRunDetailPanelModel(detail: AgentRunDetail): AgentPanelModel {
   return {
-    title: `Agent run: ${detail.run.id}`,
+    title: "Agent run",
     subtitle: `${detail.run.status} / actions ${detail.run.actionCount} / artifacts ${detail.run.artifactCount}`,
     rows: detail.tasks.map((task) => taskRow(task)),
     progress: agentTaskProgressLines(detail.tasks),
@@ -209,7 +209,7 @@ export function agentRunDetailPanelModel(detail: AgentRunDetail): AgentPanelMode
       `message: ${detail.run.message}`,
       ...detail.events.slice(0, 8).map((event) => `event: ${event.kind} ${summarizePayload(event.payload)}`),
     ],
-    footer: `/agents step ${detail.run.id} | /agents drain ${detail.run.id}`,
+    footer: "/agents step attached | /agents drain attached",
   };
 }
 
@@ -245,20 +245,20 @@ export function agentOperationPanelModel(input: {
 export function agentStartedPanelModel(result: StartedAgentRun): AgentPanelModel {
   return agentOperationPanelModel({
     title: "Agent run started",
-    subtitle: result.runId,
-    name: result.taskId,
+    subtitle: "current run",
+    name: "agent task",
     status: "queued",
     detail: "agent task queued",
-    preview: [`task ${result.taskId} is queued for the next /agents step`],
-    footer: `/attach use ${result.runId} | /agents step attached`,
+    preview: ["task is queued for the next agent step"],
+    footer: "/attach latest | /agents step attached",
   });
 }
 
 export function agentStepPanelModel(result: AgentRunStepResult): AgentPanelModel {
   return agentOperationPanelModel({
     title: "Agent step",
-    subtitle: result.runId,
-    name: result.task?.id ?? result.runId,
+    subtitle: "current run",
+    name: result.task ? `${result.task.agent} task` : "agent run",
     status: result.status,
     detail: result.message,
     note: result.task ? `${result.task.agent}: ${result.task.title}` : "",
@@ -272,21 +272,21 @@ export function agentStepPanelModel(result: AgentRunStepResult): AgentPanelModel
       activity: result.message,
     })] : undefined,
     preview: result.task ? [`${result.task.agent}: ${result.task.title}`, result.task.detail] : undefined,
-    footer: `/agents detail ${result.runId} | /agents drain ${result.runId}`,
+    footer: "/agents detail attached | /agents drain attached",
   });
 }
 
 export function agentDrainPanelModel(result: AgentRunDrainResult): AgentPanelModel {
   return agentOperationPanelModel({
     title: "Agent drain",
-    subtitle: result.runId,
-    name: result.runId,
+    subtitle: "current run",
+    name: "agent run",
     status: result.status,
     detail: result.message,
     note: `steps=${result.steps.length}`,
     progress: agentStepProgressLines(result.steps),
     preview: result.steps.slice(0, 8).map((step) => `${step.status}${step.task ? ` ${step.task.agent}:${step.task.title}` : ""} ${step.message}`),
-    footer: `/agents detail ${result.runId}`,
+    footer: "/agents detail attached",
   });
 }
 
@@ -297,7 +297,7 @@ export function agentDaemonPanelModel(result: AgentDaemonTickResult): AgentPanel
     name: "daemon",
     status: result.status,
     detail: `${result.runs.length} run${result.runs.length === 1 ? "" : "s"} touched`,
-    preview: result.runs.map((run) => `${run.runId} ${run.drain.status} steps=${run.drain.steps.length} ${run.drain.message}`),
+    preview: result.runs.map((run, index) => `${runListLabel(index)} ${run.drain.status} steps=${run.drain.steps.length} ${run.drain.message}`),
     footer: "/agents runs | /agents daemon all",
   });
 }
@@ -348,8 +348,8 @@ export function agentPanelCommandOptions(model: AgentPanelModel): SelectListOpti
     ? {
       id: "detail",
       label: "detail",
-      detail: "/agents detail <run-id|attached>",
-      description: "open task and event detail for an agent run",
+      detail: "/agents detail attached",
+      description: "open task and event detail for the attached or latest run",
       tone: "brand" as const,
     }
     : {
@@ -437,12 +437,16 @@ function groupTone(rows: AgentPanelRow[]): TerminalTone {
 function taskRow(task: TaskRecord): AgentPanelRow {
   return {
     key: task.id,
-    name: task.id,
+    name: `${task.agent} task`,
     status: task.status,
     tone: toneForStatus(task.status),
     detail: `${task.agent}: ${task.title}`,
     note: task.detail,
   };
+}
+
+function runListLabel(index: number): string {
+  return `run ${index + 1}`;
 }
 
 function taskSummary(tasks: TaskRecord[]): string {
@@ -507,6 +511,12 @@ function previewLines(prompt: string): string[] {
 }
 
 function summarizePayload(payload: unknown): string {
-  const text = JSON.stringify(payload ?? {});
+  const text = redactInternalAgentIds(JSON.stringify(payload ?? {}));
   return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+}
+
+function redactInternalAgentIds(text: string): string {
+  return text
+    .replace(/\brun_[0-9a-f-]{8,}\b/gi, "agent run")
+    .replace(/\btask_[0-9a-f-]{8,}\b/gi, "agent task");
 }

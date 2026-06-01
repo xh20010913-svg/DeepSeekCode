@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import type { SshProfile } from "./sshProfileService.js";
 import { formatSshTarget } from "./sshProfileService.js";
+import { DeepSeekCodeAbortError, throwIfAborted } from "../../utils/abort.js";
 
 export interface SshCommandOutput {
   command: string;
@@ -19,6 +20,7 @@ export interface SshExecutionPolicy {
   sshBin?: string;
   sshBinArgs?: string[];
   stdin?: string | Buffer;
+  signal?: AbortSignal;
 }
 
 export function buildSshArgs(profile: SshProfile, command: string): string[] {
@@ -48,6 +50,7 @@ export function runSshCommand(
   if (!policy.allowShell) {
     throw new Error("SSH execution is disabled. Run /shell on or /permissions profile dev first.");
   }
+  throwIfAborted(policy.signal);
   const sshBin = policy.sshBin ?? process.env.DEEPSEEKCODE_SSH_BIN ?? "ssh";
   const sshBinArgs = policy.sshBinArgs ?? sshBinArgsFromEnv();
   const args = buildSshArgs(profile, command);
@@ -63,8 +66,43 @@ export function runSshCommand(
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let settled = false;
     const collect = (chunk: Buffer, current: string) =>
       (current + chunk.toString()).slice(-maxOutputChars);
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      policy.signal?.removeEventListener("abort", onAbort);
+    };
+
+    const settleResolve = (output: SshCommandOutput) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(output);
+    };
+
+    const settleReject = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+
+    const terminateChild = () => {
+      if (!child.killed) child.kill();
+      if (process.platform === "win32" && child.pid) {
+        spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+          windowsHide: true,
+          stdio: "ignore",
+        }).unref();
+      }
+    };
+
+    const onAbort = () => {
+      terminateChild();
+      settleReject(new DeepSeekCodeAbortError(policy.signal?.reason));
+    };
 
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout = collect(chunk, stdout);
@@ -76,16 +114,17 @@ export function runSshCommand(
       child.stdin?.on("error", () => undefined);
       child.stdin?.end(policy.stdin);
     }
-    child.on("error", reject);
+    child.on("error", settleReject);
 
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill();
+      terminateChild();
     }, timeoutMs);
+    if (policy.signal?.aborted) onAbort();
+    else policy.signal?.addEventListener("abort", onAbort, { once: true });
 
     child.on("close", (exitCode) => {
-      clearTimeout(timer);
-      resolve({
+      settleResolve({
         command,
         target: formatSshTarget(profile),
         exitCode,

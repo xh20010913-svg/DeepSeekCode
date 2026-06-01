@@ -52,15 +52,20 @@ export interface ActionPlanTurn {
 
 export interface ActionPlanOptions {
   onReasoningDelta?: (text: string) => void;
+  signal?: AbortSignal;
+}
+
+export interface ProviderRequestOptions {
+  signal?: AbortSignal;
 }
 
 export interface DeepSeekProviderClient {
   providerName: string;
   model: string;
   verifyModel(): Promise<ChatReply>;
-  completeChat(messages: ChatMessage[]): Promise<ChatReply>;
-  streamChat(messages: ChatMessage[]): AsyncGenerator<ChatStreamEvent, void, void>;
-  classifyTurn(input: string): Promise<TurnClassification>;
+  completeChat(messages: ChatMessage[], options?: ProviderRequestOptions): Promise<ChatReply>;
+  streamChat(messages: ChatMessage[], options?: ProviderRequestOptions): AsyncGenerator<ChatStreamEvent, void, void>;
+  classifyTurn(input: string, options?: ProviderRequestOptions): Promise<TurnClassification>;
   planActions(input: {
     userMessage: string;
     systemPrompt: string;

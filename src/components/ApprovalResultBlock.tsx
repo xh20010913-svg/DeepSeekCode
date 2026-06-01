@@ -45,17 +45,15 @@ export function ApprovalResultBlock(props: {
         status={gate.status}
         summary={model.summary}
       />
-      {model.hint ? <ApprovalResultRow label="next" value={model.hint} color="gray" /> : null}
     </PermissionRequestFrame>
   );
 }
 
 export function parseApprovalResultMessage(message: string): ApprovalResultModel | null {
   const trimmed = message.trim();
-  const required = trimmed.match(/^Approval required:\s+(\S+)\s+(.+)$/i);
+  const required = trimmed.match(/^Approval required:\s+(.+)$/i);
   if (required) {
-    const gateId = required[1] ?? "";
-    const rest = required[2] ?? "";
+    const { gateId, rest } = splitOptionalGateId(required[1] ?? "");
     const [summary, hint] = splitApprovalHint(rest);
     return {
       status: "required",
@@ -66,27 +64,39 @@ export function parseApprovalResultMessage(message: string): ApprovalResultModel
     };
   }
 
-  const decided = trimmed.match(/^Approval\s+(approved|rejected|cancelled|canceled):\s+(\S+)\s+(.+)$/i);
+  const decided = trimmed.match(/^Approval\s+(approved|rejected|cancelled|canceled):\s+(.+)$/i);
   if (!decided) return null;
   const rawStatus = (decided[1] ?? "").toLowerCase();
   const status = rawStatus === "canceled" ? "cancelled" : rawStatus;
-  const summary = decided[3] ?? "";
+  const { gateId, rest } = splitOptionalGateId(decided[2] ?? "");
   return {
     status: status as ApprovalResultModel["status"],
-    gateId: decided[2] ?? "",
-    action: approvalActionFromSummary(summary),
-    summary,
+    gateId,
+    action: approvalActionFromSummary(rest),
+    summary: rest,
   };
 }
 
+function splitOptionalGateId(value: string): { gateId: string; rest: string } {
+  const trimmed = value.trim();
+  const [first = "", ...tail] = trimmed.split(/\s+/);
+  if (/^approval_[\w.-]+$/i.test(first) && tail.length > 0) {
+    return { gateId: first, rest: tail.join(" ") };
+  }
+  return { gateId: "latest", rest: trimmed };
+}
+
 function splitApprovalHint(value: string): [string, string | undefined] {
-  const marker = ". Run ";
-  const index = value.indexOf(marker);
-  if (index < 0) return [value.trim(), undefined];
-  return [
-    value.slice(0, index).trim(),
-    `Run ${value.slice(index + marker.length).trim()}`,
-  ];
+  for (const marker of [". Run ", ". Waiting for "]) {
+    const index = value.indexOf(marker);
+    if (index < 0) continue;
+    const verb = marker.trimStart().replace(/^\.\s*/, "");
+    return [
+      value.slice(0, index).trim(),
+      `${verb}${value.slice(index + marker.length).trim()}`,
+    ];
+  }
+  return [value.trim(), undefined];
 }
 
 function approvalActionFromSummary(summary: string): string {

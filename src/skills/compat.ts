@@ -8,8 +8,10 @@ export interface BundledSkillAdapter {
 const SKILL_DESCRIPTIONS: Record<string, string> = {
   batch: "Plan bounded multi-step local work while preserving DeepSeek cache reuse.",
   debug: "Inspect failing local commands, tests, hooks, and tool traces.",
+  documents: "Create, revise, and validate DOCX artifacts through DeepSeekCode runtime tools.",
   keybindings: "Design terminal-safe DeepSeekCode shortcut bindings.",
   loop: "Run iterative plan, edit, test, and review loops with explicit gates.",
+  presentations: "Create, revise, and validate PPTX slide decks through DeepSeekCode runtime tools.",
   remember: "Capture stable project facts as memory or cache pins.",
   simplify: "Reduce noisy code paths while keeping behavior and tests intact.",
   skillify: "Turn repeatable workflows into DeepSeekCode skills.",
@@ -37,8 +39,10 @@ export function normalizeSkillReference(referencePath: string): string {
 export const bundledSkillAdapters: BundledSkillAdapter[] = [
   "batch",
   "debug",
+  "documents",
   "keybindings",
   "loop",
+  "presentations",
   "remember",
   "simplify",
   "skillify",

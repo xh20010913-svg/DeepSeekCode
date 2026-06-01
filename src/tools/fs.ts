@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { artifactKindFromPath, type ArtifactKind } from "../protocol/actions.js";
 import { safeJoin, safeOptionalJoin } from "./pathSafety.js";
 
 export interface FileEntry {
@@ -11,6 +12,17 @@ export interface GrepMatch {
   path: string;
   line: number;
   text: string;
+}
+
+export interface ToolReadFileResult {
+  content: string;
+  message: string;
+  sizeBytes: number;
+  chars: number;
+  artifactKind: ArtifactKind;
+  binary: boolean;
+  truncated: boolean;
+  fullTextAvailable: boolean;
 }
 
 export function writeFile(
@@ -30,6 +42,56 @@ export function writeFile(
 
 export function readFile(root: string, relativePath: string): string {
   return fs.readFileSync(safeJoin(root, relativePath), "utf8");
+}
+
+export function readFileForTool(root: string, relativePath: string): ToolReadFileResult {
+  const target = safeJoin(root, relativePath);
+  const stat = fs.statSync(target);
+  if (!stat.isFile()) {
+    throw new Error(`not a file: ${relativePath}`);
+  }
+
+  const artifactKind = artifactKindFromPath(relativePath);
+  if (isBinaryArtifactKind(artifactKind)) {
+    return binarySummary(relativePath, stat.size, artifactKind);
+  }
+
+  const probe = readProbe(target, stat.size);
+  if (looksBinary(probe)) {
+    return binarySummary(relativePath, stat.size, artifactKind);
+  }
+
+  const maxChars = readFileMaxChars();
+  const text = fs.readFileSync(target, "utf8");
+  if (text.length <= maxChars) {
+    return {
+      content: text,
+      message: `${text.length} chars`,
+      sizeBytes: stat.size,
+      chars: text.length,
+      artifactKind,
+      binary: false,
+      truncated: false,
+      fullTextAvailable: true,
+    };
+  }
+
+  const preview = text.slice(0, maxChars);
+  const note = [
+    "",
+    `[read_file truncated: showing ${preview.length} of ${text.length} chars (${stat.size} bytes).`,
+    "Use grep_files or run_command for targeted inspection instead of rereading the whole file.]",
+  ].join("\n");
+  return {
+    content: `${preview}${note}`,
+    message: `truncated text: showing ${preview.length} of ${text.length} chars (${stat.size} bytes)`,
+    sizeBytes: stat.size,
+    chars: text.length,
+    artifactKind,
+    binary: false,
+    truncated: true,
+    fullTextAvailable: false,
+  };
 }
 
 export function listFiles(root: string, relativePath: string, maxDepth: number): FileEntry[] {
@@ -142,6 +204,73 @@ function countOccurrences(text: string, search: string): number {
     count += 1;
     index = found + search.length;
   }
+}
+
+function isBinaryArtifactKind(kind: ArtifactKind): boolean {
+  return ["docx", "pptx", "pdf", "image", "screenshot"].includes(kind);
+}
+
+function binarySummary(relativePath: string, sizeBytes: number, artifactKind: ArtifactKind): ToolReadFileResult {
+  const specificGuidance = artifactKind === "file"
+    ? "Use run_command for a structured inspection if this binary file must be analyzed."
+    : `Use validate_artifact expected_kind=${artifactKind} or run_command for structured inspection.`;
+  const content = [
+    `[binary file omitted: ${relativePath}]`,
+    `kind=${artifactKind}`,
+    `bytes=${sizeBytes}`,
+    specificGuidance,
+  ].join("\n");
+  return {
+    content,
+    message: `binary artifact: ${artifactKind}, ${sizeBytes} bytes; ${specificGuidance}`,
+    sizeBytes,
+    chars: 0,
+    artifactKind,
+    binary: true,
+    truncated: false,
+    fullTextAvailable: false,
+  };
+}
+
+function readProbe(target: string, sizeBytes: number): Buffer {
+  const length = Math.min(sizeBytes, 8192);
+  if (length <= 0) return Buffer.alloc(0);
+  const fd = fs.openSync(target, "r");
+  try {
+    const buffer = Buffer.alloc(length);
+    fs.readSync(fd, buffer, 0, length, 0);
+    return buffer;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function looksBinary(buffer: Buffer): boolean {
+  if (buffer.length === 0) return false;
+  if (startsWith(buffer, [0x50, 0x4b, 0x03, 0x04])) return true; // zip/docx/pptx/xlsx
+  if (startsWith(buffer, [0x25, 0x50, 0x44, 0x46])) return true; // PDF
+  if (startsWith(buffer, [0x89, 0x50, 0x4e, 0x47])) return true; // PNG
+  if (startsWith(buffer, [0xff, 0xd8, 0xff])) return true; // JPEG
+  if (startsWith(buffer, [0x52, 0x49, 0x46, 0x46])) return true; // RIFF/WebP/WAV
+
+  let controlBytes = 0;
+  for (const byte of buffer) {
+    if (byte === 0) return true;
+    const isAllowedWhitespace = byte === 9 || byte === 10 || byte === 12 || byte === 13;
+    if (byte < 32 && !isAllowedWhitespace) controlBytes += 1;
+  }
+  return controlBytes / buffer.length > 0.08;
+}
+
+function startsWith(buffer: Buffer, signature: number[]): boolean {
+  if (buffer.length < signature.length) return false;
+  return signature.every((byte, index) => buffer[index] === byte);
+}
+
+function readFileMaxChars(): number {
+  const parsed = Number.parseInt(process.env.DEEPSEEKCODE_READ_FILE_MAX_CHARS ?? "", 10);
+  if (Number.isFinite(parsed) && parsed >= 1_000) return parsed;
+  return 60_000;
 }
 
 function wildcardToRegExp(pattern: string): RegExp {

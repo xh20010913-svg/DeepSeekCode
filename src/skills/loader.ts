@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { discoverSkills, type SkillSummary } from "./discovery.js";
+import { bundledRuntimeSkillContent, discoverSkills, type SkillSummary } from "./discovery.js";
 import { parseSkillDocument, type SkillFrontmatter } from "./manifest.js";
 
 export interface LoadedSkill extends SkillSummary {
@@ -12,6 +12,15 @@ export interface LoadedSkill extends SkillSummary {
 export function loadSkill(projectPath: string, dataDir: string, name: string): LoadedSkill | null {
   const skill = discoverSkills(projectPath, dataDir).find((candidate) => candidate.name === name);
   if (!skill) return null;
+  if (skill.path.startsWith("builtin:")) {
+    const prompt = bundledRuntimeSkillContent(skill.name) ?? "";
+    const parsed = parseSkillDocument(prompt);
+    return {
+      ...skill,
+      prompt,
+      frontmatter: parsed.frontmatter,
+    };
+  }
   const skillMd = path.join(skill.path, "SKILL.md");
   const manifestJson = path.join(skill.path, "skill.json");
   const prompt = fs.existsSync(skillMd) ? fs.readFileSync(skillMd, "utf8") : "";

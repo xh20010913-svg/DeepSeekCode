@@ -1,4 +1,5 @@
 import type { JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, McpProbeResult } from "./stdioClient.js";
+import { DeepSeekCodeAbortError, throwIfAborted } from "../utils/abort.js";
 
 export class McpHttpClient {
   private nextId = 1;
@@ -7,6 +8,7 @@ export class McpHttpClient {
   constructor(
     private readonly url: string,
     private readonly timeoutMs = 10_000,
+    private readonly signal?: AbortSignal,
   ) {}
 
   async connect(): Promise<unknown> {
@@ -55,7 +57,11 @@ export class McpHttpClient {
     notification = false,
   ): Promise<JsonRpcResponse> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    throwIfAborted(this.signal);
+    const timer = setTimeout(() => controller.abort(new Error("MCP HTTP request timed out")), this.timeoutMs);
+    const abortFromCaller = () => controller.abort(new DeepSeekCodeAbortError(this.signal?.reason));
+    if (this.signal?.aborted) abortFromCaller();
+    else this.signal?.addEventListener("abort", abortFromCaller, { once: true });
     try {
       const response = await fetch(this.url, {
         method: "POST",
@@ -86,6 +92,7 @@ export class McpHttpClient {
       return parsed as JsonRpcResponse;
     } finally {
       clearTimeout(timer);
+      this.signal?.removeEventListener("abort", abortFromCaller);
     }
   }
 }
@@ -109,8 +116,9 @@ export async function callMcpHttpTool(
   toolName: string,
   args: Record<string, unknown>,
   timeoutMs = 10_000,
+  signal?: AbortSignal,
 ): Promise<{ result: unknown; stderr: string }> {
-  const client = new McpHttpClient(url, timeoutMs);
+  const client = new McpHttpClient(url, timeoutMs, signal);
   await client.connect();
   const result = await client.callTool(toolName, args);
   return { result, stderr: "" };

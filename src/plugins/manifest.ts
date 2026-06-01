@@ -26,6 +26,7 @@ export const PluginManifestSchema = z.object({
   description: z.string().default(""),
   commands: z.array(PluginCommandManifestSchema).default([]),
   agents: z.array(z.string().min(1)).default([]),
+  skills: z.array(z.string().min(1)).default([]),
   output_styles: z.array(z.string().min(1)).default([]),
   hooks: z.array(PluginHookManifestSchema).default([]),
 });
@@ -43,7 +44,44 @@ export interface PluginValidationResult {
 }
 
 export function parsePluginManifest(value: unknown): PluginManifest {
-  return PluginManifestSchema.parse(value);
+  return PluginManifestSchema.parse(normalizePluginManifestShape(value));
+}
+
+function normalizePluginManifestShape(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const raw = { ...(value as Record<string, unknown>) };
+  if (raw.outputStyles && !raw.output_styles) raw.output_styles = raw.outputStyles;
+  raw.agents = normalizeStringArray(raw.agents);
+  raw.skills = normalizeStringArray(raw.skills);
+  raw.output_styles = normalizeStringArray(raw.output_styles);
+  raw.commands = normalizeCommands(raw.commands);
+  return raw;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string");
+  return [];
+}
+
+function normalizeCommands(value: unknown): unknown[] {
+  if (Array.isArray(value)) {
+    return value.filter((item) => item && typeof item === "object" && !Array.isArray(item));
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).flatMap(([name, config]) => {
+      if (!config || typeof config !== "object" || Array.isArray(config)) return [];
+      const record = config as Record<string, unknown>;
+      if (typeof record.content !== "string") return [];
+      return [{
+        name,
+        description: typeof record.description === "string" ? record.description : "Plugin command.",
+        prompt: record.content,
+        aliases: [],
+      }];
+    });
+  }
+  return [];
 }
 
 export function normalizePluginName(value: string): string {
@@ -78,6 +116,7 @@ export function renderPluginManifest(input: {
       },
     ],
     agents: ["agents"],
+    skills: ["skills"],
     output_styles: ["output-styles"],
     hooks: [],
   };
@@ -129,6 +168,9 @@ export function validatePluginManifest(
   }
   for (const agentsPath of manifest.agents) {
     if (pathEscapesPlugin(agentsPath)) errors.push(`agents path '${agentsPath}' escapes plugin root`);
+  }
+  for (const skillsPath of manifest.skills) {
+    if (pathEscapesPlugin(skillsPath)) errors.push(`skills path '${skillsPath}' escapes plugin root`);
   }
   for (const stylesPath of manifest.output_styles) {
     if (pathEscapesPlugin(stylesPath)) errors.push(`output_styles path '${stylesPath}' escapes plugin root`);

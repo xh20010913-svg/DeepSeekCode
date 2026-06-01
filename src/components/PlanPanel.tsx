@@ -5,7 +5,7 @@ import { StatusBadge } from "./design/StatusBadge.js";
 import { flattenCellText, truncateCells } from "./design/textLayout.js";
 import type { TerminalTone } from "./design/terminalTheme.js";
 import { useTerminalSize } from "../hooks/useTerminalSize.js";
-import type { PlanRecord } from "../services/plans/planModeService.js";
+import { formatPlanReference, type PlanRecord } from "../services/plans/planModeService.js";
 
 export interface PlanPanelCommand {
   label: string;
@@ -17,6 +17,7 @@ export interface PlanPanelCommand {
 export interface PlanPanelModel {
   title: string;
   runId: string;
+  runLabel: string;
   path: string;
   chars: number;
   lines: number;
@@ -39,7 +40,7 @@ export function PlanPanel(props: {
       <Text>
         <StatusBadge label={model.status} tone={toneForStatus(model.status)} />
         {" "}
-        <Text color="gray">{model.runId}</Text>
+        <Text color="gray">{model.runLabel}</Text>
       </Text>
       <PlanRow label="path" value={model.path} />
       <PlanRow label="size" value={`${model.chars} chars / ${model.lines} lines`} />
@@ -65,10 +66,11 @@ export function planPanelModel(record: PlanRecord, title = "Plan mode"): PlanPan
   return {
     title,
     runId: record.runId,
-    path: record.relativePath,
+    runLabel: displayRunLabel(record.runId),
+    path: formatPlanReference(record.relativePath),
     chars: record.content.length,
     lines: record.content ? lines.length : 0,
-    approval: gate ? `${gate.id} ${gate.status}` : "none",
+    approval: gate ? gate.status : "none",
     status,
     summary: gate?.summary || firstMeaningfulLine(record.content) || "No plan content yet",
     preview: previewLines(record.content, 8, 96),
@@ -80,13 +82,13 @@ function planCommands(record: PlanRecord): PlanPanelCommand[] {
   const commands: PlanPanelCommand[] = [
     {
       label: "show",
-      command: `/plan show ${record.runId}`,
+      command: "/plan show",
       description: "print the full draft",
       tone: "inspect",
     },
     {
       label: "path",
-      command: `/plan path ${record.runId}`,
+      command: "/plan path",
       description: "locate the markdown plan",
       tone: "inspect",
     },
@@ -96,19 +98,19 @@ function planCommands(record: PlanRecord): PlanPanelCommand[] {
     commands.push(
       {
         label: "approve",
-        command: `/plan approve ${record.gate.id} <reason>`,
+        command: "/plan approve latest <reason>",
         description: "continue from this plan",
         tone: "allow",
       },
       {
         label: "reject",
-        command: `/plan reject ${record.gate.id} <reason>`,
+        command: "/plan reject latest <reason>",
         description: "ask for another plan",
         tone: "reject",
       },
       {
         label: "cancel",
-        command: `/plan cancel ${record.gate.id} <reason>`,
+        command: "/plan cancel latest <reason>",
         description: "close the gate",
         tone: "neutral",
       },
@@ -119,7 +121,7 @@ function planCommands(record: PlanRecord): PlanPanelCommand[] {
   if (record.content.trim()) {
     commands.push({
       label: "submit",
-      command: `/plan exit ${record.runId}`,
+      command: "/plan exit",
       description: "request approval for this draft",
       tone: "allow",
     });
@@ -138,6 +140,10 @@ function previewLines(content: string, maxLines: number, maxCells: number): stri
 
 function firstMeaningfulLine(content: string): string {
   return previewLines(content, 1, 96)[0] ?? "";
+}
+
+function displayRunLabel(runId: string): string {
+  return /^run_[0-9a-f-]{8,}$/i.test(runId) ? "current run" : runId;
 }
 
 function CommandRows(props: {

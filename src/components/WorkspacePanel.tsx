@@ -193,11 +193,11 @@ export function checkpointPathPanelModel(checkpointDir: string): WorkspacePanelM
 export function attachListPanelModel(runs: RunRecord[], currentRunId?: string): WorkspacePanelModel {
   return {
     title: "Attachable runs",
-    subtitle: currentRunId ? `current=${currentRunId}` : "No attached run",
+    subtitle: currentRunId ? "current run attached" : "No attached run",
     badge: runs.length ? `${runs.length}` : "none",
     badgeTone: runs.length ? "brand" : "muted",
-    rows: runs.map((run) => runRow(run, currentRunId === run.id ? "current" : run.status)),
-    footer: "/attach latest | /attach use <run-id> | /attach clear",
+    rows: runs.map((run, index) => runRow(run, currentRunId === run.id ? "current" : run.status, runListLabel(index))),
+    footer: "/attach latest | /attach current | /attach clear",
   };
 }
 
@@ -215,19 +215,19 @@ export function attachCurrentPanelModel(snapshot: AttachedRunSnapshot): Workspac
   if (!snapshot.run) {
     return {
       title: "Attached run",
-      subtitle: snapshot.runId,
+      subtitle: "Attached run record is missing",
       badge: "missing",
       badgeTone: "warning",
-      rows: [{ key: "missing", label: "missing", value: snapshot.runId, tone: "warning" }],
+      rows: [{ key: "missing", label: "missing", value: "missing attached run", tone: "warning" }],
       footer: "/attach clear | /runs",
     };
   }
   return {
     title: "Attached run",
-    subtitle: snapshot.run.id,
+    subtitle: "current run",
     badge: snapshot.run.status,
     badgeTone: runTone(snapshot.run.status),
-    rows: [runRow(snapshot.run, "current")],
+    rows: [runRow(snapshot.run, "current", "current run")],
     footer: "/tasks attached | /queue attached | /trace attached",
   };
 }
@@ -235,10 +235,10 @@ export function attachCurrentPanelModel(snapshot: AttachedRunSnapshot): Workspac
 export function attachActionPanelModel(run: RunRecord, action: "attached" | "cleared"): WorkspacePanelModel {
   return {
     title: action === "attached" ? "Run attached" : "Attached run cleared",
-    subtitle: run.id,
+    subtitle: action === "attached" ? "current run" : "No attached run",
     badge: action,
     badgeTone: action === "attached" ? "success" : "muted",
-    rows: [runRow(run, action)],
+    rows: [runRow(run, action, action === "attached" ? "current run" : "previous run")],
     footer: action === "attached" ? "/tasks attached | /trace attached | /attach clear" : "/attach list | /runs",
   };
 }
@@ -246,10 +246,10 @@ export function attachActionPanelModel(run: RunRecord, action: "attached" | "cle
 export function attachClearedPanelModel(runId?: string): WorkspacePanelModel {
   return {
     title: "Attached run cleared",
-    subtitle: runId ?? "No previous run",
+    subtitle: runId ? "Previous attached run cleared" : "No previous run",
     badge: "cleared",
     badgeTone: "muted",
-    rows: runId ? [{ key: "cleared", label: "cleared", value: runId, tone: "muted" }] : [],
+    rows: runId ? [{ key: "cleared", label: "cleared", value: "previous attached run", tone: "muted" }] : [],
     footer: "/attach list | /attach latest",
   };
 }
@@ -299,7 +299,7 @@ export function workspacePanelCommandOptions(model: WorkspacePanelModel): Select
   if (lowerTitle.includes("attachable")) {
     return [
       commandOption("latest", "/attach latest", "focus the most recent unfinished run", "brand"),
-      commandOption("use", "/attach use <run-id>", "focus a specific run", "success"),
+      commandOption("current", "/attach current", "show the attached run", "success"),
       commandOption("clear", "/attach clear", "clear attached run focus", "muted"),
     ];
   }
@@ -327,14 +327,18 @@ function commandOption(id: string, detail: string, description: string, tone: Te
   };
 }
 
-function runRow(run: RunRecord, label: string): WorkspacePanelRow {
+function runRow(run: RunRecord, label: string, value: string): WorkspacePanelRow {
   return {
     key: run.id,
     label,
-    value: run.id,
+    value,
     tone: label === "current" || label === "attached" ? "success" : runTone(run.status),
     note: `${run.status} | actions=${run.actionCount} artifacts=${run.artifactCount} events=${run.eventCount} | ${run.message || "(no message)"}`,
   };
+}
+
+function runListLabel(index: number): string {
+  return `run ${index + 1}`;
 }
 
 function runTone(status: string): TerminalTone {

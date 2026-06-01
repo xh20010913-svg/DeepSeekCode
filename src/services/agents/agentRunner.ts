@@ -29,6 +29,7 @@ export async function runAgentTask(input: {
   provider: DeepSeekProviderClient;
   permissions: RuntimePermissionState;
   feedback?: ActionExecutionReport;
+  signal?: AbortSignal;
 }): Promise<AgentRunResult> {
   const agent = loadAgent(input.config.projectPath, input.config.dataDir, input.name);
   if (!agent) throw new Error(`agent not found: ${input.name}`);
@@ -47,6 +48,8 @@ export async function runAgentTask(input: {
         `Description: ${agent.description || "(none)"}`,
         `Allowed tools: ${agent.tools?.join(", ") || "inherited"}`,
         `Disallowed tools: ${agent.frontmatter.disallowedTools?.join(", ") || "(none)"}`,
+        `Runtime permissions: shell=${input.permissions.allowShell ? "enabled" : "disabled"} browser=${input.permissions.allowBrowser ? "enabled" : "disabled"} profile=${input.permissions.profile ?? input.config.permissionProfile}`,
+        "If shell is disabled, do not use run_command, ssh_run, or shell-backed MCP calls.",
         "",
         "<agent_system_prompt>",
         agent.prompt,
@@ -55,6 +58,8 @@ export async function runAgentTask(input: {
       systemPrompt: buildActionSystemPrompt(),
       contextSummary: contextBundlePrompt(bundle),
       feedback,
+    }, {
+      signal: input.signal,
     });
 
     const policyViolation = enforceAgentToolPolicy(envelope, agent);
@@ -68,6 +73,7 @@ export async function runAgentTask(input: {
         shellPolicy: { ...defaultShellPolicy, allowShell: input.permissions.allowShell },
         browserPolicy: { allowBrowser: input.permissions.allowBrowser },
         dataDir: input.config.dataDir,
+        abortSignal: input.signal,
       });
 
     turns.push({ index, envelope, execution });

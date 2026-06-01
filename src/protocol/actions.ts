@@ -3,7 +3,9 @@ import { z } from "zod";
 export const ArtifactKindSchema = z.enum([
   "file",
   "html",
+  "markdown",
   "docx",
+  "pptx",
   "pdf",
   "image",
   "screenshot",
@@ -14,7 +16,8 @@ export type ArtifactKind = z.infer<typeof ArtifactKindSchema>;
 export const WriteFileActionSchema = z.object({
   type: z.literal("write_file"),
   path: z.string().min(1),
-  content: z.string(),
+  content: z.string().optional(),
+  content_lines: z.array(z.string()).optional(),
   encoding: z.string().default("utf-8"),
   overwrite: z.boolean().default(false),
 });
@@ -84,7 +87,8 @@ export const SshWriteFileActionSchema = z.object({
   type: z.literal("ssh_write_file"),
   profile: z.string().min(1),
   path: z.string().min(1),
-  content: z.string(),
+  content: z.string().optional(),
+  content_lines: z.array(z.string()).optional(),
   encoding: z.string().default("utf-8"),
   overwrite: z.boolean().default(false),
   timeout_ms: z.number().int().min(100).max(120_000).default(30_000),
@@ -184,6 +188,21 @@ export const PlannedDocxActionSchema = z.object({
   markdown: z.string(),
 });
 
+export const PptxSlideSchema = z.object({
+  title: z.string().min(1),
+  bullets: z.array(z.string().min(1)).default([]),
+  speaker_notes: z.string().optional(),
+  visual: z.string().optional(),
+});
+
+export const PlannedPptxActionSchema = z.object({
+  type: z.literal("create_pptx"),
+  path: z.string().min(1),
+  title: z.string().min(1),
+  subtitle: z.string().optional(),
+  slides: z.array(PptxSlideSchema).min(1).max(20),
+});
+
 export const PlannedPdfActionSchema = z.object({
   type: z.literal("create_pdf"),
   path: z.string().min(1),
@@ -199,6 +218,7 @@ export const InvokeSkillActionSchema = z.object({
   type: z.literal("invoke_skill"),
   name: z.string().min(1),
   task: z.string().min(1),
+  max_turns: z.number().int().min(1).max(6).optional(),
 });
 
 export const InvokeAgentActionSchema = z.object({
@@ -230,6 +250,7 @@ export const ActionRequestSchema = z.discriminatedUnion("type", [
   BrowserClickActionSchema,
   BrowserTypeActionSchema,
   PlannedDocxActionSchema,
+  PlannedPptxActionSchema,
   PlannedPdfActionSchema,
   PlannedComputerUseActionSchema,
   InvokeSkillActionSchema,
@@ -256,6 +277,19 @@ export const ActionEnvelopeSchema = z
         path: ["actions"],
       });
     }
+    value.actions.forEach((action, index) => {
+      if (
+        (action.type === "write_file" || action.type === "ssh_write_file") &&
+        typeof action.content !== "string" &&
+        !Array.isArray(action.content_lines)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "write action requires content or content_lines",
+          path: ["actions", index, "content"],
+        });
+      }
+    });
   });
 
 export type ActionEnvelope = z.infer<typeof ActionEnvelopeSchema>;
@@ -280,8 +314,10 @@ export function actionType(action: ActionRequest): string {
 
 export function artifactKindFromPath(path: string): ArtifactKind {
   const lower = path.toLowerCase();
+  if (lower.endsWith(".md") || lower.endsWith(".markdown")) return "markdown";
   if (lower.endsWith(".html") || lower.endsWith(".htm")) return "html";
   if (lower.endsWith(".docx")) return "docx";
+  if (lower.endsWith(".pptx")) return "pptx";
   if (lower.endsWith(".pdf")) return "pdf";
   if (
     lower.endsWith(".png") ||

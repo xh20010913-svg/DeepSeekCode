@@ -18,6 +18,7 @@ export function Footer(props: {
   permissions: RuntimePermissionState;
   config: RuntimeConfig;
   state: StateStore;
+  sessionStartedAtMs?: number;
   lastTurnUsage?: UsageSnapshot;
   sessionUsage?: UsageSnapshot;
   providerReady: boolean;
@@ -27,7 +28,9 @@ export function Footer(props: {
   const profile = props.permissions.profile ?? inferProfile(props.permissions);
   const effort = readInferenceEffort(props.config.projectPath);
   const cache = useCacheSummary(props.state);
-  const pendingGates = useApprovals(props.state, "pending", 20).length;
+  const pendingGates = useApprovals(props.state, "pending", 20)
+    .filter((gate) => props.sessionStartedAtMs === undefined || gate.createdAtMs >= props.sessionStartedAtMs)
+    .length;
   const model = buildFooterModel({
     busy: props.busy,
     queuedCount: props.queuedCount,
@@ -89,7 +92,7 @@ export function buildFooterModel(input: FooterModelInput): FooterModel {
     : `cache ${input.cache.rate}`;
   const usageText = `turn ${input.lastTurnUsage?.outputTokens ?? 0} out | total ${totalTokens(input.sessionUsage)}`;
   const effortText = getEffortNotificationText(input.effort, input.providerModel);
-  const gatesText = `gates ${input.pendingGates}`;
+  const gatesText = `attention ${input.pendingGates}`;
   const permissionText = [
     input.profile,
     `shell ${input.shellEnabled ? "on" : "off"}`,
@@ -100,7 +103,11 @@ export function buildFooterModel(input: FooterModelInput): FooterModel {
     statusLabel: input.busy ? "working" : "idle",
     statusTone: input.busy ? "warning" : "muted",
     left: `${cacheText} | ${usageText} | ${effortText}${queueText}`,
-    hint: input.busy ? "Enter queues next prompt | /cancel stops run | ? shortcuts" : "Ctrl+P commands | Ctrl+O files | Ctrl+R history | ? shortcuts",
+    hint: input.pendingGates > 0
+      ? "Permission prompt: Up/Down select | Enter confirm | Esc cancel/reject"
+      : input.busy
+        ? "Enter queues next prompt | /cancel stops run | ? shortcuts"
+        : "Ctrl+P commands | Ctrl+O files | Ctrl+R history | ? shortcuts",
     right: input.compact
       ? `${permissionText} | ${gatesText} | ${providerText}`
       : `${permissionText} | ${gatesText} | ${providerText}`,

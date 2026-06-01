@@ -7,6 +7,7 @@ import { flattenCellText, truncateCells } from "./design/textLayout.js";
 export interface PlanApprovalPreviewModel {
   title: string;
   path: string;
+  storagePath: string;
   size: string;
   preview: string[];
   clipped: boolean;
@@ -77,7 +78,8 @@ export function planApprovalPreviewModelFromContent(
     .map((line) => truncateCells(line, Math.max(24, width - 4)));
   return {
     title: "Plan preview",
-    path: relativePath,
+    path: "draft plan",
+    storagePath: relativePath,
     size: `${content.length} chars / ${content ? lines.length : 0} lines`,
     preview,
     clipped: meaningful.length > preview.length,

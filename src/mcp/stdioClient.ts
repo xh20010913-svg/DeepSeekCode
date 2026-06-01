@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { DeepSeekCodeAbortError, throwIfAborted } from "../utils/abort.js";
 
 export interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -31,6 +32,7 @@ export class McpStdioClient {
   private stdoutBuffer = "";
   private stderrBuffer = "";
   private nextId = 1;
+  private readonly abortHandler = () => this.abort();
   private readonly pending = new Map<number, {
     resolve: (value: JsonRpcResponse) => void;
     reject: (error: Error) => void;
@@ -42,9 +44,11 @@ export class McpStdioClient {
     private readonly cwd: string,
     private readonly timeoutMs = 10_000,
     private readonly maxStderrChars = 8_000,
+    private readonly signal?: AbortSignal,
   ) {}
 
   async connect(): Promise<unknown> {
+    throwIfAborted(this.signal);
     this.child = spawn(this.command, {
       cwd: this.cwd,
       shell: true,
@@ -59,6 +63,8 @@ export class McpStdioClient {
     this.child.on("close", (code) => {
       if (this.pending.size > 0) this.rejectAll(new Error(`MCP server exited with code ${code ?? "unknown"}`));
     });
+    if (this.signal?.aborted) this.abort();
+    else this.signal?.addEventListener("abort", this.abortHandler, { once: true });
 
     const result = await this.request("initialize", {
       protocolVersion: "2024-11-05",
@@ -90,13 +96,15 @@ export class McpStdioClient {
   }
 
   close(): void {
+    this.signal?.removeEventListener("abort", this.abortHandler);
     for (const pending of this.pending.values()) clearTimeout(pending.timer);
     this.pending.clear();
-    if (this.child && !this.child.killed) this.child.kill();
+    this.terminateChild();
     this.child = null;
   }
 
   private request(method: string, params?: unknown): Promise<unknown> {
+    throwIfAborted(this.signal);
     const id = this.nextId++;
     this.write({ jsonrpc: "2.0", id, method, params });
     return new Promise((resolve, reject) => {
@@ -166,6 +174,22 @@ export class McpStdioClient {
     }
   }
 
+  private abort(): void {
+    this.rejectAll(new DeepSeekCodeAbortError(this.signal?.reason));
+    this.terminateChild();
+  }
+
+  private terminateChild(): void {
+    if (!this.child || this.child.killed) return;
+    this.child.kill();
+    if (process.platform === "win32" && this.child.pid) {
+      spawn("taskkill", ["/pid", String(this.child.pid), "/T", "/F"], {
+        windowsHide: true,
+        stdio: "ignore",
+      }).unref();
+    }
+  }
+
   private writeRaw(message: JsonRpcResponse): void {
     if (!this.child) throw new Error("MCP server is not connected");
     this.child.stdin.write(`${JSON.stringify(message)}\n`);
@@ -197,8 +221,9 @@ export async function callMcpStdioTool(
   toolName: string,
   args: Record<string, unknown>,
   timeoutMs = 10_000,
+  signal?: AbortSignal,
 ): Promise<{ result: unknown; stderr: string }> {
-  const client = new McpStdioClient(command, cwd, timeoutMs);
+  const client = new McpStdioClient(command, cwd, timeoutMs, 8_000, signal);
   try {
     await client.connect();
     const result = await client.callTool(toolName, args);

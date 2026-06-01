@@ -8,6 +8,7 @@ import { Pane } from "./design/Pane.js";
 import { StatusBadge } from "./design/StatusBadge.js";
 import { truncateCells } from "./design/textLayout.js";
 import type { TerminalTone } from "./design/terminalTheme.js";
+import { displayRunLabel } from "./ApprovalGateCard.js";
 
 export interface OperationPanelModel {
   title: string;
@@ -99,9 +100,9 @@ export function validationPanelModel(gates: ValidationGateRecord[], scope: strin
     rows: gates.map((gate) => ({
       key: gate.id,
       label: gate.status,
-      value: `${gate.id} ${gate.subjectType}:${gate.subjectId}`,
+      value: `${gate.subjectType}:${gate.subjectId}`,
       tone: validationTone(gate.status),
-      note: `${gate.runId} | ${gate.summary}`,
+      note: `${displayRunLabel(gate.runId)} | ${gate.summary}`,
     })),
     footer: "/validation <run-id|attached> failed | /export status",
   };

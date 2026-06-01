@@ -4,17 +4,17 @@
 
 <p align="center">
   <a href="./README.md">English</a>
-  &nbsp;·&nbsp;
+  &nbsp;|&nbsp;
   <a href="./README.zh-CN.md">简体中文</a>
-  &nbsp;·&nbsp;
+  &nbsp;|&nbsp;
   <strong>日本語</strong>
-  &nbsp;·&nbsp;
+  &nbsp;|&nbsp;
   <a href="https://xh20010913-svg.github.io/DeepSeekCode/">Website</a>
-  &nbsp;·&nbsp;
+  &nbsp;|&nbsp;
   <a href="./GUIDE.md">Guide</a>
-  &nbsp;·&nbsp;
+  &nbsp;|&nbsp;
   <a href="./ARCHITECTURE.md">Architecture</a>
-  &nbsp;·&nbsp;
+  &nbsp;|&nbsp;
   <a href="./CLI_REFERENCE.md">CLI</a>
 </p>
 
@@ -26,27 +26,26 @@
   <a href="https://platform.deepseek.com"><img src="https://img.shields.io/badge/provider-DeepSeek-38bdf8.svg?style=flat-square&labelColor=161b22" alt="DeepSeek provider"/></a>
 </p>
 
-<br/>
-
 <h3 align="center">DeepSeek-first のローカル coding agent。</h3>
-<p align="center">DeepSeekCode は DeepSeek の prefix cache、TypeScript runtime、durable state、明示的な local tools を中心に設計したプロジェクトです。</p>
-
-<br/>
 
 <p align="center">
   <img src="assets/readme-runtime-terminal.png" alt="DeepSeekCode running in Windows Terminal" width="880"/>
 </p>
 
-<br/>
+DeepSeekCode は TypeScript 製のローカル Agent ランタイムです。安定した system rules、tool schema、project memory、repository facts、cache pins を prompt の前方に置き、ユーザー入力と圧縮済み tool feedback を後方に置くことで、DeepSeek の prefix cache 再利用を狙います。
 
-> [!TIP]
-> DeepSeekCode では cache hit rate を UI の飾りではなく runtime の設計制約として扱います。安定した rules、tool schema、project memory、repository map、cache pins を前方に固定し、変動しやすい user turn と tool feedback は後方に置きます。
+## Highlights
 
-<br/>
+- Local typed tools for file editing, patching, shell, browser, Office artifacts, MCP, skills, and validation.
+- Durable SQLite state for runs, actions, artifacts, tasks, approvals, validations, usage, and cache telemetry.
+- Session restore with `--continue` and `--resume <session-id>` after restarting the CLI.
+- Compact `tool_result_summary` persistence to avoid replaying long stdout, diffs, and logs.
+- `runtime_run_state` summaries for continuing paused work across processes.
+- Multi-agent Planner -> Builder -> Tester -> Reviewer flow with compact feedback and checkpoints.
 
 ## Install
 
-Node.js >= 22 が必要です。Windows Terminal / PowerShell、macOS、Linux で動作します。
+Node.js >= 22 is required.
 
 ```bash
 git clone https://github.com/xh20010913-svg/DeepSeekCode.git
@@ -55,7 +54,7 @@ npm install
 npm run build
 ```
 
-DeepSeek をローカルで設定します。
+Configure DeepSeek:
 
 ```bash
 DEEPSEEK_BASE_URL=https://api.deepseek.com
@@ -63,91 +62,54 @@ DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_MODEL=deepseek-v4-flash
 ```
 
-任意の project directory に対して起動します。
+Start with a separate test project:
 
 ```bash
 npm run start -- --project "D:\code\DeepSeekTest"
 ```
 
-開発と検証:
+Continue the latest session:
 
 ```bash
-npm run dev -- --project "D:\code\DeepSeekTest"
-npm run doctor
-npm run typecheck
-npm run build
+npm run start -- --project "D:\code\DeepSeekTest" --continue -p "Continue the last task"
 ```
 
-| Command | When |
-| --- | --- |
-| `npm run start -- --project <dir>` | Ink/React terminal agent を起動します。 |
-| `npm run dev -- --project <dir>` | TypeScript から直接実行します。 |
-| `npm run doctor` | Node、provider、permission、state path を確認します。 |
-| `npm run typecheck` | TypeScript をビルド出力なしで検証します。 |
-| `npm run build` | runtime を `dist/` にコンパイルします。 |
+Resume a specific session:
 
-<br/>
+```bash
+npm run start -- --project "D:\code\DeepSeekTest" --resume session_xxx -p "Continue the paused work"
+```
 
-## Core Ideas
+## Validation
 
-| Pillar | What it means |
-| --- | --- |
-| Cache-first loop | Stable prompt prefix, cache guard, cache pins, reusable profiles, and provider cache telemetry. |
-| Typed local actions | The model proposes an action envelope; DeepSeekCode validates path, permission, tool, and artifact state before execution. |
-| Durable work | Runs, tasks, events, approvals, memory, usage, and traces are persisted instead of living only in terminal memory. |
+The release tree was checked with:
 
-詳細は [Architecture](./ARCHITECTURE.md) と [Guide](./GUIDE.md) を参照してください。
+- `npm run typecheck`
+- `npm run build`
+- live cross-process session resume tests
+- live multi-agent workflow tests
 
-<br/>
-
-## Capabilities
-
-<p align="center">
-  <img src="assets/deepseekcode-feature-grid.svg" alt="DeepSeekCode capabilities" width="880"/>
-</p>
-
-<br/>
+The live prompt audit confirmed that `recent_conversation`, `tool_result_summary`, and `runtime_run_state` are included in provider prompts.
 
 ## Commands
 
-```text
-/help
-/doctor
-/status
-/config
-/cache
-/cache guard <goal>
-/cache prepare <goal>
-/model verify
-/shell on|off
-/browser on|off
-/cmd <command>
-/diff git
-/approval list
-/plan start|show|approve|reject|cancel
-/memory list|accepted|export
-/skills
-/plugins
-/mcp
-/multi provider <task>
-/quit
-```
+| Command | Purpose |
+| --- | --- |
+| `/doctor` | Check provider, model, paths, and permissions. |
+| `/cache` | Inspect cache readiness and prompt shape. |
+| `/sessions` / `/resume` | List or focus persisted transcript sessions. |
+| `/runs` / `/trace` | Inspect durable run/action/task state. |
+| `/multi provider <task>` | Run Planner -> Builder -> Tester -> Reviewer. |
 
-<br/>
+See [CLI Reference](./CLI_REFERENCE.md) for details.
 
-## Documentation
+## Links
 
 - [Guide](./GUIDE.md)
 - [Architecture](./ARCHITECTURE.md)
 - [CLI Reference](./CLI_REFERENCE.md)
-- [Website](https://xh20010913-svg.github.io/DeepSeekCode/)
+- [Website Guide](./website/guide.html)
 
-<br/>
+## License
 
----
-
-<p align="center">
-  <sub>MIT · see <a href="./LICENSE">LICENSE</a></sub>
-  <br/>
-  <sub>Built for DeepSeek-first local coding at <a href="https://github.com/xh20010913-svg/DeepSeekCode">xh20010913-svg/DeepSeekCode</a></sub>
-</p>
+MIT

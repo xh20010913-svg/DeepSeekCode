@@ -19,6 +19,8 @@ The CLI entrypoint is `src/cli/main.tsx`. It parses flags, loads config, opens t
 
 The `QueryEngine` is the orchestration center. It classifies a turn, chooses chat or local-tool flow, prepares stable prompt blocks, asks DeepSeek for an action envelope, executes validated tool actions, records state, and streams terminal events back to the UI.
 
+Headless CLI runs can restore persisted transcript state with `--continue` or `--resume <session-id>`. This lets a new process continue useful work without relying on terminal memory.
+
 ## Pillar 1: Cache-First Loop
 
 DeepSeekCode keeps a stable prompt prefix for runtime instructions and tool schemas. Dynamic task content is added later. This lets large local tasks reuse as much DeepSeek prefix cache as possible.
@@ -65,8 +67,24 @@ Runs are persisted in SQLite instead of living only in terminal memory. The stat
 - Approval and validation gates.
 - Usage snapshots and cache telemetry.
 - UI state and context checkpoints.
+- Run progress checkpoints and compact tool feedback.
 
 This makes `/runs`, `/trace`, `/events`, `/approval list`, and related commands useful after the terminal has redrawn or a run has paused.
+
+Session history is persisted separately as JSONL transcript records. On resume, DeepSeekCode builds a layered context:
+
+- `conversation_summary` for older high-value goals, paths, failures, and constraints.
+- `recent_conversation` for the last useful turns.
+- `tool_result_summary` for compact tool feedback.
+- `runtime_run_state` for recent or paused runs, task DAGs, actions, artifacts, gates, and progress checkpoints.
+
+The raw transcript and SQLite state remain the source of truth; summaries are prompt inputs, not the only persisted record.
+
+## Pillar 4: Multi-Agent Execution
+
+Provider multi-agent mode runs a fixed Planner -> Builder -> Tester -> Reviewer chain over durable task records. Each role receives the global goal, role instruction, compact feedback from prior roles, and current `runtime_run_state`.
+
+Role attempts write `agent_progress_checkpoint` events and compact tool summaries. Failed role output can queue a rework task instead of losing state in a long chat transcript.
 
 ## Main Modules
 
@@ -81,6 +99,8 @@ This makes `/runs`, `/trace`, `/events`, `/approval list`, and related commands 
 | State | `src/state/sqlite.ts` | SQLite schema and durable runtime records. |
 | Permissions | `src/services/permissions/` | Safe/dev/browser/open profiles and runtime toggles. |
 | Cache | `src/services/cache/` | Guard reports, pins, profiles, telemetry, prompt-shape checks. |
+| Session | `src/services/session/` | Transcript storage, resume state, tool-result compaction, and run-state prompt summaries. |
+| Coordinator | `src/coordinator/commander.ts` | Provider multi-agent Planner/Builder/Tester/Reviewer workflow. |
 | UI | `src/components/` | Ink/React terminal panels and workbench rendering. |
 | Website | `website/` | Static public site and guide page. |
 

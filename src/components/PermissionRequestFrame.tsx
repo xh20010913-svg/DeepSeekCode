@@ -33,8 +33,7 @@ export function PermissionRequestFrame(props: {
         tone={model.tone}
         paneTitle="permission request"
         statusLabel={model.statusLabel}
-        meta={props.gate.id}
-        inputGuide={`/approval approve ${props.gate.id} | /approval reject ${props.gate.id}`}
+        inputGuide={inputGuideForGate(props.gate.subjectType)}
       >
         <Box flexDirection="row">
           <Text color="gray">scope   </Text>
@@ -72,7 +71,7 @@ function baseModelForGate(
     return {
       title: "DeepSeekCode needs your answer",
       subtitle: compact(gate.summary.replace(/^Question for user:\s*/i, "")),
-      scope: "answer one pending question gate",
+      scope: "answer one pending question",
       risk: "medium",
     };
   }
@@ -189,6 +188,12 @@ function baseModelForGate(
     scope: action || gate.subjectType,
     risk: "medium",
   };
+}
+
+export function inputGuideForGate(subjectType: string): string {
+  if (subjectType === "question") return "Use Up/Down, Enter, number keys, or type an answer; Esc rejects.";
+  if (subjectType === "plan") return "Use Up/Down, Enter/Y to approve, N to reject, Esc to cancel.";
+  return "Use Up/Down, Enter/Y to allow once, N to reject, Esc to cancel.";
 }
 
 function toneForGate(status: ApprovalGateRecord["status"], risk: "low" | "medium" | "high"): TerminalTone {

@@ -28,6 +28,7 @@ import {
   PlannedComputerUseActionSchema,
   PlannedDocxActionSchema,
   PlannedPdfActionSchema,
+  PlannedPptxActionSchema,
   ReadFileActionSchema,
   RunCommandActionSchema,
   SshReadFileActionSchema,
@@ -50,7 +51,8 @@ import { TodoService, formatTodoList } from "../services/todos/todoService.js";
 import { loadSkill } from "../skills/loader.js";
 import { summarizeValidation, validateArtifact } from "./artifact.js";
 import { startBrowserSession } from "./browser.js";
-import { applyTextPatch, globFiles, grepFiles, listFiles, readFile, writeFile } from "./fs.js";
+import { applyTextPatch, globFiles, grepFiles, listFiles, readFileForTool, writeFile } from "./fs.js";
+import { createDocxArtifact, createPptxArtifact } from "./officeArtifacts.js";
 import { safeJoin } from "./pathSafety.js";
 import { defaultShellPolicy, runCommand, summarizeCommand } from "./shell.js";
 
@@ -58,20 +60,22 @@ export const baseTools: Tools = [
   buildTool({
     name: "read_file",
     displayName: "Read",
-    description: "Read a UTF-8 file inside the selected project root.",
+    description: "Read a text file inside the selected project root. Binary artifacts and very large files return concise summaries.",
     inputSchema: ReadFileActionSchema,
     readOnly: true,
     concurrencySafe: true,
     run(input, context) {
-      const content = readFile(context.root, input.path);
-      context.fileStateCache?.rememberRead(context.root, input.path);
+      const output = readFileForTool(context.root, input.path);
+      if (output.fullTextAvailable) {
+        context.fileStateCache?.rememberRead(context.root, input.path);
+      }
       return {
-        data: { content },
+        data: output,
         result: {
           action_type: input.type,
           status: "succeeded",
           path: input.path,
-          message: `${content.length} chars`,
+          message: output.message,
         },
       };
     },
@@ -112,7 +116,7 @@ export const baseTools: Tools = [
           throw new Error(`refusing stale write: ${freshness.reason}`);
         }
       }
-      const target = writeFile(context.root, input.path, input.content, Boolean(input.overwrite));
+      const target = writeFile(context.root, input.path, actionContent(input), Boolean(input.overwrite));
       context.fileStateCache?.rememberRead(context.root, input.path);
       return {
         result: {
@@ -198,7 +202,7 @@ export const baseTools: Tools = [
   buildTool({
     name: "run_command",
     displayName: "Bash",
-    description: "Run a shell command in the project after explicit shell permission.",
+    description: "Run a shell command in the project after explicit shell permission. On Windows this uses PowerShell, not cmd.exe.",
     inputSchema: RunCommandActionSchema,
     concurrencySafe: false,
     destructive: true,
@@ -215,6 +219,8 @@ export const baseTools: Tools = [
       const output = await runCommand(context.root, input.command, input.cwd ?? "", input.timeout_ms ?? 30_000, {
         ...defaultShellPolicy,
         allowShell: context.allowShell,
+      }, {
+        signal: context.abortSignal,
       });
       return {
         data: output,
@@ -260,6 +266,7 @@ export const baseTools: Tools = [
         allowShell: context.allowShell,
         timeoutMs: input.timeout_ms,
         maxOutputChars: defaultShellPolicy.maxOutputChars,
+        signal: context.abortSignal,
       });
       service.recordCommand(profile.name, output);
       return {
@@ -306,6 +313,7 @@ export const baseTools: Tools = [
         allowShell: context.allowShell,
         timeoutMs: input.timeout_ms,
         maxOutputChars: defaultShellPolicy.maxOutputChars,
+        signal: context.abortSignal,
       });
       service.recordCommand(profile.name, result.output);
       return {
@@ -348,11 +356,12 @@ export const baseTools: Tools = [
           },
         };
       }
-      const result = await writeRemoteTextFile(profile, input.path, input.content, {
+      const result = await writeRemoteTextFile(profile, input.path, actionContent(input), {
         allowShell: context.allowShell,
         timeoutMs: input.timeout_ms,
         maxOutputChars: defaultShellPolicy.maxOutputChars,
         overwrite: input.overwrite,
+        signal: context.abortSignal,
       });
       service.recordCommand(profile.name, result.output);
       return {
@@ -394,6 +403,7 @@ export const baseTools: Tools = [
       const output = await service.callTool(input.server, input.tool, input.arguments ?? {}, {
         allowShell: context.allowShell,
         timeoutMs: input.timeout_ms,
+        signal: context.abortSignal,
       });
       return {
         data: output,
@@ -493,11 +503,10 @@ export const baseTools: Tools = [
         result: {
           action_type: input.type,
           status: "failed",
-          path: record.gateId,
           message: [
             "Question awaiting user answer.",
-            formatQuestionRecord(record),
-            `Answer with /question answer ${record.gateId} <answer>.`,
+            formatQuestionRecord(record, { includeIds: false }),
+            "Waiting for your answer in the permission panel.",
           ].join("\n"),
         },
       };
@@ -522,14 +531,13 @@ export const baseTools: Tools = [
       }
       const runId = input.run_id ?? context.runId!;
       const record = new PlanModeService(context.root, context.state).exit(runId, input.plan, input.summary ?? "");
-      const gateId = record.gate?.id ?? "unknown";
       return {
         data: record,
         result: {
           action_type: input.type,
           status: "failed",
           path: record.relativePath,
-          message: `Approval required: ${gateId} plan ${record.relativePath}. Run /approval approve ${gateId} <reason>, then retry the request.`,
+          message: `Approval required: plan ${record.relativePath}. Waiting for your approval in the permission panel.`,
         },
       };
     },
@@ -828,11 +836,34 @@ export const baseTools: Tools = [
   buildTool({
     name: "invoke_skill",
     displayName: "Skill",
-    description: "Load a named DeepSeekCode skill prompt for a specific task.",
+    description: "Execute a named DeepSeekCode or Claude-style SKILL.md skill in a forked local agent context.",
     inputSchema: InvokeSkillActionSchema,
-    readOnly: true,
-    concurrencySafe: true,
-    run(input, context) {
+    concurrencySafe: false,
+    destructive: true,
+    async run(input, context) {
+      if (context.skillRunner) {
+        const output = await context.skillRunner({
+          name: input.name,
+          task: input.task,
+          maxTurns: input.max_turns,
+        });
+        const childSummary = output.execution.results
+          .map((result) => `${result.action_type}:${result.status}${result.path ? ` ${result.path}` : ""}`)
+          .join("\n");
+        return {
+          data: output,
+          result: {
+            action_type: input.type,
+            status: output.execution.status,
+            path: output.skill.path,
+            message: [
+              `skill ${output.skill.scope}/${output.skill.name} executed in ${output.turnCount} turn(s) for task: ${input.task}`,
+              output.execution.final_message,
+              childSummary,
+            ].filter(Boolean).join("\n"),
+          },
+        };
+      }
       const skill = loadSkill(context.root, context.dataDir ?? context.root, input.name);
       if (!skill) {
         return {
@@ -861,17 +892,37 @@ export const baseTools: Tools = [
   buildTool({
     name: "create_docx",
     displayName: "DOCX",
-    description: "Reserved document-generation action. It fails honestly until the document bridge is wired.",
+    description: "Create a real DOCX artifact from Markdown using the runtime document tool; do not write helper scripts.",
     inputSchema: PlannedDocxActionSchema,
     destructive: true,
-    run(input) {
+    async run(input, context) {
+      const target = await createDocxArtifact(context.root, input);
       return {
         result: {
           action_type: input.type,
-          status: "failed",
-          path: input.path,
-          message: "create_docx is in the protocol; the TypeScript document bridge is not wired yet.",
+          status: "succeeded",
+          path: target,
+          message: "DOCX created by runtime document tool",
           artifact_kind: "docx",
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "create_pptx",
+    displayName: "PPTX",
+    description: "Create a real PPTX artifact from structured slide content using the runtime presentation tool; do not write helper scripts.",
+    inputSchema: PlannedPptxActionSchema,
+    destructive: true,
+    async run(input, context) {
+      const target = await createPptxArtifact(context.root, input);
+      return {
+        result: {
+          action_type: input.type,
+          status: "succeeded",
+          path: target,
+          message: `PPTX created by runtime presentation tool with ${input.slides.length + 1} slides`,
+          artifact_kind: "pptx",
         },
       };
     },
@@ -917,6 +968,12 @@ export const baseTools: Tools = [
     },
   }),
 ];
+
+function actionContent(input: { content?: string; content_lines?: string[] }): string {
+  if (typeof input.content === "string") return input.content;
+  if (Array.isArray(input.content_lines)) return input.content_lines.join("\n");
+  throw new Error("write action requires content or content_lines");
+}
 
 function recordBrowserTool(
   dataDir: string | undefined,

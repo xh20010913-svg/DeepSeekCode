@@ -1,21 +1,48 @@
 import React from "react";
-import { Box } from "ink";
+import { Box, Text } from "ink";
 import { ApprovalGateCard } from "./ApprovalGateCard.js";
 import { useApprovals } from "../hooks/useApprovals.js";
-import type { StateStore } from "../state/sqlite.js";
+import type { ApprovalGateRecord, StateStore } from "../state/sqlite.js";
 
 export function PendingGatePanel(props: {
   projectPath: string;
   state: StateStore;
+  sessionStartedAtMs?: number;
+  gates?: ApprovalGateRecord[];
+  selectedDecisionIndex?: number;
 }): React.ReactElement | null {
-  const gates = useApprovals(props.state, "pending", 5);
-  if (gates.length === 0) return null;
+  const gates = props.gates ?? useApprovals(props.state, "pending", 20);
+  const visibleGates = currentSessionPendingGates(gates, props.sessionStartedAtMs);
+  if (visibleGates.length === 0) return null;
+  const currentGate = visibleGates[0];
+  if (!currentGate) return null;
 
   return (
     <Box flexDirection="column" paddingX={1} marginTop={1}>
-      {gates.map((gate) => (
-        <ApprovalGateCard key={gate.id} gate={gate} projectPath={props.projectPath} />
-      ))}
+      <ApprovalGateCard
+        gate={currentGate}
+        projectPath={props.projectPath}
+        selectedDecisionIndex={props.selectedDecisionIndex}
+      />
+      {visibleGates.length > 1 ? (
+        <Box paddingLeft={1}>
+          <Text color="gray">
+            {pendingGateQueueHint(visibleGates.length - 1)}
+          </Text>
+        </Box>
+      ) : null}
     </Box>
   );
+}
+
+export function currentSessionPendingGates(
+  gates: ApprovalGateRecord[],
+  sessionStartedAtMs?: number,
+): ApprovalGateRecord[] {
+  if (sessionStartedAtMs === undefined) return gates;
+  return gates.filter((gate) => gate.createdAtMs >= sessionStartedAtMs);
+}
+
+export function pendingGateQueueHint(count: number): string {
+  return `${count} more current-session request(s) are queued. Finish the highlighted request first.`;
 }

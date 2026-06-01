@@ -28,13 +28,14 @@ export function ApprovalGateCard(props: {
   children?: React.ReactNode;
   projectPath?: string;
   showRun?: boolean;
+  selectedDecisionIndex?: number;
 }): React.ReactElement {
   const model = approvalGateCardModel(props.gate);
   const { columns } = useTerminalSize();
   const width = Math.max(36, Math.min(100, columns - 4));
   return (
     <PermissionRequestFrame gate={props.gate} width={width}>
-      {props.showRun ? <GateRow label="run" value={props.gate.runId} /> : null}
+      {props.showRun ? <GateRow label="run" value={displayRunLabel(props.gate.runId)} /> : null}
       <GateRow label="action" value={model.action} />
       <GateRow label="summary" value={model.summary} />
       <FileEditReviewPanel
@@ -66,9 +67,12 @@ export function ApprovalGateCard(props: {
         subjectType={props.gate.subjectType}
         status={props.gate.status}
         summary={props.gate.summary}
+        gate={props.gate}
+        projectPath={props.projectPath}
+        selectedIndex={props.selectedDecisionIndex}
       />
       {props.children}
-      <GateRow label="next" value={model.hint} color="gray" />
+      <GateRow label="hint" value={model.hint} color="gray" />
     </PermissionRequestFrame>
   );
 }
@@ -85,9 +89,10 @@ export function approvalGateCardModel(gate: ApprovalGateRecord): ApprovalGateCar
 }
 
 export function hintForGate(subjectType: string, id: string): string {
-  if (subjectType === "question") return `/question show ${id} | /question answer ${id} <answer>`;
-  if (subjectType === "plan") return `/plan approve ${id} <reason> | /plan reject ${id} <reason>`;
-  return `/approval approve ${id} <reason> | /approval reject ${id} <reason>`;
+  void id;
+  if (subjectType === "question") return "Choose an answer above; DeepSeekCode will continue after your selection.";
+  if (subjectType === "plan") return "Approve to continue, reject to revise, or Esc to cancel.";
+  return "Allow once to continue this exact action, or reject it.";
 }
 
 export function labelForSubject(subjectType: string): string {
@@ -112,6 +117,10 @@ function colorForStatus(status: string): string {
 function compactGateSummary(value: string): string {
   const singleLine = value.replace(/\s+/g, " ").trim();
   return singleLine.length > 180 ? `${singleLine.slice(0, 177)}...` : singleLine;
+}
+
+export function displayRunLabel(runId: string): string {
+  return /^run_[0-9a-f-]{8,}$/i.test(runId) ? "current run" : runId;
 }
 
 function GateRow(props: {

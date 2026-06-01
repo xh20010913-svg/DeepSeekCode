@@ -40,10 +40,8 @@ export const btwCommand: Command = {
         result.answer,
         "",
         [
-          `run=${result.runId}`,
-          `selectedFiles=${result.selectedFiles}`,
+          `contextFiles=${result.selectedFiles}`,
           cachePlanSummary(result.plan),
-          `stablePrefix=${result.stablePrefixHash}`,
           usage,
         ].join(" "),
       ].join("\n"),

@@ -38,7 +38,7 @@ export function requireApprovalForToolAction(
     return {
       action_type: actionType(action),
       status: "failed",
-      message: `Approval ${rejected.status}: ${rejected.id} ${summarizeActionForApproval(action, context)}`,
+      message: `Approval ${rejected.status}: ${summarizeActionForApproval(action, context)}`,
     };
   }
 
@@ -48,7 +48,7 @@ export function requireApprovalForToolAction(
   return {
     action_type: actionType(action),
     status: "failed",
-    message: `${APPROVAL_REQUIRED_PREFIX}: ${pending.id} ${summarizeActionForApproval(action, context)}. Run /approval approve ${pending.id} <reason>, then retry the request.`,
+    message: `${APPROVAL_REQUIRED_PREFIX}: ${summarizeActionForApproval(action, context)}. Waiting for your choice in the permission panel.`,
   };
 }
 
@@ -105,12 +105,13 @@ function buildFileEditApprovalPreview(
 } | null {
   try {
     if (action.type === "write_file") {
+      const nextContent = actionContent(action);
       const target = safeJoin(root, action.path);
       const previous = fs.existsSync(target) ? fs.readFileSync(target, "utf8") : "";
       return {
         action: "write_file",
         relativePath: action.path,
-        diff: createUnifiedDiff(`a/${action.path}`, previous, `b/${action.path}`, action.content),
+        diff: createUnifiedDiff(`a/${action.path}`, previous, `b/${action.path}`, nextContent),
       };
     }
 
@@ -139,14 +140,15 @@ function buildFileEditApprovalPreview(
 function summarizeActionForApproval(action: ActionRequest, context?: ToolExecutionContext): string {
   switch (action.type) {
     case "write_file": {
-      const projection = context ? summarizeProjectedWrite(context.root, action.path, action.content) : [];
+      const content = actionContent(action);
+      const projection = context ? summarizeProjectedWrite(context.root, action.path, content) : [];
       return [
         `write_file path=${action.path}`,
         `overwrite=${action.overwrite}`,
-        `chars=${action.content.length}`,
-        `lines=${lineCount(action.content)}`,
+        `chars=${content.length}`,
+        `lines=${lineCount(content)}`,
         ...projection,
-        `sha=${shortHash(action.content)}`,
+        `sha=${shortHash(content)}`,
       ].join(" ");
     }
     case "apply_patch": {
@@ -167,13 +169,14 @@ function summarizeActionForApproval(action: ActionRequest, context?: ToolExecuti
     case "ssh_run":
       return `ssh_run profile=${action.profile} command=${compact(action.command, 180)}`;
     case "ssh_write_file":
+      const content = actionContent(action);
       return [
         `ssh_write_file profile=${action.profile}`,
         `path=${action.path}`,
         `overwrite=${action.overwrite}`,
-        `chars=${action.content.length}`,
-        `lines=${lineCount(action.content)}`,
-        `sha=${shortHash(action.content)}`,
+        `chars=${content.length}`,
+        `lines=${lineCount(content)}`,
+        `sha=${shortHash(content)}`,
       ].join(" ");
     case "mcp_call":
       return [
@@ -209,6 +212,12 @@ function stableStringify(value: unknown): string {
     return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+function actionContent(action: { content?: string; content_lines?: string[] }): string {
+  if (typeof action.content === "string") return action.content;
+  if (Array.isArray(action.content_lines)) return action.content_lines.join("\n");
+  return "";
 }
 
 function compact(value: string, maxChars: number): string {

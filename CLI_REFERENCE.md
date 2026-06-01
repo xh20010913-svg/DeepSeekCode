@@ -38,6 +38,8 @@ deepseekcode [options]
 | `--data-dir <path>` | Runtime data directory. Defaults to `DEEPSEEKCODE_HOME` or `~/.deepseekcode`. |
 | `--model <model>` | DeepSeek model or provider profile name. Defaults to `DEEPSEEK_MODEL` or `deepseek-v4-flash`. |
 | `-p, --prompt <text>` | Run one headless prompt and exit. |
+| `-c, --continue` | Continue the most recent persisted transcript session before running. |
+| `--resume <session-id>` | Resume a specific persisted transcript session before running. |
 | `--doctor` | Print runtime diagnostics. |
 | `--verify-model` | Verify DeepSeek model access. |
 | `--allow-shell` | Enable shell tool execution for the session. |
@@ -50,6 +52,8 @@ Examples:
 ```bash
 npm run start -- --project "D:\code\DeepSeekTest"
 npm run start -- --project . --permission-profile dev
+npm run start -- --project . --continue --prompt "Continue the previous task"
+npm run start -- --project . --resume session_xxx --prompt "Continue the paused work"
 npm run start -- --project . --verify-model
 npm run start -- --project . --prompt "Summarize this repository" --json
 ```
@@ -100,13 +104,15 @@ The command list is available inside the workbench with `/help`. Common commands
 | `/status` | Show current runtime status. |
 | `/runs` | List recent durable runs. |
 | `/queue` | Inspect queued work. |
-| `/pause`, `/resume`, `/cancel` | Control a running task when supported. |
+| `/pause`, `/run-resume`, `/cancel` | Control a durable run when supported. |
 | `/sessions` | Inspect saved sessions. |
+| `/resume <session-id>|current|clear` | Focus, inspect, or clear the current transcript session. |
 | `/plan` | Enter or manage plan mode. |
 | `/todo`, `/todos` | Manage task todo state. |
 | `/tasks` | Inspect task records. |
 | `/events` | List runtime events. |
 | `/trace <run>` | Inspect a run trace. |
+| `/rewind` / `/checkpoint` | Create, diff, inspect, or restore workspace checkpoints. |
 | `/context` | Inspect selected context. |
 | `/files` | Show file context. |
 | `/diff git` | Show Git diff for the project. |

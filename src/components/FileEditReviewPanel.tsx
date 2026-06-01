@@ -152,25 +152,26 @@ function DiffPreview(props: {
 }
 
 function decisionOptions(gateId: string, preview: FileEditPreviewModel): SelectListOption[] {
+  void gateId;
   return [
     {
       id: "inspect",
       label: "inspect",
-      detail: preview.path ? `/diff git ${preview.path}` : "/diff git",
+      detail: "D",
       description: "review workspace diff after the edit is retried",
       tone: "brand",
     },
     {
       id: "approve",
       label: "approve once",
-      detail: `/approval approve ${gateId} <reason>`,
+      detail: "Enter / Y",
       description: "allow this exact file edit fingerprint",
       tone: "success",
     },
     {
       id: "reject",
       label: "reject",
-      detail: `/approval reject ${gateId} <reason>`,
+      detail: "N",
       description: "block this edit and send feedback",
       tone: "error",
     },

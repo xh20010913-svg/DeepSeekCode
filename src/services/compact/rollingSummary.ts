@@ -7,6 +7,10 @@ export class RollingSummary {
     return this.summary;
   }
 
+  reset(summary = ""): void {
+    this.summary = summary.trim();
+  }
+
   absorb(history: ChatMessage[], keepTail = 10): ChatMessage[] {
     if (history.length <= keepTail + 2) return history;
     const keepFrom = Math.max(0, history.length - keepTail);

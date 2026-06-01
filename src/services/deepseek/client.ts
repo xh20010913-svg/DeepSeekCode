@@ -11,10 +11,13 @@ import type {
   ChatStreamEvent,
   ProviderConfig,
   DeepSeekProviderClient,
+  ProviderRequestOptions,
   TurnClassification,
   UsageSnapshot,
   ActionPlanOptions,
 } from "../../protocol/provider.js";
+import { DeepSeekCodeAbortError, isAbortError, throwIfAborted } from "../../utils/abort.js";
+import { captureProviderPrompt } from "../telemetry/providerPromptAudit.js";
 
 interface DeepSeekResponse {
   choices?: Array<{
@@ -63,13 +66,13 @@ export class DeepSeekClient implements DeepSeekProviderClient {
     ]);
   }
 
-  async completeChat(messages: ChatMessage[]): Promise<ChatReply> {
+  async completeChat(messages: ChatMessage[], options: ProviderRequestOptions = {}): Promise<ChatReply> {
     const json = await this.requestJson({
       model: this.config.model,
       messages,
       temperature: 0.3,
       max_tokens: Math.min(this.config.maxOutputTokens ?? 1200, 1200),
-    });
+    }, options.signal, "chat");
     const message = json.choices?.[0]?.message;
     const usage = usageFromPayload(json.usage);
     this.lastUsage = usage;
@@ -95,7 +98,7 @@ export class DeepSeekClient implements DeepSeekProviderClient {
     return reasoning;
   }
 
-  async *streamChat(messages: ChatMessage[]): AsyncGenerator<ChatStreamEvent, void, void> {
+  async *streamChat(messages: ChatMessage[], options: ProviderRequestOptions = {}): AsyncGenerator<ChatStreamEvent, void, void> {
     const response = await this.requestRaw({
       model: this.config.model,
       messages,
@@ -103,7 +106,7 @@ export class DeepSeekClient implements DeepSeekProviderClient {
       stream: true,
       stream_options: { include_usage: true },
       max_tokens: this.config.maxOutputTokens ?? 1200,
-    });
+    }, options.signal, "chat_stream");
 
     if (!response.body) throw new Error("DeepSeek stream response has no body");
     const reader = response.body.getReader();
@@ -146,6 +149,7 @@ export class DeepSeekClient implements DeepSeekProviderClient {
     };
 
     while (true) {
+      throwIfAborted(options.signal);
       const { value, done } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
@@ -162,7 +166,7 @@ export class DeepSeekClient implements DeepSeekProviderClient {
     yield* flushEvent();
   }
 
-  async classifyTurn(input: string): Promise<TurnClassification> {
+  async classifyTurn(input: string, options: ProviderRequestOptions = {}): Promise<TurnClassification> {
     const reply = await this.completeJson([
       {
         role: "system",
@@ -179,6 +183,7 @@ export class DeepSeekClient implements DeepSeekProviderClient {
     ], {
       label: "turn classification",
       maxTokens: Math.min(this.config.maxOutputTokens ?? 1200, 500),
+      signal: options.signal,
     });
     return normalizeClassification(reply);
   }
@@ -190,21 +195,11 @@ export class DeepSeekClient implements DeepSeekProviderClient {
     feedback?: ActionExecutionReport;
     trajectory?: ActionPlanTurn[];
   }, options: ActionPlanOptions = {}): Promise<ActionEnvelope> {
-    const feedback = formatActionFeedback(input.trajectory ?? [], input.feedback);
-    const messages: ChatMessage[] = [
-      { role: "system", content: input.systemPrompt },
-      {
-        role: "user",
-        content:
-          "You must return json only and it must be an ActionEnvelope.\n\n" +
-          `Project context:\n${input.contextSummary}\n\n` +
-          `${feedback}\n\n` +
-          `Current user request:\n${input.userMessage}`,
-      },
-    ];
+    const messages = buildActionPlanningMessages(input);
     const jsonOptions = {
       label: "action plan",
       maxTokens: Math.max(this.config.maxOutputTokens ?? 1200, 2200),
+      signal: options.signal,
     };
     const reply = options.onReasoningDelta
       ? await this.completeJsonStream(messages, {
@@ -212,12 +207,38 @@ export class DeepSeekClient implements DeepSeekProviderClient {
           onReasoningDelta: options.onReasoningDelta,
         })
       : await this.completeJson(messages, jsonOptions);
-    return ActionEnvelopeSchema.parse(reply);
+    const parsed = ActionEnvelopeSchema.safeParse(reply);
+    if (parsed.success) return parsed.data;
+
+    const repaired = await this.completeJson([
+      ...messages,
+      {
+        role: "assistant",
+        content: JSON.stringify(reply),
+      },
+      {
+        role: "user",
+        content: [
+          "The previous JSON was syntactically valid but failed the ActionEnvelope schema.",
+          "Fix the schema errors and return exactly one compact valid ActionEnvelope JSON object.",
+          "Do not add markdown or prose.",
+          "If a tool action is malformed, either repair all required fields or remove that action and continue with a valid smaller batch.",
+          "Schema issues:",
+          parsed.error.issues.map((issue) => `- path=${issue.path.join(".") || "(root)"} code=${issue.code} message=${issue.message}`).join("\n"),
+        ].join("\n"),
+      },
+    ], {
+      label: "action plan schema repair",
+      maxTokens: jsonOptions.maxTokens,
+      signal: options.signal,
+    });
+    return ActionEnvelopeSchema.parse(repaired);
   }
 
   async completeJson(messages: ChatMessage[], options: {
     label?: string;
     maxTokens?: number;
+    signal?: AbortSignal;
   } = {}): Promise<unknown> {
     const maxTokens = options.maxTokens ?? this.config.maxOutputTokens ?? 1200;
     const json = await this.requestJson({
@@ -226,7 +247,7 @@ export class DeepSeekClient implements DeepSeekProviderClient {
       temperature: 0.2,
       response_format: { type: "json_object" },
       max_tokens: maxTokens,
-    });
+    }, options.signal, options.label ?? "json response");
     this.lastUsage = usageFromPayload(json.usage);
     this.lastReasoning = json.choices?.[0]?.message?.reasoning_content ?? undefined;
     const first = parseJsonResponse(json, options.label ?? "json response");
@@ -248,7 +269,7 @@ export class DeepSeekClient implements DeepSeekProviderClient {
       temperature: 0,
       response_format: { type: "json_object" },
       max_tokens: Math.min(4096, Math.max(maxTokens * 2, 1200)),
-    });
+    }, options.signal, `${options.label ?? "json response"} repair`);
     this.lastUsage = mergeUsage(this.lastUsage, usageFromPayload(repair.usage));
     this.lastReasoning = [
       this.lastReasoning,
@@ -266,6 +287,7 @@ export class DeepSeekClient implements DeepSeekProviderClient {
     label?: string;
     maxTokens?: number;
     onReasoningDelta?: (text: string) => void;
+    signal?: AbortSignal;
   } = {}): Promise<unknown> {
     const maxTokens = options.maxTokens ?? this.config.maxOutputTokens ?? 1200;
     try {
@@ -277,7 +299,7 @@ export class DeepSeekClient implements DeepSeekProviderClient {
         stream: true,
         stream_options: { include_usage: true },
         max_tokens: maxTokens,
-      }, options.onReasoningDelta);
+      }, options.onReasoningDelta, options.signal, options.label ?? "json stream");
       this.lastUsage = streamed.usage;
       this.lastReasoning = streamed.reasoning || undefined;
       const first = parseJsonText(streamed.content, {
@@ -286,7 +308,8 @@ export class DeepSeekClient implements DeepSeekProviderClient {
         reasoningChars: streamed.reasoning.length,
       });
       if (first.ok) return first.value;
-    } catch {
+    } catch (error) {
+      if (isAbortError(error, options.signal)) throw error;
       // Streaming JSON is an optimization for live thinking. Some gateways
       // support JSON mode only on non-streaming requests, so fall through to
       // the stricter non-stream path instead of failing the user task.
@@ -294,24 +317,31 @@ export class DeepSeekClient implements DeepSeekProviderClient {
     return this.completeJson(messages, {
       label: options.label,
       maxTokens,
+      signal: options.signal,
     });
   }
 
-  private async requestJson(body: Record<string, unknown>): Promise<DeepSeekResponse> {
-    const response = await this.requestRaw(body);
+  private async requestJson(
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+    auditLabel = "json",
+  ): Promise<DeepSeekResponse> {
+    const response = await this.requestRaw(body, signal, auditLabel);
     return (await response.json()) as DeepSeekResponse;
   }
 
   private async requestJsonStream(
     body: Record<string, unknown>,
     onReasoningDelta?: (text: string) => void,
+    signal?: AbortSignal,
+    auditLabel = "json stream",
   ): Promise<{
     content: string;
     reasoning: string;
     finishReason?: string | null;
     usage: UsageSnapshot;
   }> {
-    const response = await this.requestRaw(body);
+    const response = await this.requestRaw(body, signal, auditLabel);
     if (!response.body) throw new Error("DeepSeek stream response has no body");
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -360,6 +390,7 @@ export class DeepSeekClient implements DeepSeekProviderClient {
     };
 
     while (true) {
+      throwIfAborted(signal);
       const { value, done } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
@@ -373,9 +404,22 @@ export class DeepSeekClient implements DeepSeekProviderClient {
     return { content, reasoning, finishReason, usage };
   }
 
-  private async requestRaw(body: Record<string, unknown>): Promise<Response> {
+  private async requestRaw(
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+    auditLabel = "request",
+  ): Promise<Response> {
+    captureProviderPrompt({
+      provider: this.config.name,
+      model: this.config.model,
+      label: auditLabel,
+      body,
+    });
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.config.timeoutSecs * 1000);
+    const timeout = setTimeout(() => controller.abort(new Error("DeepSeek request timed out")), this.config.timeoutSecs * 1000);
+    const abortFromCaller = () => controller.abort(new DeepSeekCodeAbortError(signal?.reason));
+    if (signal?.aborted) abortFromCaller();
+    else signal?.addEventListener("abort", abortFromCaller, { once: true });
     try {
       const response = await fetch(endpointFor(this.config.baseUrl), {
         method: "POST",
@@ -393,8 +437,52 @@ export class DeepSeekClient implements DeepSeekProviderClient {
       return response;
     } finally {
       clearTimeout(timeout);
+      signal?.removeEventListener("abort", abortFromCaller);
     }
   }
+}
+
+export function buildActionPlanningMessages(input: {
+  userMessage: string;
+  systemPrompt: string;
+  contextSummary: string;
+  feedback?: ActionExecutionReport;
+  trajectory?: ActionPlanTurn[];
+}): ChatMessage[] {
+  const messages: ChatMessage[] = [
+    { role: "system", content: input.systemPrompt },
+    {
+      role: "user",
+      content: [
+        "You must return json only and it must be an ActionEnvelope.",
+        input.contextSummary ? `Project context:\n${input.contextSummary}` : "",
+        `Current user request:\n${input.userMessage}`,
+      ].filter(Boolean).join("\n\n"),
+    },
+  ];
+  const turns = (input.trajectory ?? []).slice(-6);
+  for (const turn of turns) {
+    messages.push({
+      role: "assistant",
+      content: [
+        `<assistant_action_envelope attempt="${turn.attempt}">`,
+        JSON.stringify(compactEnvelope(turn.assistantEnvelope), null, 2),
+        "</assistant_action_envelope>",
+      ].join("\n"),
+    });
+    messages.push({
+      role: "user",
+      content: formatToolResultMessage(turn.toolReport, turn.note, turn.attempt),
+    });
+  }
+  const feedbackAlreadyInTrajectory = turns.some((turn) => turn.toolReport === input.feedback);
+  if (input.feedback && !feedbackAlreadyInTrajectory) {
+    messages.push({
+      role: "user",
+      content: formatToolResultMessage(input.feedback, undefined, turns.length + 1),
+    });
+  }
+  return messages;
 }
 
 type JsonParseResult =
@@ -427,12 +515,52 @@ function parseJsonText(
   try {
     return { ok: true, value: JSON.parse(content) };
   } catch (error) {
+    const balanced = extractFirstJsonObject(content);
+    if (balanced && balanced !== content) {
+      try {
+        return { ok: true, value: JSON.parse(balanced) };
+      } catch {
+        // Preserve the original parse error below; the extracted object was
+        // only a best-effort recovery path for trailing prose or duplicate JSON.
+      }
+    }
     const message = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
       error: `${meta.label} parse failed: ${message} finish=${meta.finish ?? "unknown"} contentChars=${content.length} head=${JSON.stringify(compact(content, 160))}`,
     };
   }
+}
+
+function extractFirstJsonObject(text: string): string | undefined {
+  const start = text.indexOf("{");
+  if (start < 0) return undefined;
+  let depth = 0;
+  let inString = false;
+  let escaping = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaping) {
+        escaping = false;
+      } else if (char === "\\") {
+        escaping = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") depth += 1;
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, index + 1);
+    }
+  }
+  return undefined;
 }
 
 function endpointFor(baseUrl: string): string {
@@ -485,37 +613,6 @@ function compact(text: string, max: number): string {
   return text.replace(/\s+/g, " ").trim().slice(0, max);
 }
 
-function formatActionFeedback(
-  trajectory: ActionPlanTurn[],
-  fallback?: ActionExecutionReport,
-): string {
-  if (trajectory.length === 0) {
-    return fallback
-      ? `Previous tool feedback json:\n${JSON.stringify(compactReport(fallback))}`
-      : "No previous tool feedback.";
-  }
-  const turns = trajectory.slice(-6).map((turn) => ({
-    attempt: turn.attempt,
-    assistant_action_envelope: {
-      task_kind: turn.assistantEnvelope.task_kind,
-      needs_local_tools: turn.assistantEnvelope.needs_local_tools,
-      acceptance_criteria: turn.assistantEnvelope.acceptance_criteria,
-      final_message: compact(turn.assistantEnvelope.final_message ?? "", 360),
-      continue_work: turn.assistantEnvelope.continue_work ?? false,
-      remaining_work: compact(turn.assistantEnvelope.remaining_work ?? "", 360),
-      actions: turn.assistantEnvelope.actions.map(summarizeAction),
-    },
-    tool_result: compactReport(turn.toolReport),
-    note: turn.note,
-  }));
-  return [
-    "Previous assistant/tool trajectory follows.",
-    "Treat each assistant_action_envelope as the previous assistant tool_use and each tool_result as the runtime result.",
-    "Continue from these results exactly; do not claim completion unless the trajectory shows required file changes or validation.",
-    JSON.stringify(turns, null, 2),
-  ].join("\n");
-}
-
 function compactReport(report: ActionExecutionReport): ActionExecutionReport {
   return {
     status: report.status,
@@ -525,6 +622,33 @@ function compactReport(report: ActionExecutionReport): ActionExecutionReport {
       message: result.message ? compact(result.message, 900) : result.message,
     })),
   };
+}
+
+function compactEnvelope(envelope: ActionEnvelope): Record<string, unknown> {
+  return {
+    task_kind: envelope.task_kind,
+    needs_local_tools: envelope.needs_local_tools,
+    acceptance_criteria: envelope.acceptance_criteria,
+    final_message: compact(envelope.final_message ?? "", 360),
+    continue_work: envelope.continue_work ?? false,
+    remaining_work: compact(envelope.remaining_work ?? "", 360),
+    actions: envelope.actions.map(summarizeAction),
+  };
+}
+
+function formatToolResultMessage(
+  report: ActionExecutionReport,
+  note: string | undefined,
+  attempt: number,
+): string {
+  return [
+    `<tool_result attempt="${attempt}" status="${report.status}">`,
+    JSON.stringify(compactReport(report), null, 2),
+    "</tool_result>",
+    note ? `<runtime_note>${compact(note, 600)}</runtime_note>` : "",
+    "Continue from this tool_result exactly, like ClaudeCode after a tool_result user message.",
+    "If the tool_result shows failure, fix the next concrete issue. If it shows success and all acceptance criteria are met, return needs_local_tools=false with a concise final_message.",
+  ].filter(Boolean).join("\n");
 }
 
 function summarizeAction(action: ActionRequest): Record<string, unknown> {
@@ -549,6 +673,7 @@ function repairSizeGuidance(error: string): string {
     "The previous JSON was probably truncated.",
     "If this is an ActionEnvelope, return a smaller batch:",
     "at most 3 actions, write_file content under 2500 chars, final_message under 300 chars,",
+    "use write_file content_lines arrays for Markdown or multiline text instead of raw multiline content strings,",
     "and set continue_work=true with remaining_work for the next batch instead of emitting everything now.",
   ].join(" ");
 }

@@ -45,6 +45,10 @@ export function ToolResultDetail(props: {
 }): React.ReactElement | null {
   if (!props.body) return null;
   if (isUnifiedDiff(props.body)) return <StructuredDiff diff={props.body} maxLines={120} />;
+  if (parseApprovalResultMessage(props.body)) return <ApprovalResultBlock message={props.body} />;
+  if (isQuestionAwaitingUserMessage(props.body)) {
+    return <Markdown dimColor>{formatQuestionAwaitingUserMessage(props.body)}</Markdown>;
+  }
 
   const detail = parseToolResultDetail(props.title, props.body);
   if (!detail) return <Markdown dimColor>{props.body}</Markdown>;
@@ -68,8 +72,8 @@ export function parseToolResultDetail(title: string, body = ""): ToolResultDetai
   if (!/^[a-zA-Z0-9_.:-]+$/.test(action)) return null;
   if (!KNOWN_STATUSES.has(status)) return null;
 
-  const target = targetParts.join(" ").trim();
-  const message = body.trim();
+  const target = normalizeToolResultTarget(action, targetParts.join(" ").trim());
+  const message = normalizeToolResultMessage(action, body.trim());
   return {
     action,
     status,
@@ -111,4 +115,35 @@ function renderToolMessage(detail: ToolResultDetailInfo, tone: MessageTone): Rea
   }
   if (!detail.message) return null;
   return <Markdown dimColor>{detail.message ?? ""}</Markdown>;
+}
+
+export function isQuestionAwaitingUserMessage(message: string): boolean {
+  return /^Question awaiting user answer\./i.test(message.trim());
+}
+
+export function formatQuestionAwaitingUserMessage(message: string): string {
+  const lines = message
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => !/^Question awaiting user answer\./i.test(line.trim()))
+    .filter((line) => !/^pending question$/i.test(line.trim()));
+  return lines.join("\n").trim() || "Waiting for your answer in the permission panel.";
+}
+
+function normalizeToolResultTarget(action: string, target: string): string {
+  if ((action === "EnterPlanMode" || action === "ExitPlanMode") && isInternalPlanPath(target)) return "";
+  return target;
+}
+
+function normalizeToolResultMessage(action: string, message: string): string {
+  if (action !== "EnterPlanMode" && action !== "ExitPlanMode") return message;
+  return message
+    .split(/\r?\n/)
+    .filter((line) => !/^plan=\.deepseekcode[\\/]+plans[\\/]+/i.test(line.trim()))
+    .join("\n")
+    .trim();
+}
+
+function isInternalPlanPath(value: string): boolean {
+  return /^\.deepseekcode[\\/]+plans[\\/]+run_[^\\/]+\.md$/i.test(value.trim());
 }

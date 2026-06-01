@@ -12,6 +12,7 @@ import {
 import { callMcpHttpTool, probeMcpHttpServer } from "../../mcp/httpClient.js";
 import { McpSessionPool, type McpSessionSnapshot } from "../../mcp/sessionPool.js";
 import { callMcpStdioTool, probeMcpStdioServer, type McpProbeResult } from "../../mcp/stdioClient.js";
+import { throwIfAborted } from "../../utils/abort.js";
 
 export interface McpHealthResult {
   name: string;
@@ -203,17 +204,22 @@ export class McpService {
     name: string,
     toolName: string,
     args: Record<string, unknown>,
-    options: { allowShell: boolean; timeoutMs?: number },
+    options: { allowShell: boolean; timeoutMs?: number; signal?: AbortSignal },
   ): Promise<{ result: unknown; stderr: string }> {
+    throwIfAborted(options.signal);
     const server = this.requireServer(name);
     if (!server.enabled) throw new Error(`MCP server is disabled: ${server.name}`);
-    if (this.pool().has(server.name)) return this.pool().callTool(server.name, toolName, args);
+    if (this.pool().has(server.name)) {
+      const result = await this.pool().callTool(server.name, toolName, args);
+      throwIfAborted(options.signal);
+      return result;
+    }
     if (server.type === "http") {
-      return callMcpHttpTool(this.serverUrl(server), toolName, args, options.timeoutMs ?? 10_000);
+      return callMcpHttpTool(this.serverUrl(server), toolName, args, options.timeoutMs ?? 10_000, options.signal);
     }
     if (server.type !== "stdio") throw new Error(`MCP call currently supports stdio and http servers only: ${server.name}`);
     if (!options.allowShell) throw new Error("MCP stdio tool calls require shell permission. Run /shell on first.");
-    return callMcpStdioTool(this.serverCommand(server), this.projectPath, toolName, args, options.timeoutMs ?? 10_000);
+    return callMcpStdioTool(this.serverCommand(server), this.projectPath, toolName, args, options.timeoutMs ?? 10_000, options.signal);
   }
 
   requiresShell(name: string): boolean {

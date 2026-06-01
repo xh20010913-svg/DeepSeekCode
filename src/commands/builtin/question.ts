@@ -24,39 +24,39 @@ export const questionCommand: Command = {
       if (gates.length === 0) return { message: "No questions." };
       const records = gates.flatMap((gate) => safeReadQuestion(service, gate.id));
       return {
-        message: gates
-          .map((gate) => `${gate.id} ${gate.status} ${gate.runId} - ${gate.summary}`)
-          .join("\n"),
+        message: formatQuestionListMessage(gates, records),
         ...(records.length > 0 ? { display: questionDisplay(records, "Questions") } : {}),
       };
     }
 
     if (trimmed.startsWith("show ")) {
-      const gateId = trimmed.slice("show ".length).trim();
-      if (!gateId) return { message: "Usage: /question show <gate-id>" };
+      const gateId = resolveQuestionGateId(service, trimmed.slice("show ".length).trim());
+      if (!gateId) return { message: "Usage: /question show latest" };
       const record = service.read(gateId);
       return {
-        message: formatQuestionRecord(record),
+        message: formatQuestionRecord(record, { includeIds: false }),
         display: React.createElement(QuestionPanel, { record, title: "Question detail" }),
       };
     }
 
     if (trimmed.startsWith("answer ")) {
-      const [gateId, ...answerParts] = trimmed.slice("answer ".length).trim().split(/\s+/);
-      if (!gateId || answerParts.length === 0) return { message: "Usage: /question answer <gate-id> <answer>" };
+      const [gateIdArg, ...answerParts] = trimmed.slice("answer ".length).trim().split(/\s+/);
+      const gateId = resolveQuestionGateId(service, gateIdArg);
+      if (!gateId || answerParts.length === 0) return { message: "Usage: /question answer latest <answer>" };
       const record = service.answer(gateId, answerParts.join(" "));
       return {
-        message: `${record.gateId} -> ${record.status}\nanswer: ${record.answer}`,
+        message: `question ${record.status}\nanswer: ${record.answer}`,
         display: React.createElement(QuestionPanel, { record, title: "Question answered" }),
       };
     }
 
     if (trimmed.startsWith("reject ")) {
-      const [gateId, ...reasonParts] = trimmed.slice("reject ".length).trim().split(/\s+/);
-      if (!gateId) return { message: "Usage: /question reject <gate-id> [reason]" };
+      const [gateIdArg, ...reasonParts] = trimmed.slice("reject ".length).trim().split(/\s+/);
+      const gateId = resolveQuestionGateId(service, gateIdArg);
+      if (!gateId) return { message: "Usage: /question reject latest [reason]" };
       const record = service.reject(gateId, reasonParts.join(" ") || "rejected");
       return {
-        message: `${record.gateId} -> ${record.status}`,
+        message: `question ${record.status}`,
         display: React.createElement(QuestionPanel, { record, title: "Question rejected" }),
       };
     }
@@ -65,9 +65,14 @@ export const questionCommand: Command = {
       return askQuestion(trimmed.slice("ask ".length), context, service);
     }
 
-    return { message: "Usage: /question list [status] | show <gate-id> | answer <gate-id> <answer> | reject <gate-id> [reason] | ask <header> :: <question> :: <label>=<description> :: ..." };
+    return { message: "Usage: /question list [status] | show latest | answer latest <answer> | reject latest [reason] | ask <header> :: <question> :: <label>=<description> :: ..." };
   },
 };
+
+function resolveQuestionGateId(service: QuestionService, gateId: string | undefined): string | undefined {
+  if (gateId && gateId !== "latest") return gateId;
+  return service.list("pending")[0]?.id;
+}
 
 function askQuestion(
   input: string,
@@ -103,7 +108,7 @@ function askQuestion(
   });
   const record = service.request(runId, [{ header, question, options }]);
   return {
-    message: formatQuestionRecord(record),
+    message: formatQuestionRecord(record, { includeIds: false }),
     display: React.createElement(QuestionPanel, { record, title: "Question requested" }),
   };
 }
@@ -118,6 +123,20 @@ function safeReadQuestion(service: QuestionService, gateId: string) {
   } catch {
     return [];
   }
+}
+
+function formatQuestionListMessage(
+  gates: ReturnType<QuestionService["list"]>,
+  records: ReturnType<QuestionService["read"]>[],
+): string {
+  if (records.length > 0) {
+    return records
+      .map((record, index) => `${index + 1}. ${formatQuestionRecord(record, { includeIds: false })}`)
+      .join("\n\n");
+  }
+  return gates
+    .map((gate, index) => `${index + 1}. ${gate.status} question\n   ${gate.summary}`)
+    .join("\n");
 }
 
 function questionDisplay(

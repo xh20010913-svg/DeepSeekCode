@@ -51,7 +51,7 @@ export class QuestionService {
       createdAtMs: gate.createdAtMs,
       updatedAtMs: Date.now(),
     });
-    this.state.updateRunStatus(runId, "paused", `question awaiting answer: ${gate.id}`);
+    this.state.updateRunStatus(runId, "paused", "question awaiting answer");
     this.state.appendEvent(runId, "question_requested", {
       gate_id: gate.id,
       question_count: normalized.length,
@@ -135,9 +135,15 @@ export class QuestionService {
   }
 }
 
-export function formatQuestionRecord(record: QuestionRecord): string {
+export function formatQuestionRecord(
+  record: QuestionRecord,
+  options: { includeIds?: boolean } = {},
+): string {
+  const includeIds = options.includeIds ?? true;
   const lines = [
-    `${record.gateId} ${record.status} run=${record.runId}`,
+    includeIds
+      ? `${record.gateId} ${record.status} run=${record.runId}`
+      : `${record.status} question`,
     ...record.questions.flatMap((question, index) => [
       `${index + 1}. ${question.header}: ${question.question}`,
       ...question.options.map((option) => `   - ${option.label}: ${option.description}`),

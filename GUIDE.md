@@ -41,6 +41,13 @@ For source-mode development, use:
 npm run dev -- --project "D:\code\DeepSeekTest"
 ```
 
+Continue work after restarting the CLI:
+
+```bash
+npm run start -- --project "D:\code\DeepSeekTest" --continue -p "Continue the last task"
+npm run start -- --project "D:\code\DeepSeekTest" --resume session_xxx -p "Continue the paused work"
+```
+
 ## First Run Checklist
 
 1. Run `npm run doctor` to confirm Node, project path, model, provider, permissions, and state paths.
@@ -90,6 +97,13 @@ Inside the workbench, use `/permissions`, `/shell on|off`, and `/browser on|off`
 
 DeepSeekCode treats prompt prefix stability as a runtime concern. Stable runtime rules, tool schemas, repository maps, project memory, and cache pins should stay early and deterministic; current user text and tool feedback should stay late.
 
+Long-running work uses layered context instead of full transcript replay:
+
+- Recent conversation keeps the last high-value user and assistant turns.
+- Rolling summaries preserve older goals, constraints, paths, failures, and remaining work.
+- `tool_result_summary` records compact tool feedback instead of full stdout, long diffs, or logs.
+- `runtime_run_state` summarizes recent or paused runs, task DAGs, actions, artifacts, gates, and progress checkpoints.
+
 Before a large task:
 
 ```text
@@ -116,6 +130,9 @@ Useful commands:
 /approval list
 /memory list
 /cache
+/sessions
+/resume current
+/rewind list
 /model verify
 /quit
 ```
@@ -126,6 +143,17 @@ Typical flow:
 2. Review file changes with `/diff git`.
 3. Run `npm run typecheck` or `npm run build` when local shell is enabled.
 4. Use `/approval list`, `/trace <run>`, and `/events` if a run pauses or fails.
+5. Use `/sessions` plus `/resume <session-id>` or CLI `--continue` when continuing after a restart.
+
+## Multi-Agent Workflow
+
+Provider multi-agent mode runs Planner, Builder, Tester, and Reviewer over durable task state:
+
+```text
+/multi provider Create a SaaS incident handoff package with code, tests, docs, and an acceptance report.
+```
+
+Role feedback is compacted into `tool_result_summary` before it is passed to the next role. Each role attempt writes an agent progress checkpoint so follow-up turns can inspect what happened without replaying full logs.
 
 ## Provider Profiles
 
@@ -182,6 +210,14 @@ docs/
 scripts/
 src/**/*.test.ts
 ```
+
+Release validation for this version included:
+
+- `npm run typecheck`
+- `npm run build`
+- live cross-process session resume in `D:\code\DeepSeekTest`
+- live `/multi provider` workflow in `D:\code\DeepSeekTest`
+- provider prompt audit confirming `recent_conversation`, `tool_result_summary`, and `runtime_run_state`
 
 ## Troubleshooting
 

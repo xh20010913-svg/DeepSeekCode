@@ -440,17 +440,12 @@ export class StateStore {
         r.message,
         r.created_at_ms,
         r.updated_at_ms,
-        COUNT(DISTINCT a.id) AS action_count,
-        COUNT(DISTINCT art.id) AS artifact_count,
-        COUNT(DISTINCT e.id) AS event_count,
-        SUM(COALESCE(u.cache_hit_tokens, 0)) AS cache_hit_tokens,
-        SUM(COALESCE(u.cache_miss_tokens, 0)) AS cache_miss_tokens
+        (SELECT COUNT(*) FROM actions a WHERE a.run_id = r.id) AS action_count,
+        (SELECT COUNT(*) FROM artifacts art WHERE art.run_id = r.id) AS artifact_count,
+        (SELECT COUNT(*) FROM events e WHERE e.run_id = r.id) AS event_count,
+        (SELECT SUM(COALESCE(u.cache_hit_tokens, 0)) FROM usage_snapshots u WHERE u.run_id = r.id) AS cache_hit_tokens,
+        (SELECT SUM(COALESCE(u.cache_miss_tokens, 0)) FROM usage_snapshots u WHERE u.run_id = r.id) AS cache_miss_tokens
       FROM runs r
-      LEFT JOIN actions a ON a.run_id = r.id
-      LEFT JOIN artifacts art ON art.run_id = r.id
-      LEFT JOIN events e ON e.run_id = r.id
-      LEFT JOIN usage_snapshots u ON u.run_id = r.id
-      GROUP BY r.id
       ORDER BY r.created_at_ms DESC
       LIMIT ?
     `).all(limit);
@@ -467,18 +462,13 @@ export class StateStore {
         r.message,
         r.created_at_ms,
         r.updated_at_ms,
-        COUNT(DISTINCT a.id) AS action_count,
-        COUNT(DISTINCT art.id) AS artifact_count,
-        COUNT(DISTINCT e.id) AS event_count,
-        SUM(COALESCE(u.cache_hit_tokens, 0)) AS cache_hit_tokens,
-        SUM(COALESCE(u.cache_miss_tokens, 0)) AS cache_miss_tokens
+        (SELECT COUNT(*) FROM actions a WHERE a.run_id = r.id) AS action_count,
+        (SELECT COUNT(*) FROM artifacts art WHERE art.run_id = r.id) AS artifact_count,
+        (SELECT COUNT(*) FROM events e WHERE e.run_id = r.id) AS event_count,
+        (SELECT SUM(COALESCE(u.cache_hit_tokens, 0)) FROM usage_snapshots u WHERE u.run_id = r.id) AS cache_hit_tokens,
+        (SELECT SUM(COALESCE(u.cache_miss_tokens, 0)) FROM usage_snapshots u WHERE u.run_id = r.id) AS cache_miss_tokens
       FROM runs r
-      LEFT JOIN actions a ON a.run_id = r.id
-      LEFT JOIN artifacts art ON art.run_id = r.id
-      LEFT JOIN events e ON e.run_id = r.id
-      LEFT JOIN usage_snapshots u ON u.run_id = r.id
       WHERE r.id = ?
-      GROUP BY r.id
       LIMIT 1
     `).all(runId);
     return rows[0] ? rowToRunRecord(rows[0]) : undefined;
@@ -515,48 +505,38 @@ export class StateStore {
             r.id,
             r.project_path,
             r.model,
-            r.status,
-            r.message,
-            r.created_at_ms,
-            r.updated_at_ms,
-            COUNT(DISTINCT a.id) AS action_count,
-            COUNT(DISTINCT art.id) AS artifact_count,
-            COUNT(DISTINCT e.id) AS event_count,
-            SUM(COALESCE(u.cache_hit_tokens, 0)) AS cache_hit_tokens,
-            SUM(COALESCE(u.cache_miss_tokens, 0)) AS cache_miss_tokens
-          FROM runs r
-          LEFT JOIN actions a ON a.run_id = r.id
-          LEFT JOIN artifacts art ON art.run_id = r.id
-          LEFT JOIN events e ON e.run_id = r.id
-          LEFT JOIN usage_snapshots u ON u.run_id = r.id
-          WHERE r.project_path = ? AND r.status IN ('running', 'paused')
-          GROUP BY r.id
-          ORDER BY r.updated_at_ms DESC
-          LIMIT ?
+        r.status,
+        r.message,
+        r.created_at_ms,
+        r.updated_at_ms,
+        (SELECT COUNT(*) FROM actions a WHERE a.run_id = r.id) AS action_count,
+        (SELECT COUNT(*) FROM artifacts art WHERE art.run_id = r.id) AS artifact_count,
+        (SELECT COUNT(*) FROM events e WHERE e.run_id = r.id) AS event_count,
+        (SELECT SUM(COALESCE(u.cache_hit_tokens, 0)) FROM usage_snapshots u WHERE u.run_id = r.id) AS cache_hit_tokens,
+        (SELECT SUM(COALESCE(u.cache_miss_tokens, 0)) FROM usage_snapshots u WHERE u.run_id = r.id) AS cache_miss_tokens
+      FROM runs r
+      WHERE r.project_path = ? AND r.status IN ('running', 'paused')
+      ORDER BY r.updated_at_ms DESC
+      LIMIT ?
         `).all(projectPath, limit)
       : this.db.prepare(`
           SELECT
             r.id,
             r.project_path,
             r.model,
-            r.status,
-            r.message,
-            r.created_at_ms,
-            r.updated_at_ms,
-            COUNT(DISTINCT a.id) AS action_count,
-            COUNT(DISTINCT art.id) AS artifact_count,
-            COUNT(DISTINCT e.id) AS event_count,
-            SUM(COALESCE(u.cache_hit_tokens, 0)) AS cache_hit_tokens,
-            SUM(COALESCE(u.cache_miss_tokens, 0)) AS cache_miss_tokens
-          FROM runs r
-          LEFT JOIN actions a ON a.run_id = r.id
-          LEFT JOIN artifacts art ON art.run_id = r.id
-          LEFT JOIN events e ON e.run_id = r.id
-          LEFT JOIN usage_snapshots u ON u.run_id = r.id
-          WHERE r.status IN ('running', 'paused')
-          GROUP BY r.id
-          ORDER BY r.updated_at_ms DESC
-          LIMIT ?
+        r.status,
+        r.message,
+        r.created_at_ms,
+        r.updated_at_ms,
+            (SELECT COUNT(*) FROM actions a WHERE a.run_id = r.id) AS action_count,
+            (SELECT COUNT(*) FROM artifacts art WHERE art.run_id = r.id) AS artifact_count,
+            (SELECT COUNT(*) FROM events e WHERE e.run_id = r.id) AS event_count,
+            (SELECT SUM(COALESCE(u.cache_hit_tokens, 0)) FROM usage_snapshots u WHERE u.run_id = r.id) AS cache_hit_tokens,
+            (SELECT SUM(COALESCE(u.cache_miss_tokens, 0)) FROM usage_snapshots u WHERE u.run_id = r.id) AS cache_miss_tokens
+      FROM runs r
+      WHERE r.status IN ('running', 'paused')
+      ORDER BY r.updated_at_ms DESC
+      LIMIT ?
         `).all(limit);
     return rows.map(rowToRunRecord);
   }

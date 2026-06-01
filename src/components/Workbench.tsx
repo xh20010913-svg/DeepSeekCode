@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Box, useApp, useInput, useStdout } from "ink";
 import type { RuntimeConfig } from "../bootstrap/config.js";
-import { getCommands } from "../commands/index.js";
+import { getCommands, runSlashCommand } from "../commands/index.js";
 import { buildRepositoryMap } from "../context/repositoryMap.js";
 import {
   isBackspaceInput,
@@ -33,15 +33,17 @@ import { SessionStorage } from "../services/session/sessionStorage.js";
 import { setCurrentSessionId } from "../services/session/resumeService.js";
 import { ThemeService } from "../services/theme/themeService.js";
 import { useInputHistory } from "../hooks/useInputHistory.js";
+import { useApprovals } from "../hooks/useApprovals.js";
 import { usePromptEditor } from "../hooks/usePromptEditor.js";
 import { useRuntimePermissions } from "../hooks/useRuntimePermissions.js";
+import { gateDecisionOptions, type GateDecisionOption } from "../services/approval/gateDecisionOptions.js";
 import { Composer } from "./Composer.js";
 import { CommandPalette } from "./CommandPalette.js";
 import { Footer } from "./Footer.js";
 import { Header } from "./Header.js";
 import { HistorySearchPanel } from "./HistorySearchPanel.js";
 import { MemoryUsageIndicator } from "./MemoryUsageIndicator.js";
-import { PendingGatePanel } from "./PendingGatePanel.js";
+import { currentSessionPendingGates, PendingGatePanel } from "./PendingGatePanel.js";
 import { PromptHelpPanel } from "./PromptHelpPanel.js";
 import { PromptNoticePanel } from "./PromptNoticePanel.js";
 import { QuickOpenPanel } from "./QuickOpenPanel.js";
@@ -81,6 +83,8 @@ export function Workbench(props: {
   const [sessionUsage, setSessionUsage] = useState<UsageSnapshot>({});
   const [helpOpen, setHelpOpen] = useState(false);
   const [clearPromptPending, setClearPromptPending] = useState(false);
+  const [sessionStartedAtMs] = useState(() => Date.now());
+  const [gateSelectedIndex, setGateSelectedIndex] = useState(0);
   const editor = usePromptEditor();
   const history = useInputHistory();
   const { permissions } = useRuntimePermissions({
@@ -97,6 +101,8 @@ export function Workbench(props: {
         permissions,
         requestExit: () => app.exit(),
         requestClear: () => setItems([]),
+        awaitUserDecisions: true,
+        sessionPersistence: "external",
       }),
     [props.config, props.provider, props.state, permissions, app],
   );
@@ -124,6 +130,18 @@ export function Workbench(props: {
     () => new SessionStorage(props.config.dataDir),
     [props.config.dataDir],
   );
+  const pendingGates = useApprovals(props.state, "pending", 20);
+  const visiblePendingGates = useMemo(
+    () => currentSessionPendingGates(pendingGates, sessionStartedAtMs),
+    [pendingGates, sessionStartedAtMs],
+  );
+  const activeGate = visiblePendingGates[0];
+  const activeGateOptions = useMemo(
+    () => activeGate
+      ? gateDecisionOptions({ gate: activeGate, projectPath: props.config.projectPath })
+      : [],
+    [activeGate, props.config.projectPath],
+  );
 
   useEffect(() => {
     setCurrentSessionId(props.state, props.config.projectPath, sessionStorage.sessionId);
@@ -146,6 +164,10 @@ export function Workbench(props: {
   }, [quickOpenItems.length]);
 
   useEffect(() => {
+    setGateSelectedIndex((previous) => Math.min(previous, Math.max(0, activeGateOptions.length - 1)));
+  }, [activeGate?.id, activeGateOptions.length]);
+
+  useEffect(() => {
     if (busy || queuedPrompts.length === 0) return;
     const nextPrompt = queuedPrompts[0];
     if (!nextPrompt) return;
@@ -161,7 +183,18 @@ export function Workbench(props: {
 
   useInput((character, key) => {
     if (key.ctrl && character === "c") {
+      if (busy && engine.cancelActiveRun()) {
+        setQueuedPrompts([]);
+        setItems((previous) => [
+          ...previous,
+          { role: "system", text: "Cancelling current run...", timestamp: Date.now() },
+        ]);
+        return;
+      }
       app.exit();
+      return;
+    }
+    if (handleGatePromptInput(character, key)) {
       return;
     }
     if (helpOpen) {
@@ -420,6 +453,113 @@ export function Workbench(props: {
     }
   });
 
+  function handleGatePromptInput(
+    character: string,
+    key: {
+      upArrow?: boolean;
+      downArrow?: boolean;
+      return?: boolean;
+      tab?: boolean;
+      shift?: boolean;
+      escape?: boolean;
+      ctrl?: boolean;
+      meta?: boolean;
+    },
+  ): boolean {
+    if (!activeGate || activeGateOptions.length === 0) return false;
+    if (quickOpenOpen || historyOpen || paletteOpen || helpOpen) return false;
+    const typedAnswerCommand = gateTypedQuestionAnswerCommand(activeGate.subjectType, editor.value);
+
+    if (editor.value.trim()) {
+      if (key.return && typedAnswerCommand) {
+        editor.reset();
+        setClearPromptPending(false);
+        void applyGateCommand(typedAnswerCommand);
+        return true;
+      }
+      return false;
+    }
+
+    if (key.upArrow) {
+      setGateSelectedIndex((previous) => (
+        activeGateOptions.length === 0 ? 0 : (previous - 1 + activeGateOptions.length) % activeGateOptions.length
+      ));
+      return true;
+    }
+    if (key.downArrow || key.tab) {
+      setGateSelectedIndex((previous) => (
+        activeGateOptions.length === 0 ? 0 : (previous + (key.shift ? -1 : 1) + activeGateOptions.length) % activeGateOptions.length
+      ));
+      return true;
+    }
+    if (key.return) {
+      void applyGateDecision(activeGateOptions[gateSelectedIndex] ?? activeGateOptions[0]);
+      return true;
+    }
+    if (key.escape) {
+      const cancel = activeGateOptions.find((option) => option.tone === "neutral")
+        ?? activeGateOptions.find((option) => option.tone === "reject");
+      if (cancel) void applyGateDecision(cancel);
+      return true;
+    }
+    const lower = character.toLowerCase();
+    if (/^[1-9]$/.test(character)) {
+      const option = activeGateOptions[Number(character) - 1];
+      if (option) void applyGateDecision(option);
+      return true;
+    }
+    const directShortcut = gateDirectShortcutIntent(activeGate.subjectType, editor.value, lower);
+    if (directShortcut === "allow") {
+      const allow = activeGateOptions.find((option) => option.tone === "allow");
+      if (allow) void applyGateDecision(allow);
+      return true;
+    }
+    if (directShortcut === "reject") {
+      const reject = activeGateOptions.find((option) => option.tone === "reject");
+      if (reject) void applyGateDecision(reject);
+      return true;
+    }
+    if (isPrintableInput(character, key)) {
+      return false;
+    }
+    return false;
+  }
+
+  async function applyGateDecision(option: GateDecisionOption | undefined): Promise<void> {
+    if (!option) return;
+    if (option.command.includes("<")) {
+      editor.set(option.command.replace(/<[^>]+>/g, "").trimEnd() + " ", "end");
+      return;
+    }
+    await applyGateCommand(option.command);
+  }
+
+  async function applyGateCommand(command: string): Promise<void> {
+    const result = await runSlashCommand(command, engine.commandContext());
+    if (result.clear) {
+      setItems([]);
+    }
+    if (result.display) {
+      sessionStorage.append({ role: "system", text: result.message ?? command });
+      setItems((previous) => [
+        ...previous,
+        { role: "display", text: result.message ?? "", display: result.display, timestamp: Date.now() },
+      ]);
+    } else if (result.message) {
+      const message = result.message;
+      sessionStorage.append({ role: "system", text: message });
+      setItems((previous) => [...previous, { role: "system", text: message, timestamp: Date.now() }]);
+    }
+    if (result.submit) {
+      if (busy) {
+        setQueuedPrompts((previous) => [...previous, result.submit!]);
+      } else {
+        void submit(result.submit, { resetEditor: false });
+      }
+    }
+    if (result.exit) app.exit();
+  }
+
   function handleBackspaceInput(): void {
     if (quickOpenOpen) {
       setQuickOpenQuery((previous) => previous.slice(0, -1));
@@ -610,7 +750,13 @@ export function Workbench(props: {
           />
         )}
       </Box>
-      <PendingGatePanel projectPath={props.config.projectPath} state={props.state} />
+      <PendingGatePanel
+        projectPath={props.config.projectPath}
+        state={props.state}
+        sessionStartedAtMs={sessionStartedAtMs}
+        gates={pendingGates}
+        selectedDecisionIndex={gateSelectedIndex}
+      />
       {helpOpen && (
         <PromptHelpPanel
           width={columns}
@@ -655,6 +801,7 @@ export function Workbench(props: {
         width={columns}
         suggestions={suggestions}
         selectedSuggestion={selectedSuggestion}
+        activePromptHint={activeGate ? gateComposerHint(activeGate.subjectType) : undefined}
       />
       <Footer
         busy={busy}
@@ -662,6 +809,7 @@ export function Workbench(props: {
         permissions={permissions}
         config={props.config}
         state={props.state}
+        sessionStartedAtMs={sessionStartedAtMs}
         lastTurnUsage={lastTurnUsage}
         sessionUsage={sessionUsage}
         providerReady={Boolean(props.provider)}
@@ -670,6 +818,32 @@ export function Workbench(props: {
       />
     </Box>
   );
+}
+
+function gateComposerHint(subjectType: string): string {
+  if (subjectType === "question") return "Answer prompt active: type an answer, choose a number, or Esc to reject.";
+  if (subjectType === "plan") return "Plan approval active: use Up/Down, Enter/Y to approve, N to reject, Esc to cancel.";
+  return "Permission prompt active: use Up/Down, Enter/Y to allow once, N to reject, Esc to cancel.";
+}
+
+export function gateTypedQuestionAnswerCommand(subjectType: string, value: string): string | null {
+  const answer = value.trim();
+  if (subjectType !== "question" || !answer || answer.startsWith("/")) return null;
+  return `/question answer latest ${answer}`;
+}
+
+export type GateDirectShortcutIntent = "allow" | "reject" | null;
+
+export function gateDirectShortcutIntent(
+  subjectType: string,
+  currentPrompt: string,
+  character: string,
+): GateDirectShortcutIntent {
+  if (currentPrompt.trim() || subjectType === "question") return null;
+  const lower = character.toLowerCase();
+  if (lower === "y" || lower === "a") return "allow";
+  if (lower === "n" || lower === "r") return "reject";
+  return null;
 }
 
 function replaceStreamingAssistant(items: TranscriptItem[], text: string, model: string): TranscriptItem[] {

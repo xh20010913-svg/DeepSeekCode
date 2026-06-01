@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { ActionResult } from "./protocol/actions.js";
+import type { ActionExecutionReport, ActionResult } from "./protocol/actions.js";
 import type { StateStore } from "./state/sqlite.js";
 import type { FileStateCache } from "./utils/fileStateCache.js";
 
@@ -15,6 +15,15 @@ export interface ToolPermissionContext {
 export interface ToolExecutionContext extends ToolPermissionContext {
   abortSignal?: AbortSignal;
   fileStateCache?: FileStateCache;
+  skillRunner?: (input: {
+    name: string;
+    task: string;
+    maxTurns?: number;
+  }) => Promise<{
+    skill: { name: string; scope: string; path: string };
+    execution: ActionExecutionReport;
+    turnCount: number;
+  }>;
 }
 
 export interface PermissionResult {

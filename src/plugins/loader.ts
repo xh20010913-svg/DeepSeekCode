@@ -11,12 +11,18 @@ export interface LoadedPlugin extends PluginSummary {
 export function loadPlugin(projectPath: string, dataDir: string, name: string): LoadedPlugin | null {
   const plugin = discoverPlugins(projectPath, dataDir).find((candidate) => candidate.name === name);
   if (!plugin) return null;
-  const manifestPath = path.join(plugin.path, ".codex-plugin", "plugin.json");
+  const manifestPath = pluginManifestPath(plugin.path);
   const manifest = readManifest(manifestPath);
   return {
     ...plugin,
     ...manifest,
   };
+}
+
+export function pluginManifestPath(pluginPath: string): string {
+  const codexPath = path.join(pluginPath, ".codex-plugin", "plugin.json");
+  if (fs.existsSync(codexPath)) return codexPath;
+  return path.join(pluginPath, ".claude-plugin", "plugin.json");
 }
 
 function readManifest(manifestPath: string): Pick<LoadedPlugin, "manifest" | "manifestError"> {

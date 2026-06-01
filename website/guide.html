@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>DeepSeekCode Guide</title>
-    <meta name="description" content="DeepSeekCode setup, cache guard, commands, validation, and upload safety guide." />
+    <meta name="description" content="DeepSeekCode setup, session restore, cache context, multi-agent workflow, validation, and release safety guide." />
     <meta name="theme-color" content="#050605" />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="stylesheet" href="src/styles.css" />
@@ -22,10 +22,10 @@
       <nav class="nav-links" aria-label="Guide navigation">
         <a href="index.html">Home</a>
         <a href="#setup">Setup</a>
-        <a href="#cache">Cache</a>
-        <a href="#commands">Commands</a>
-        <a href="#testing">Validation</a>
-        <a href="#upload">Upload</a>
+        <a href="#resume">Resume</a>
+        <a href="#context">Context</a>
+        <a href="#multi">Multi-agent</a>
+        <a href="#release">Release</a>
       </nav>
       <div class="header-actions">
         <a class="ghost-button" href="https://github.com/xh20010913-svg/DeepSeekCode">GitHub</a>
@@ -37,24 +37,25 @@
       <section class="guide-hero section-shell">
         <div class="reveal">
           <span class="eyebrow">GUIDE</span>
-          <h1>DeepSeekCode Website & Runtime Guide</h1>
-          <p>Setup, cache-first workflow, command reference, validation, and public-upload safety for the DeepSeekCode project.</p>
+          <h1>DeepSeekCode Runtime Guide</h1>
+          <p>Setup, session recovery, context compression, multi-agent workflow, validation, and public release safety.</p>
         </div>
       </section>
 
       <section id="setup" class="guide-grid section-shell">
         <aside class="toc reveal">
           <a href="#setup">01 Setup</a>
-          <a href="#cache">02 Cache guard</a>
-          <a href="#commands">03 Commands</a>
-          <a href="#testing">04 Validation</a>
-          <a href="#upload">05 Upload safety</a>
+          <a href="#resume">02 Session restore</a>
+          <a href="#context">03 Context layers</a>
+          <a href="#multi">04 Multi-agent</a>
+          <a href="#testing">05 Validation</a>
+          <a href="#release">06 Release safety</a>
         </aside>
         <div class="guide-content">
           <article class="guide-block reveal">
             <span class="eyebrow">01</span>
             <h2>Setup</h2>
-            <p>Use Node.js >= 22 and run the workbench against a separate test project first.</p>
+            <p>Use Node.js >= 22 and run DeepSeekCode against a separate test project before using it on valuable work.</p>
             <pre><code>git clone https://github.com/xh20010913-svg/DeepSeekCode.git
 cd DeepSeekCode
 npm install
@@ -62,57 +63,56 @@ npm run build
 npm run start -- --project "D:\code\DeepSeekTest"</code></pre>
           </article>
 
-          <article id="cache" class="guide-block reveal">
+          <article id="resume" class="guide-block reveal">
             <span class="eyebrow">02</span>
-            <h2>Cache guard workflow</h2>
-            <p>Before a large build task, prepare reusable context without spending model tokens.</p>
-            <pre><code>/cache
-/cache guard 做一个网页小游戏，包含目录、关卡、动效
-/cache prepare 做一个网页小游戏，包含目录、关卡、动效
-/cache profile save web-game 做一个网页小游戏，包含目录、关卡、动效</code></pre>
-            <p>The goal is to keep stable project facts early and current task details late, improving DeepSeek prefix-cache reuse.</p>
+            <h2>Session restore</h2>
+            <p>DeepSeekCode stores transcript records under the data directory. New CLI processes can restore useful context without replaying raw history forever.</p>
+            <pre><code>npm run start -- --project "D:\code\DeepSeekTest" --continue -p "Continue the last task"
+npm run start -- --project "D:\code\DeepSeekTest" --resume session_xxx -p "Continue the paused work"</code></pre>
+            <p>The restored prompt includes recent conversation, compact tool summaries, and durable runtime state when available.</p>
           </article>
 
-          <article id="commands" class="guide-block reveal">
+          <article id="context" class="guide-block reveal">
             <span class="eyebrow">03</span>
-            <h2>Commands</h2>
+            <h2>Context layers</h2>
+            <p>Long tasks use layered context instead of full transcript replay.</p>
             <div class="command-table">
-              <div><b>/help</b><span>Grouped help panel.</span></div>
-              <div><b>/doctor</b><span>Provider and runtime diagnostics.</span></div>
-              <div><b>/cache</b><span>Readiness, shape, guard, prepare, profile.</span></div>
-              <div><b>/approval list</b><span>Inspect pending gates.</span></div>
-              <div><b>/diff git</b><span>Review local file changes.</span></div>
-              <div><b>/multi provider &lt;task&gt;</b><span>Planner → Builder → Tester → Reviewer.</span></div>
-              <div><b>/shell on|off</b><span>Toggle shell tool permission.</span></div>
-              <div><b>/browser on|off</b><span>Toggle browser-open permission.</span></div>
+              <div><b>Stable prefix</b><span>System rules, tool schemas, output style, project rules, and cache pins.</span></div>
+              <div><b>Recent conversation</b><span>The last high-value turns that explain current intent.</span></div>
+              <div><b>tool_result_summary</b><span>Failed commands, important paths, artifacts, and validation results.</span></div>
+              <div><b>runtime_run_state</b><span>Recent or paused runs, task DAG, actions, artifacts, gates, and progress checkpoints.</span></div>
             </div>
           </article>
 
-          <article id="testing" class="guide-block reveal">
+          <article id="multi" class="guide-block reveal">
             <span class="eyebrow">04</span>
-            <h2>Validation</h2>
-            <pre><code>npm run build
-npm run typecheck
-npm run doctor</code></pre>
-            <p>For live provider checks, use <code>deepseek-v4-flash</code> unless you explicitly choose a more expensive model.</p>
+            <h2>Multi-agent workflow</h2>
+            <p>The provider multi-agent mode runs Planner, Builder, Tester, and Reviewer roles over durable task state. Role feedback is compacted before it is passed to the next role.</p>
+            <pre><code>/multi provider Create a SaaS incident handoff package with code, tests, docs, and an acceptance report.</code></pre>
+            <p>Each role attempt writes an agent progress checkpoint, and current sessions receive compact tool summaries when session focus is active.</p>
           </article>
 
-          <article id="upload" class="guide-block reveal">
+          <article id="testing" class="guide-block reveal">
             <span class="eyebrow">05</span>
-            <h2>Release checklist</h2>
-            <p>Keep the published package focused on source, docs, website, and reusable assets.</p>
+            <h2>Validation</h2>
+            <pre><code>npm run typecheck
+npm run build</code></pre>
+            <p>Live release checks were run in <code>D:\code\DeepSeekTest</code> for cross-process resume and multi-agent workflows. The prompt audit verified that <code>recent_conversation</code>, <code>tool_result_summary</code>, and <code>runtime_run_state</code> reached provider prompts.</p>
+          </article>
+
+          <article id="release" class="guide-block reveal">
+            <span class="eyebrow">06</span>
+            <h2>Release safety</h2>
+            <p>Publish only runtime source, public docs, website files, and reusable assets. Keep secrets, local state, tests, staging folders, and private development notes out of the public repository.</p>
             <pre><code>.env
-.env.*
 .deepseekcode/
-.runtime-smoke-data/
 .research/
 .release/
-dist/
 node_modules/
-target/
-*.log
-*.sqlite</code></pre>
-            <p>For README images, use real terminal screenshots when available; otherwise label generated art as interface preview.</p>
+runtime-scenarios/
+results/
+*.sqlite
+*.log</code></pre>
           </article>
         </div>
       </section>

@@ -6,19 +6,27 @@ import { RuntimePanel, runtimeEventsPanelModel } from "../../components/RuntimeP
 export const eventsCommand: Command = {
   name: "events",
   description: "Show recent runtime events.",
-  usage: "[run-id|attached|all]",
+  usage: "[attached|current|all]",
   execute(args, context) {
     const trimmed = args.trim();
     const runId = trimmed === "all" ? undefined : resolveRunId(stripRunAlias(trimmed), context);
     const rows = context.state.listEvents(runId, 30);
-    const scope = trimmed === "all" ? "all" : runId ?? "attached/current";
+    const scope = trimmed === "all" ? "all" : runId ? "attached/current" : "all";
     const display = React.createElement(RuntimePanel, { model: runtimeEventsPanelModel(rows, scope) });
     if (rows.length === 0) return { message: "No events.", display };
     return {
       message: rows
-        .map((event) => `${event.id} ${event.kind} ${event.runId ?? "-"} ${JSON.stringify(event.payload)}`)
+        .map((event, index) => `event ${index + 1} ${event.kind} ${redactInternalIds(JSON.stringify(event.payload ?? {}))}`)
         .join("\n"),
       display,
     };
   },
 };
+
+function redactInternalIds(text: string): string {
+  return text
+    .replace(/\brun_[0-9a-f-]{8,}\b/gi, "current run")
+    .replace(/\btask_[0-9a-f-]{8,}\b/gi, "agent task")
+    .replace(/\bapproval_[0-9a-f-]{8,}\b/gi, "approval")
+    .replace(/\bquestion_[0-9a-f-]{8,}\b/gi, "question");
+}
