@@ -8,6 +8,7 @@ import {
   type PermissionProfileName,
 } from "../services/permissions/permissionProfiles.js";
 import { budgetFor, readInferenceEffort } from "../services/inference/inferenceSettingsService.js";
+import { DEFAULT_DEEPSEEK_MODEL } from "../services/deepseek/models.js";
 
 export interface RuntimeConfig {
   projectPath: string;
@@ -55,7 +56,7 @@ export function bootstrapConfig(options: BootstrapOptions): RuntimeConfig {
   const stateDir = path.join(dataDir, "state");
   fs.mkdirSync(stateDir, { recursive: true });
 
-  const model = options.model ?? process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash";
+  const model = options.model ?? process.env.DEEPSEEK_MODEL ?? DEFAULT_DEEPSEEK_MODEL;
   const permissionProfile = normalizeProfileName(
     options.permissionProfile ?? process.env.DEEPSEEKCODE_PERMISSION_PROFILE ?? "safe",
   ) ?? "safe";
@@ -100,7 +101,7 @@ function resolveProviderConfig(projectPath: string, requested: string): Provider
     kind: "open_ai_compatible",
     baseUrl: readEnv("DEEPSEEK_BASE_URL") ?? "https://api.deepseek.com",
     apiKey,
-    model: readEnv("DEEPSEEK_MODEL") ?? requested,
+    model: requested,
     timeoutSecs: numberEnv("DEEPSEEK_TIMEOUT_SECS", 45),
     reasoningEffort: readEnv("DEEPSEEKCODE_REASONING_EFFORT") ?? "high",
     maxOutputTokens: numberEnv("DEEPSEEKCODE_MAX_OUTPUT_TOKENS", inferenceBudget.maxOutputTokens),

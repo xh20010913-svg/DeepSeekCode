@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, useApp, useInput, useStdout } from "ink";
 import type { RuntimeConfig } from "../bootstrap/config.js";
 import { getCommands, runSlashCommand } from "../commands/index.js";
@@ -37,12 +37,15 @@ import { useApprovals } from "../hooks/useApprovals.js";
 import { usePromptEditor } from "../hooks/usePromptEditor.js";
 import { useRuntimePermissions } from "../hooks/useRuntimePermissions.js";
 import { gateDecisionOptions, type GateDecisionOption } from "../services/approval/gateDecisionOptions.js";
+import { DeepSeekClient } from "../services/deepseek/client.js";
+import { DEEPSEEK_MODEL_OPTIONS } from "../services/deepseek/models.js";
 import { Composer } from "./Composer.js";
 import { CommandPalette } from "./CommandPalette.js";
 import { Footer } from "./Footer.js";
 import { Header } from "./Header.js";
 import { HistorySearchPanel } from "./HistorySearchPanel.js";
 import { MemoryUsageIndicator } from "./MemoryUsageIndicator.js";
+import { ModelPicker, modelPickerModel } from "./ModelPicker.js";
 import { currentSessionPendingGates, PendingGatePanel } from "./PendingGatePanel.js";
 import { PromptHelpPanel } from "./PromptHelpPanel.js";
 import { PromptNoticePanel } from "./PromptNoticePanel.js";
@@ -64,6 +67,8 @@ export function Workbench(props: {
   const columns = stdout.columns ?? 100;
   const showSidePanel = process.env.DEEPSEEKCODE_SIDE_PANEL === "1" || columns >= 150;
   const mainWidth = showSidePanel ? Math.max(48, columns - 38) : columns;
+  const [activeConfig, setActiveConfig] = useState(props.config);
+  const [activeProvider, setActiveProvider] = useState(props.provider);
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [selectedSuggestion, setSelectedSuggestion] = useState(0);
@@ -85,26 +90,66 @@ export function Workbench(props: {
   const [clearPromptPending, setClearPromptPending] = useState(false);
   const [sessionStartedAtMs] = useState(() => Date.now());
   const [gateSelectedIndex, setGateSelectedIndex] = useState(0);
+  const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
+  const [modelSelectedIndex, setModelSelectedIndex] = useState(0);
   const editor = usePromptEditor();
   const history = useInputHistory();
   const { permissions } = useRuntimePermissions({
-    allowShell: props.config.shellEnabled,
-    allowBrowser: props.config.browserEnabled,
-    profile: props.config.permissionProfile,
+    allowShell: activeConfig.shellEnabled,
+    allowBrowser: activeConfig.browserEnabled,
+    profile: activeConfig.permissionProfile,
   });
+  const sessionStorage = useMemo(
+    () => new SessionStorage(activeConfig.dataDir),
+    [activeConfig.dataDir],
+  );
+  const switchModel = useCallback((model: string): boolean => {
+    if (busy) {
+      const text = "Finish or cancel the current run before switching models.";
+      sessionStorage.append({ role: "system", text });
+      setItems((previous) => [...previous, { role: "system", text, timestamp: Date.now() }]);
+      return false;
+    }
+    const providerConfig = activeConfig.provider
+      ? { ...activeConfig.provider, model }
+      : null;
+    setActiveConfig((previous) => ({
+      ...previous,
+      model,
+      provider: providerConfig,
+    }));
+    setActiveProvider(providerConfig ? new DeepSeekClient(providerConfig) : null);
+    setModelSelectorOpen(false);
+    const text = `Model switched to ${model}`;
+    sessionStorage.append({ role: "system", text });
+    setItems((previous) => [...previous, { role: "system", text, timestamp: Date.now(), model }]);
+    return true;
+  }, [activeConfig, busy, sessionStorage]);
+  const openModelSelector = useCallback(() => {
+    const current = DEEPSEEK_MODEL_OPTIONS.findIndex((option) => option.id === activeConfig.model);
+    setModelSelectedIndex(Math.max(0, current));
+    setModelSelectorOpen(true);
+    setPaletteOpen(false);
+    setHistoryOpen(false);
+    setQuickOpenOpen(false);
+    setHelpOpen(false);
+    setClearPromptPending(false);
+  }, [activeConfig.model]);
   const engine = useMemo(
     () =>
       new QueryEngine({
-        config: props.config,
+        config: activeConfig,
         state: props.state,
-        provider: props.provider,
+        provider: activeProvider,
         permissions,
         requestExit: () => app.exit(),
         requestClear: () => setItems([]),
+        requestModelSelector: openModelSelector,
+        switchModel,
         awaitUserDecisions: true,
         sessionPersistence: "external",
       }),
-    [props.config, props.provider, props.state, permissions, app],
+    [activeConfig, activeProvider, props.state, permissions, app, openModelSelector, switchModel],
   );
   const commands = useMemo(
     () => getCommands(engine.commandContext()),
@@ -126,10 +171,6 @@ export function Workbench(props: {
     () => getQuickOpenItems(quickOpenFiles, quickOpenQuery, 9),
     [quickOpenFiles, quickOpenQuery],
   );
-  const sessionStorage = useMemo(
-    () => new SessionStorage(props.config.dataDir),
-    [props.config.dataDir],
-  );
   const pendingGates = useApprovals(props.state, "pending", 20);
   const visiblePendingGates = useMemo(
     () => currentSessionPendingGates(pendingGates, sessionStartedAtMs),
@@ -138,14 +179,14 @@ export function Workbench(props: {
   const activeGate = visiblePendingGates[0];
   const activeGateOptions = useMemo(
     () => activeGate
-      ? gateDecisionOptions({ gate: activeGate, projectPath: props.config.projectPath })
+      ? gateDecisionOptions({ gate: activeGate, projectPath: activeConfig.projectPath })
       : [],
-    [activeGate, props.config.projectPath],
+    [activeGate, activeConfig.projectPath],
   );
 
   useEffect(() => {
-    setCurrentSessionId(props.state, props.config.projectPath, sessionStorage.sessionId);
-  }, [props.state, props.config.projectPath, sessionStorage.sessionId]);
+    setCurrentSessionId(props.state, activeConfig.projectPath, sessionStorage.sessionId);
+  }, [props.state, activeConfig.projectPath, sessionStorage.sessionId]);
 
   useEffect(() => {
     setSelectedSuggestion((previous) => Math.min(previous, Math.max(0, suggestions.length - 1)));
@@ -166,6 +207,10 @@ export function Workbench(props: {
   useEffect(() => {
     setGateSelectedIndex((previous) => Math.min(previous, Math.max(0, activeGateOptions.length - 1)));
   }, [activeGate?.id, activeGateOptions.length]);
+
+  useEffect(() => {
+    setModelSelectedIndex((previous) => Math.min(previous, Math.max(0, DEEPSEEK_MODEL_OPTIONS.length - 1)));
+  }, []);
 
   useEffect(() => {
     if (busy || queuedPrompts.length === 0) return;
@@ -192,6 +237,9 @@ export function Workbench(props: {
         return;
       }
       app.exit();
+      return;
+    }
+    if (handleModelSelectorInput(character, key)) {
       return;
     }
     if (handleGatePromptInput(character, key)) {
@@ -367,6 +415,11 @@ export function Workbench(props: {
       setPaletteOpen(true);
       return;
     }
+    if (editor.value === "/model" && (key.return || key.tab)) {
+      openModelSelector();
+      editor.reset();
+      return;
+    }
     if (character === "?" && editor.value.length === 0 && !key.ctrl && !key.meta) {
       setHelpOpen(true);
       setClearPromptPending(false);
@@ -381,6 +434,12 @@ export function Workbench(props: {
         ? (selectedSuggestion - 1 + suggestions.length) % suggestions.length
         : selectedSuggestion;
       const completion = completeSlashCommand(editor.value, editor.cursor, suggestions[index]!);
+      editor.set(completion.value, completion.cursor);
+      setSelectedSuggestion(0);
+      return;
+    }
+    if (key.return && suggestions.length > 0 && shouldCompleteSelectedSuggestion(editor.value, suggestions[selectedSuggestion]?.name)) {
+      const completion = completeSlashCommand(editor.value, editor.cursor, suggestions[selectedSuggestion]!);
       editor.set(completion.value, completion.cursor);
       setSelectedSuggestion(0);
       return;
@@ -621,7 +680,7 @@ export function Workbench(props: {
 
   function openQuickOpen(): void {
     try {
-      setQuickOpenFiles(buildRepositoryMap(props.config.projectPath, 800).files);
+      setQuickOpenFiles(buildRepositoryMap(activeConfig.projectPath, 800).files);
     } catch {
       setQuickOpenFiles([]);
     }
@@ -681,14 +740,14 @@ export function Workbench(props: {
           setItems((previous) => [...previous, { role: "user", text: event.text, timestamp: Date.now() }]);
         } else if (event.type === "assistant_delta") {
           streamingAssistant += event.text;
-          setItems((previous) => replaceStreamingAssistant(previous, streamingAssistant, props.config.model));
+          setItems((previous) => replaceStreamingAssistant(previous, streamingAssistant, activeConfig.model));
         } else if (event.type === "assistant") {
           streamingAssistant = "";
           if (reasoningText.trim()) {
             setItems((previous) => markThinkingDone(previous, turnUsage));
           }
           sessionStorage.append({ role: "assistant", text: event.text });
-          setItems((previous) => replaceFinalAssistant(previous, event.text, props.config.model));
+          setItems((previous) => replaceFinalAssistant(previous, event.text, activeConfig.model));
         } else if (event.type === "reasoning_delta") {
           reasoningText += event.text;
           setItems((previous) => replaceThinkingLine(previous, reasoningText));
@@ -722,26 +781,73 @@ export function Workbench(props: {
     }
   }
 
+  function handleModelSelectorInput(
+    character: string,
+    key: {
+      upArrow?: boolean;
+      downArrow?: boolean;
+      return?: boolean;
+      tab?: boolean;
+      shift?: boolean;
+      escape?: boolean;
+      ctrl?: boolean;
+      meta?: boolean;
+    },
+  ): boolean {
+    if (!modelSelectorOpen) return false;
+    if (key.escape) {
+      setModelSelectorOpen(false);
+      return true;
+    }
+    if (key.upArrow) {
+      setModelSelectedIndex((previous) => (
+        DEEPSEEK_MODEL_OPTIONS.length === 0
+          ? 0
+          : (previous - 1 + DEEPSEEK_MODEL_OPTIONS.length) % DEEPSEEK_MODEL_OPTIONS.length
+      ));
+      return true;
+    }
+    if (key.downArrow || key.tab) {
+      setModelSelectedIndex((previous) => (
+        DEEPSEEK_MODEL_OPTIONS.length === 0
+          ? 0
+          : (previous + (key.shift ? -1 : 1) + DEEPSEEK_MODEL_OPTIONS.length) % DEEPSEEK_MODEL_OPTIONS.length
+      ));
+      return true;
+    }
+    if (key.return) {
+      const option = DEEPSEEK_MODEL_OPTIONS[modelSelectedIndex];
+      if (option) switchModel(option.id);
+      return true;
+    }
+    if (/^[1-9]$/.test(character)) {
+      const option = DEEPSEEK_MODEL_OPTIONS[Number(character) - 1];
+      if (option) switchModel(option.id);
+      return true;
+    }
+    return true;
+  }
+
   return (
     <Box flexDirection="column">
-      <Header config={props.config} provider={props.provider} />
+      <Header config={activeConfig} provider={activeProvider} />
       <Box>
         <Box flexGrow={1} flexDirection="column" marginRight={showSidePanel ? 1 : 0}>
           <Transcript
             items={items}
             height={height}
             width={mainWidth}
-            providerReady={Boolean(props.provider)}
-            model={props.config.model}
-            projectPath={props.config.projectPath}
-            permissionProfile={permissions.profile ?? props.config.permissionProfile}
+            providerReady={Boolean(activeProvider)}
+            model={activeConfig.model}
+            projectPath={activeConfig.projectPath}
+            permissionProfile={permissions.profile ?? activeConfig.permissionProfile}
             shellEnabled={permissions.allowShell}
             browserEnabled={permissions.allowBrowser}
           />
         </Box>
         {showSidePanel && (
           <SidePanel
-            config={props.config}
+            config={activeConfig}
             state={props.state}
             busy={busy}
             permissions={permissions}
@@ -751,7 +857,7 @@ export function Workbench(props: {
         )}
       </Box>
       <PendingGatePanel
-        projectPath={props.config.projectPath}
+        projectPath={activeConfig.projectPath}
         state={props.state}
         sessionStartedAtMs={sessionStartedAtMs}
         gates={pendingGates}
@@ -781,12 +887,25 @@ export function Workbench(props: {
       )}
       {quickOpenOpen && (
         <QuickOpenPanel
-          projectPath={props.config.projectPath}
+          projectPath={activeConfig.projectPath}
           files={quickOpenFiles}
           query={quickOpenQuery}
           selectedIndex={quickOpenSelected}
           width={columns}
         />
+      )}
+      {modelSelectorOpen && (
+        <Box paddingX={1} marginTop={1}>
+          <ModelPicker
+            model={modelPickerModel({
+              activeModel: activeConfig.model,
+              providerName: activeConfig.provider?.name,
+              providerReady: Boolean(activeProvider),
+              selectedIndex: modelSelectedIndex,
+            })}
+            width={Math.max(48, columns - 2)}
+          />
+        </Box>
       )}
       <QueuedPromptPanel prompts={queuedPrompts} width={columns} />
       <MemoryUsageIndicator width={columns} />
@@ -807,12 +926,12 @@ export function Workbench(props: {
         busy={busy}
         queuedCount={queuedPrompts.length}
         permissions={permissions}
-        config={props.config}
+        config={activeConfig}
         state={props.state}
         sessionStartedAtMs={sessionStartedAtMs}
         lastTurnUsage={lastTurnUsage}
         sessionUsage={sessionUsage}
-        providerReady={Boolean(props.provider)}
+        providerReady={Boolean(activeProvider)}
         width={columns}
         compact={!showSidePanel}
       />
@@ -833,6 +952,13 @@ export function gateTypedQuestionAnswerCommand(subjectType: string, value: strin
 }
 
 export type GateDirectShortcutIntent = "allow" | "reject" | null;
+
+function shouldCompleteSelectedSuggestion(value: string, commandName: string | undefined): boolean {
+  if (!commandName) return false;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("/") || /\s/.test(trimmed)) return false;
+  return trimmed !== `/${commandName}`;
+}
 
 export function gateDirectShortcutIntent(
   subjectType: string,

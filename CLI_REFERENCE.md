@@ -97,6 +97,8 @@ The command list is available inside the workbench with `/help`. Common commands
 | `/doctor` | Show provider and runtime diagnostics. |
 | `/version` | Show version information. |
 | `/init` | Initialize project-local DeepSeekCode files. |
+| `/model` | Open the in-TUI model selector. Use Up/Down and Enter to switch. |
+| `/model flash` / `/model pro` | Switch the current TUI session between `deepseek-v4-flash` and `deepseek-v4-pro`. |
 | `/model verify` | Verify configured model access. |
 | `/effort` | Inspect or adjust inference effort settings. |
 | `/project` | Inspect project scope. |

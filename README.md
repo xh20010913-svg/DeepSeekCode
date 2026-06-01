@@ -95,6 +95,8 @@ The release was tested in `D:\code\DeepSeekTest` with realistic agent scenarios:
 | Command | Purpose |
 | --- | --- |
 | `/doctor` | Check provider, model, paths, and permissions. |
+| `/model` | Open the TUI model selector; use Up/Down and Enter to switch. |
+| `/model flash` / `/model pro` | Switch the current session between `deepseek-v4-flash` and `deepseek-v4-pro`. |
 | `/cache` | Inspect cache readiness, profiles, guard policy, and prompt shape. |
 | `/sessions` / `/resume` | List or focus persisted local transcript sessions. |
 | `/runs` / `/trace` | Inspect durable run/action/task state. |

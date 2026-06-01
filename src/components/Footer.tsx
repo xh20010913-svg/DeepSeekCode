@@ -107,7 +107,7 @@ export function buildFooterModel(input: FooterModelInput): FooterModel {
       ? "Permission prompt: Up/Down select | Enter confirm | Esc cancel/reject"
       : input.busy
         ? "Enter queues next prompt | /cancel stops run | ? shortcuts"
-        : "Ctrl+P commands | Ctrl+O files | Ctrl+R history | ? shortcuts",
+        : "/model switch | Ctrl+P commands | Ctrl+O files | Ctrl+R history | ? shortcuts",
     right: input.compact
       ? `${permissionText} | ${gatesText} | ${providerText}`
       : `${permissionText} | ${gatesText} | ${providerText}`,

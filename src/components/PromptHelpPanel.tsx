@@ -87,10 +87,10 @@ export function buildPromptHelpSections(busy: boolean): PromptHelpSection[] {
     {
       title: "DeepSeek",
       rows: [
+        { key: "/model", action: "open model selector; Up/Down and Enter switch" },
         { key: "/cache plan", action: "preview cache-safe prompt blocks" },
         { key: "/cache doctor", action: "diagnose cache hit rate and drift" },
         { key: "/permissions", action: "change shell/browser profile" },
-        { key: "/doctor", action: "check provider and local setup" },
       ],
     },
   ];

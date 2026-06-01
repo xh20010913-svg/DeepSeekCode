@@ -69,6 +69,8 @@ export interface QueryEngineOptions {
   permissions?: RuntimePermissionState;
   requestExit?: () => void;
   requestClear?: () => void;
+  requestModelSelector?: () => void;
+  switchModel?: (model: string) => boolean;
   awaitUserDecisions?: boolean;
   sessionPersistence?: "managed" | "external" | "off";
 }
@@ -81,6 +83,8 @@ export class QueryEngine {
   private readonly history: ChatMessage[] = [];
   private readonly requestExit?: () => void;
   private readonly requestClear?: () => void;
+  private readonly requestModelSelector?: () => void;
+  private readonly switchModel?: (model: string) => boolean;
   private readonly awaitUserDecisions: boolean;
   private readonly sessionPersistence: "managed" | "external" | "off";
   private readonly actionPrefix = new PrefixStabilityManager();
@@ -100,6 +104,8 @@ export class QueryEngine {
     };
     this.requestExit = options.requestExit;
     this.requestClear = options.requestClear;
+    this.requestModelSelector = options.requestModelSelector;
+    this.switchModel = options.switchModel;
     this.awaitUserDecisions = Boolean(options.awaitUserDecisions);
     this.sessionPersistence = options.sessionPersistence ?? "managed";
   }
@@ -112,6 +118,8 @@ export class QueryEngine {
       permissions: this.permissions,
       requestExit: this.requestExit,
       requestClear: this.requestClear,
+      requestModelSelector: this.requestModelSelector,
+      switchModel: this.switchModel,
     };
   }
 

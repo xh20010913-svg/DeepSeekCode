@@ -4,6 +4,7 @@ import { SelectList, type SelectListOption } from "./design/SelectList.js";
 import { StatusBadge } from "./design/StatusBadge.js";
 import { truncateCells } from "./design/textLayout.js";
 import type { TerminalTone } from "./design/terminalTheme.js";
+import { DEEPSEEK_MODEL_OPTIONS } from "../services/deepseek/models.js";
 
 export interface ModelPickerModel {
   title: string;
@@ -22,33 +23,6 @@ export interface ModelPickerOption {
   description: string;
   selected: boolean;
 }
-
-const KNOWN_DEEPSEEK_MODELS: Array<Omit<ModelPickerOption, "selected">> = [
-  {
-    id: "deepseek-v4-flash",
-    label: "deepseek-v4-flash",
-    status: "test",
-    tone: "success",
-    detail: "fast local testing, lower token burn",
-    description: "Use this while validating UI and tool loops before spending larger reasoning budgets.",
-  },
-  {
-    id: "deepseek-chat",
-    label: "deepseek-chat",
-    status: "chat",
-    tone: "brand",
-    detail: "general coding and review",
-    description: "Balanced default for normal coding turns once the frontend flow is stable.",
-  },
-  {
-    id: "deepseek-reasoner",
-    label: "deepseek-reasoner",
-    status: "think",
-    tone: "warning",
-    detail: "hard planning, higher token spend",
-    description: "Reserve for difficult architecture or debugging tasks where deeper reasoning is worth the cost.",
-  },
-];
 
 export function ModelPicker(props: {
   model: ModelPickerModel;
@@ -78,9 +52,10 @@ export function modelPickerModel(input: {
   providerName?: string | null;
   providerReady: boolean;
   verifiedModel?: string;
+  selectedIndex?: number;
 }): ModelPickerModel {
   const active = input.verifiedModel || input.activeModel;
-  const knownIds = new Set(KNOWN_DEEPSEEK_MODELS.map((option) => option.id));
+  const knownIds = new Set(DEEPSEEK_MODEL_OPTIONS.map((option) => option.id));
   const options: ModelPickerOption[] = [
     ...(!knownIds.has(active) ? [{
       id: active,
@@ -91,8 +66,9 @@ export function modelPickerModel(input: {
       description: "This model is configured locally; keep using it if your provider profile requires it.",
       selected: true,
     }] : []),
-    ...KNOWN_DEEPSEEK_MODELS.map((option) => ({
+    ...DEEPSEEK_MODEL_OPTIONS.map((option) => ({
       ...option,
+      tone: option.id.includes("flash") ? "success" as TerminalTone : "warning" as TerminalTone,
       selected: option.id === active,
     })),
   ];
@@ -103,8 +79,8 @@ export function modelPickerModel(input: {
       ? `provider ${input.providerName ?? "deepseek"} ready`
       : "provider missing; configure API key before verifying",
     options,
-    selectedIndex,
-    footer: "/model verify | set DEEPSEEK_MODEL=<name> | keep flash for cheap smoke tests",
+    selectedIndex: input.selectedIndex ?? selectedIndex,
+    footer: "Up/Down select | Enter switch | Esc close | /model flash | /model pro | /model verify",
   };
 }
 

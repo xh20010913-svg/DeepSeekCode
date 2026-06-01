@@ -11,6 +11,8 @@ export interface CommandContext {
   permissions: RuntimePermissionState;
   requestExit?: () => void;
   requestClear?: () => void;
+  requestModelSelector?: () => void;
+  switchModel?: (model: string) => boolean;
 }
 
 export interface CommandResult {
