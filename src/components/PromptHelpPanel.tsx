@@ -66,6 +66,7 @@ export function buildPromptHelpSections(busy: boolean, language?: UiLanguage): P
         { key: "Ctrl+O", action: zh ? "快速打开文件，Enter 添加 @file" : "quick open files, Enter adds @file" },
         { key: "Ctrl+R", action: zh ? "搜索输入历史" : "search prompt history" },
         { key: "Up / Down", action: zh ? "切换输入历史；选择器打开时切换选项" : "cycle prompt history; select items in pickers" },
+        { key: "Mouse wheel", action: zh ? "滚动对话记录" : "scroll transcript" },
         { key: "PageUp / PageDown", action: zh ? "大步滚动对话记录" : "scroll transcript by a larger step" },
         { key: "?", action: zh ? "显示或隐藏快捷键" : "show or hide this shortcut panel" },
       ],

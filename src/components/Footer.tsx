@@ -140,12 +140,12 @@ export function buildFooterModel(input: FooterModelInput): FooterModel {
     statusTone: input.busy ? (activityIdleSeconds >= 30 ? "warning" : "success") : "muted",
     left: `${cacheText} | ${usageText} | ${costText} | ${effortText}${queueText}`,
     hint: input.transcriptScrollOffset > 0
-      ? zh ? "正在查看更早记录：PageDown/Ctrl+Down 回到最新" : "Viewing earlier transcript: PageDown/Ctrl+Down returns to latest"
+      ? zh ? "正在查看更早记录：滚轮向下/PageDown/Ctrl+Down 回到最新" : "Viewing earlier transcript: wheel down/PageDown/Ctrl+Down returns to latest"
       : input.pendingGates > 0
       ? zh ? "权限提示：Up/Down 选择 | Enter 确认 | Esc 取消/拒绝" : "Permission prompt: Up/Down select | Enter confirm | Esc cancel/reject"
       : input.busy
         ? activityText || (zh ? "Enter 追加下一条 | /cancel 停止任务 | ? 快捷键" : "Enter queues next prompt | /cancel stops run | ? shortcuts")
-        : zh ? "Up/Down 历史输入 | PageUp/PageDown 滚动记录 | /model 切模型 | ? 快捷键" : "Up/Down history | PageUp/PageDown scroll | /model switch | ? shortcuts",
+        : zh ? "Up/Down 历史输入 | 鼠标滚轮/PageUp/PageDown 滚动记录 | /model 切模型 | ? 快捷键" : "Up/Down history | mouse wheel/PageUp/PageDown scroll | /model switch | ? shortcuts",
     right: input.compact
       ? `${permissionText} | ${gatesText} | ${providerText}`
       : `${permissionText} | ${gatesText} | ${providerText}`,

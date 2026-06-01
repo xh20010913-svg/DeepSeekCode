@@ -256,12 +256,28 @@ export function Workbench(props: {
   }, [clearPromptPending]);
 
   useEffect(() => {
+    if (process.env.DEEPSEEKCODE_MOUSE === "0") return;
+    stdout.write("\x1b[?1000h\x1b[?1006h");
+    return () => {
+      stdout.write("\x1b[?1000l\x1b[?1006l");
+    };
+  }, [stdout]);
+
+  useEffect(() => {
     if (!busy) return;
     const timer = setInterval(() => setActivityNowMs(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [busy]);
 
   useInput((character, key) => {
+    const mouseWheelDelta = mouseWheelDeltaFromInput(character);
+    if (mouseWheelDelta !== 0) {
+      scrollTranscript(mouseWheelDelta);
+      return;
+    }
+    if (isMouseInput(character)) {
+      return;
+    }
     if (key.ctrl && character === "c") {
       if (busy && engine.cancelActiveRun()) {
         setQueuedPrompts([]);
@@ -1108,6 +1124,28 @@ function isPageUpKey(key: unknown): boolean {
 function isPageDownKey(key: unknown): boolean {
   return Boolean((key as { pageDown?: boolean; pagedown?: boolean }).pageDown)
     || Boolean((key as { pageDown?: boolean; pagedown?: boolean }).pagedown);
+}
+
+function mouseWheelDeltaFromInput(input: string | undefined): number {
+  const button = mouseButtonCodeFromInput(input);
+  if (button === null || (button & 64) !== 64) return 0;
+  return (button & 1) === 0 ? 3 : -3;
+}
+
+function isMouseInput(input: string | undefined): boolean {
+  return mouseButtonCodeFromInput(input) !== null;
+}
+
+function mouseButtonCodeFromInput(input: string | undefined): number | null {
+  if (!input) return null;
+  const sgrMatch = /^(?:\x1b)?\[<(\d+);\d+;\d+([mM])$/.exec(input);
+  if (sgrMatch) {
+    if (sgrMatch[2] === "m") return null;
+    return Number.parseInt(sgrMatch[1] ?? "", 10);
+  }
+  const x10Match = /^(?:\x1b)?\[M([\s\S])([\s\S])([\s\S])$/.exec(input);
+  if (!x10Match) return null;
+  return x10Match[1]!.charCodeAt(0) - 32;
 }
 
 export function gateDirectShortcutIntent(
