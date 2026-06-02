@@ -9,7 +9,7 @@ import { SettingsPanel, normalizeSettingsTab, settingsPanelModel } from "../../c
 export const settingsCommand: Command = {
   name: "settings",
   aliases: ["setting"],
-  description: "Open a Claude-style DeepSeekCode settings overview.",
+  description: "Open the DeepSeekCode settings overview.",
   usage: "[status|config|usage|gates|theme]",
   execute(args, context) {
     const tab = normalizeSettingsTab(args);

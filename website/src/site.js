@@ -1,158 +1,119 @@
 const copy = {
   zh: {
-    navInstall: "安装",
-    navCache: "缓存",
-    navFeatures: "能力",
-    navStart: "开始使用",
-    heroTitle: "围绕 <em>DeepSeek</em> 缓存稳定性构建的 Code Agent。",
-    heroLede:
-      "DeepSeekCode 不是聊天壳。它把稳定 prompt 前缀、类型化工具、会话恢复、工具结果压缩、多 Agent 长任务和 Windows 终端体验放进同一个 TypeScript runtime。",
-    heroPrimary: "立即开始",
-    heroSecondary: "查看 Guide",
-    metricCache: "live cache check",
-    metricTests: "release checks",
-    metricGates: "open gates",
-    installTitle: "三步启动本地 Agent。",
-    installText:
-      "先在独立测试目录里使用 deepseek-v4-flash 验证工具执行、会话恢复、缓存命中和产物生成。",
+    navQuickstart: "快速开始",
+    navCapabilities: "能力矩阵",
+    navMemory: "长期记忆",
+    navExtensions: "扩展",
+    navTesting: "真实测试",
+    heroEyebrow: "DeepSeek-first local agent runtime",
+    heroTitle: "DeepSeekCode",
+    heroLede: "一个运行在终端里的本地 Agent：native tool calling、本地 typed tools、SQLite 持久状态、TencentDB-Agent-Memory 长期记忆、skills/plugins、缓存费用 telemetry、真实用户场景测试。",
+    heroPrimary: "开始使用",
+    heroSecondary: "阅读说明书",
+    heroCaption: "DeepSeekCode running in Windows Terminal",
+    statusNative: "native tool calls required",
+    statusJson: "no JSON planner fallback",
+    statusMemory: "TencentDB-Agent-Memory 内置",
+    statusChinese: "中文默认",
+    quickTitle: "在独立项目目录启动。",
+    quickText: "先构建源码，再把 Agent 指向你要测试或开发的项目目录。",
+    loopTitle: "v0.2 使用 native tools 驱动本地工作。",
+    capTitle: "只展示真实接入的能力。",
+    memoryTitle: "长期记忆接入真实运行链路。",
+    memoryText: "DeepSeekCode 内置 TencentDB-Agent-Memory 的 MIT runtime。每轮调用前召回相关偏好、决策和项目事实，成功回合结束后捕获对话并提取结构化记忆。默认本地 SQLite；embedding 和 Tencent Cloud VectorDB 需要显式配置。",
+    extTitle: "扩展体系写入 .deepseekcode。",
+    extText: "支持本地路径、GitHub URL、Git URL、file:// Git 源；兼容读取 .claude skill/plugin，但安装目标是 DeepSeekCode 自己的目录。",
+    testTitle: "测试要像真实用户一样发任务。",
+    testWeb: "大型网站，多轮继续完善，browser 验证",
+    testPpt: "答辩 PPT、课程 PPT、OFDR 原理 PPT",
+    testDocx: "DOCX 项目报告",
+    testRepair: "失败后自修复",
+    testAgent: "Planner/Builder/Tester/Reviewer 多 Agent",
+    testResume: "CLI 重启后 --continue / --resume",
+    reportTitle: "每个真实场景可导出报告。",
+    reportText: "报告包含模型、token、cache hit/miss、工具次数、产物、失败点和修复建议。",
     copy: "复制",
-    cacheTitle: "不要靠全量历史硬撑长任务。",
-    cacheText:
-      "DeepSeekCode 会把旧历史压成 conversation summary、tool_result_summary 和 runtime_run_state，并把稳定前缀保持在 prompt 前段。",
-    featuresTitle: "这次发布重点补齐后端长任务链路。",
-    featureAction:
-      "模型返回结构化 action envelope，本地 runtime 再处理路径、权限、工具执行、产物验证和失败反馈。",
-    featureTui:
-      "CLI 支持 --continue 和 --resume <session-id>，新进程也能恢复会话上下文。",
-    featureAgents:
-      "Planner、Builder、Tester、Reviewer 的角色反馈使用 compact tool summary，并写入 agent progress checkpoint。",
-    featureApproval:
-      "文件、shell、browser、MCP、plan 都可以进入审批或验证门，状态写入 SQLite。",
-    featureMcp:
-      "保留 skills、plugins、MCP、Office 产物和 browser action 的扩展边界。",
-    featureTelemetry:
-      "记录 provider cache hit/miss、prompt shape、run progress 和真实测试审计结果。",
-    archTitle: "DeepSeekCode 的后端工作流。",
-    roadmapTitle: "下一步继续补真实 Agent 能力。",
-    roadNow:
-      "已补 CLI session restore、tool_result 压缩、runtime_run_state、多 Agent checkpoint 和真实场景测试。",
-    roadNext:
-      "继续增强后台 job queue、子 Agent 隔离上下文、Office/网页/大型项目真实任务能力和 TUI 交互。",
-    roadLater:
-      "补更完整的插件生态、浏览器自动化、远程执行、长任务 worker 和更细的 token/cache 优化。",
-    faqTitle: "常见问题。",
-    faqOneQ: "DeepSeekCode 现在的核心链路是什么？",
-    faqOneA:
-      "QueryEngine 负责分类和 action loop，Tools 执行本地能力，StateStore 持久化 run/task/action/event，SessionStorage 保存对话和 compact tool result。",
-    faqTwoQ: "怎么降低历史对话的 token 消耗？",
-    faqTwoA:
-      "不全量塞历史。稳定规则和工具 schema 放前面吃缓存；最近几轮保留；旧对话压成结构化摘要；工具输出只保留失败原因、路径、产物和关键结果。",
-    faqThreeQ: "怎么验证不是只跑了基础检查？",
-    faqThreeA:
-      "发布前在测试目录跑了跨进程会话恢复和多 Agent 真实任务，并检查提交给模型的 prompt 是否包含 recent_conversation、tool_result_summary 和 runtime_run_state。",
+    copied: "已复制",
+    selectText: "请手动选择",
   },
   en: {
-    navInstall: "Install",
-    navCache: "Context",
-    navFeatures: "Features",
-    navStart: "Start",
-    heroTitle: "A Code Agent built around <em>DeepSeek</em> cache stability.",
-    heroLede:
-      "DeepSeekCode is not a chat wrapper. It combines stable prompt prefixes, typed tools, session restore, compact tool feedback, multi-agent long-running work, and a Windows terminal runtime in TypeScript.",
-    heroPrimary: "Start now",
-    heroSecondary: "Read Guide",
-    metricCache: "live cache check",
-    metricTests: "release checks",
-    metricGates: "open gates",
-    installTitle: "Start the local agent in three steps.",
-    installText:
-      "Use deepseek-v4-flash against a separate test project before trusting tool execution, session restore, cache behavior, and generated artifacts.",
+    navQuickstart: "Quickstart",
+    navCapabilities: "Capabilities",
+    navMemory: "Memory",
+    navExtensions: "Extensions",
+    navTesting: "Tests",
+    heroEyebrow: "DeepSeek-first local agent runtime",
+    heroTitle: "DeepSeekCode",
+    heroLede: "A terminal local agent with native tool calling, typed local tools, durable SQLite state, TencentDB-Agent-Memory long-term memory, skills/plugins, cache and cost telemetry, and realistic scenario tests.",
+    heroPrimary: "Start",
+    heroSecondary: "Read manual",
+    heroCaption: "DeepSeekCode running in Windows Terminal",
+    statusNative: "native tool calls required",
+    statusJson: "no JSON planner fallback",
+    statusMemory: "TencentDB-Agent-Memory built in",
+    statusChinese: "Chinese by default",
+    quickTitle: "Start in a separate project directory.",
+    quickText: "Build the source, then point the agent at the project you want to test or develop.",
+    loopTitle: "v0.2 drives local work with native tools.",
+    capTitle: "Only real wired capabilities are listed.",
+    memoryTitle: "Long-term memory is wired into the runtime loop.",
+    memoryText: "DeepSeekCode vendors the MIT TencentDB-Agent-Memory runtime. Before each model call it recalls relevant preferences, decisions, and project facts; after successful turns it captures the conversation and extracts structured memories. Local SQLite is the default; embeddings and Tencent Cloud VectorDB require explicit configuration.",
+    extTitle: "Extensions install into .deepseekcode.",
+    extText: "Local paths, GitHub URLs, Git URLs, and file:// Git sources are supported. .claude skills/plugins can be read for compatibility; installed copies go to DeepSeekCode directories.",
+    testTitle: "Tests should look like real user tasks.",
+    testWeb: "Large website, multi-turn improvements, browser validation",
+    testPpt: "Defense PPT, course PPT, OFDR principles PPT",
+    testDocx: "DOCX project report",
+    testRepair: "Self-repair after failure",
+    testAgent: "Planner/Builder/Tester/Reviewer multi-agent flow",
+    testResume: "CLI restart with --continue / --resume",
+    reportTitle: "Each scenario can export a report.",
+    reportText: "Reports include model, tokens, cache hit/miss, tool counts, artifacts, failures, and recommendations.",
     copy: "Copy",
-    cacheTitle: "Long tasks should not replay raw history forever.",
-    cacheText:
-      "DeepSeekCode compacts old history into conversation summaries, tool_result_summary records, and runtime_run_state while keeping stable prefix blocks early.",
-    featuresTitle: "This release strengthens the backend long-task loop.",
-    featureAction:
-      "The model returns a typed action envelope; the local runtime handles paths, permissions, tool execution, artifact validation, and failure feedback.",
-    featureTui:
-      "The CLI supports --continue and --resume <session-id>, so a new process can restore useful session context.",
-    featureAgents:
-      "Planner, Builder, Tester, and Reviewer pass compact tool summaries and write agent progress checkpoints.",
-    featureApproval:
-      "Files, shell, browser, MCP, and plan actions can pass through approval or validation gates stored in SQLite.",
-    featureMcp:
-      "Skills, plugins, MCP, Office artifacts, and browser actions remain first-class extension boundaries.",
-    featureTelemetry:
-      "Provider cache hit/miss, prompt shape, run progress, and live test audit results are recorded.",
-    archTitle: "The DeepSeekCode backend loop.",
-    roadmapTitle: "Next: more real agent capability.",
-    roadNow:
-      "Added CLI session restore, compact tool results, runtime_run_state, multi-agent checkpoints, and live scenario tests.",
-    roadNext:
-      "Improve background job queue, sub-agent isolated context, Office/web/large-project task quality, and TUI interaction.",
-    roadLater:
-      "Richer plugin ecosystem, browser automation, remote execution, long-running workers, and finer token/cache optimization.",
-    faqTitle: "FAQ.",
-    faqOneQ: "What is the core DeepSeekCode loop?",
-    faqOneA:
-      "QueryEngine handles classification and the action loop, Tools execute local capabilities, StateStore persists run/task/action/event data, and SessionStorage keeps chat plus compact tool results.",
-    faqTwoQ: "How does it reduce history token cost?",
-    faqTwoA:
-      "It does not replay everything. Stable rules and tool schemas stay early for cache reuse, recent turns are kept, old chat is summarized, and tool output is reduced to failures, paths, artifacts, and key results.",
-    faqThreeQ: "How was this verified beyond basic checks?",
-    faqThreeA:
-      "The release ran live cross-process resume and multi-agent tasks in a test directory, then audited provider prompts for recent_conversation, tool_result_summary, and runtime_run_state.",
+    copied: "Copied",
+    selectText: "Select text",
   },
 };
 
-function setLanguage(lang) {
-  const table = copy[lang] || copy.zh;
-  document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
-  document.querySelectorAll("[data-i18n]").forEach((node) => {
-    const key = node.getAttribute("data-i18n");
-    if (!table[key]) return;
-    node.innerHTML = table[key];
-  });
-  document.querySelectorAll(".lang-btn").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.lang === lang);
-  });
-  localStorage.setItem("deepseekcode-site-lang", lang);
+function activeLanguage() {
+  const saved = localStorage.getItem("deepseekcode-site-lang");
+  return saved === "en" ? "en" : "zh";
 }
 
-const observer = new IntersectionObserver(
-  (entries) => {
-    for (const entry of entries) {
-      if (entry.isIntersecting) {
-        entry.target.classList.add("is-visible");
-        observer.unobserve(entry.target);
-      }
-    }
-  },
-  { threshold: 0.16 },
-);
+function setLanguage(lang) {
+  const normalized = lang === "en" ? "en" : "zh";
+  const table = copy[normalized];
+  document.documentElement.lang = normalized === "en" ? "en" : "zh-CN";
+  for (const node of document.querySelectorAll("[data-i18n]")) {
+    const key = node.getAttribute("data-i18n");
+    if (key && table[key]) node.textContent = table[key];
+  }
+  for (const button of document.querySelectorAll(".lang")) {
+    button.classList.toggle("is-active", button.dataset.lang === normalized);
+  }
+  localStorage.setItem("deepseekcode-site-lang", normalized);
+}
 
-document.querySelectorAll(".reveal").forEach((node) => observer.observe(node));
+for (const button of document.querySelectorAll(".lang")) {
+  button.addEventListener("click", () => setLanguage(button.dataset.lang || "zh"));
+}
 
-document.querySelectorAll(".lang-btn").forEach((button) => {
-  button.addEventListener("click", () => setLanguage(button.dataset.lang));
-});
-
-document.querySelectorAll("[data-copy]").forEach((button) => {
+for (const button of document.querySelectorAll("[data-copy]")) {
   button.addEventListener("click", async () => {
-    const target = document.querySelector(button.dataset.copy);
+    const target = document.querySelector(button.dataset.copy || "");
     if (!target) return;
-    const text = target.innerText;
+    const original = button.textContent;
+    const table = copy[activeLanguage()];
     try {
-      await navigator.clipboard.writeText(text);
-      const original = button.innerText;
-      button.innerText = "Copied";
-      window.setTimeout(() => {
-        button.innerText = original;
+      await navigator.clipboard.writeText(target.textContent || "");
+      button.textContent = table.copied;
+      setTimeout(() => {
+        button.textContent = original;
       }, 1200);
     } catch {
-      button.innerText = "Select text";
+      button.textContent = table.selectText;
     }
   });
-});
+}
 
-setLanguage(localStorage.getItem("deepseekcode-site-lang") || "zh");
+setLanguage(activeLanguage());

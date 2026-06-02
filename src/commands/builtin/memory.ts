@@ -2,14 +2,32 @@ import React from "react";
 import type { Command } from "../../types/command.js";
 import { appendProjectMemory, memoryFilePath, readProjectMemory } from "../../memdir/projectMemory.js";
 import { ProjectMemoryPanel, projectMemoryPanelModel } from "../../components/ProjectMemoryPanel.js";
+import { getTencentMemoryService } from "../../services/memory/tencentMemoryService.js";
 
 export const memoryCommand: Command = {
   name: "memory",
-  description: "View or append project memory.",
-  usage: "[add <text>|path]",
-  execute(args, context) {
+  description: "View project memory and TencentDB-Agent-Memory status/search.",
+  usage: "[add <text>|path|status|search <query>|conversation <query>]",
+  async execute(args, context) {
     const trimmed = args.trim();
     const path = memoryFilePath(context.config.projectPath);
+    const tdai = getTencentMemoryService(context.config, context.provider, context.state);
+    if (trimmed === "status") {
+      await tdai.initialize();
+      return { message: JSON.stringify(tdai.status, null, 2) };
+    }
+    if (trimmed.startsWith("search ")) {
+      const query = trimmed.slice("search ".length).trim();
+      if (!query) return { message: "Usage: /memory search <query>" };
+      const result = await tdai.searchMemory({ query, limit: 8 });
+      return { message: result.text || "No memory results." };
+    }
+    if (trimmed.startsWith("conversation ")) {
+      const query = trimmed.slice("conversation ".length).trim();
+      if (!query) return { message: "Usage: /memory conversation <query>" };
+      const result = await tdai.searchConversations({ query, limit: 8 });
+      return { message: result.text || "No conversation results." };
+    }
     if (trimmed === "path") {
       return {
         message: path,

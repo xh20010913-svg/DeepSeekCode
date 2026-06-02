@@ -1,9 +1,4 @@
-import {
-  ActionEnvelopeSchema,
-  type ActionEnvelope,
-  type ActionExecutionReport,
-  type ActionRequest,
-} from "../../protocol/actions.js";
+import type { ActionEnvelope, ActionExecutionReport, ActionRequest } from "../../protocol/actions.js";
 import type {
   ActionPlanTurn,
   ChatMessage,
@@ -17,7 +12,17 @@ import type {
   ActionPlanOptions,
 } from "../../protocol/provider.js";
 import { DeepSeekCodeAbortError, isAbortError, throwIfAborted } from "../../utils/abort.js";
+import { baseTools } from "../../tools/registry.js";
 import { captureProviderPrompt } from "../telemetry/providerPromptAudit.js";
+import {
+  envelopeActionsToToolCalls,
+  feedbackToUserMessage,
+  reportToToolMessages,
+  toNativeFunctionTools,
+  toolCallsToActions,
+  type NativeChatMessage,
+  type NativeToolCall,
+} from "./toolCalling.js";
 
 interface DeepSeekResponse {
   choices?: Array<{
@@ -25,6 +30,7 @@ interface DeepSeekResponse {
     message?: {
       content?: string | null;
       reasoning_content?: string | null;
+      tool_calls?: NativeToolCall[];
     };
     delta?: {
       content?: string | null;
@@ -182,7 +188,7 @@ export class DeepSeekClient implements DeepSeekProviderClient {
       },
     ], {
       label: "turn classification",
-      maxTokens: Math.min(this.config.maxOutputTokens ?? 1200, 500),
+      maxTokens: Math.min(this.config.maxOutputTokens ?? 1200, 900),
       signal: options.signal,
     });
     return normalizeClassification(reply);
@@ -195,44 +201,55 @@ export class DeepSeekClient implements DeepSeekProviderClient {
     feedback?: ActionExecutionReport;
     trajectory?: ActionPlanTurn[];
   }, options: ActionPlanOptions = {}): Promise<ActionEnvelope> {
-    const messages = buildActionPlanningMessages(input);
-    const jsonOptions = {
-      label: "action plan",
-      maxTokens: Math.max(this.config.maxOutputTokens ?? 1200, 2200),
-      signal: options.signal,
+    const messages = buildNativeToolPlanningMessages(input);
+    const json = await this.requestJson({
+      model: this.config.model,
+      messages,
+      tools: toNativeFunctionTools(baseTools),
+      tool_choice: "auto",
+      temperature: 0.2,
+      max_tokens: Math.max(this.config.maxOutputTokens ?? 1200, 2200),
+    }, options.signal, "native tool plan");
+    const usage = usageFromPayload(json.usage);
+    this.lastUsage = usage;
+    const message = json.choices?.[0]?.message;
+    this.lastReasoning = message?.reasoning_content ?? undefined;
+    const toolCalls = message?.tool_calls ?? [];
+    if (toolCalls.length > 0) {
+      let actions: ActionRequest[];
+      try {
+        actions = toolCallsToActions(toolCalls);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(`DeepSeek native tool call failed local schema validation: ${detail}`);
+      }
+      return {
+        task_kind: "tool_calling",
+        needs_local_tools: true,
+        acceptance_criteria: [],
+        final_message: message?.content?.trim() ?? "",
+        continue_work: true,
+        remaining_work: "Continue from native tool results.",
+        actions,
+      };
+    }
+    const finalText = message?.content?.trim() ?? "";
+    if (isInitialLocalToolPlan(input)) {
+      throw new Error([
+        "DeepSeek native tool calling did not return any tool_calls for a local-tool request.",
+        "The selected model or gateway may not support tool calling, or it ignored the tools schema.",
+        "DeepSeekCode will not fall back to the old ActionEnvelope JSON planner; switch to a tool-calling model/provider and retry.",
+        finalText ? `model_content=${compact(finalText, 300)}` : "",
+      ].filter(Boolean).join(" "));
+    }
+    return {
+      task_kind: "chat",
+      needs_local_tools: false,
+      acceptance_criteria: [],
+      final_message: finalText,
+      continue_work: false,
+      actions: [],
     };
-    const reply = options.onReasoningDelta
-      ? await this.completeJsonStream(messages, {
-          ...jsonOptions,
-          onReasoningDelta: options.onReasoningDelta,
-        })
-      : await this.completeJson(messages, jsonOptions);
-    const parsed = ActionEnvelopeSchema.safeParse(reply);
-    if (parsed.success) return parsed.data;
-
-    const repaired = await this.completeJson([
-      ...messages,
-      {
-        role: "assistant",
-        content: JSON.stringify(reply),
-      },
-      {
-        role: "user",
-        content: [
-          "The previous JSON was syntactically valid but failed the ActionEnvelope schema.",
-          "Fix the schema errors and return exactly one compact valid ActionEnvelope JSON object.",
-          "Do not add markdown or prose.",
-          "If a tool action is malformed, either repair all required fields or remove that action and continue with a valid smaller batch.",
-          "Schema issues:",
-          parsed.error.issues.map((issue) => `- path=${issue.path.join(".") || "(root)"} code=${issue.code} message=${issue.message}`).join("\n"),
-        ].join("\n"),
-      },
-    ], {
-      label: "action plan schema repair",
-      maxTokens: jsonOptions.maxTokens,
-      signal: options.signal,
-    });
-    return ActionEnvelopeSchema.parse(repaired);
   }
 
   async completeJson(messages: ChatMessage[], options: {
@@ -245,6 +262,7 @@ export class DeepSeekClient implements DeepSeekProviderClient {
       model: this.config.model,
       messages,
       temperature: 0.2,
+      thinking: { type: "disabled" },
       response_format: { type: "json_object" },
       max_tokens: maxTokens,
     }, options.signal, options.label ?? "json response");
@@ -252,73 +270,7 @@ export class DeepSeekClient implements DeepSeekProviderClient {
     this.lastReasoning = json.choices?.[0]?.message?.reasoning_content ?? undefined;
     const first = parseJsonResponse(json, options.label ?? "json response");
     if (first.ok) return first.value;
-
-    const repair = await this.requestJson({
-      model: this.config.model,
-      messages: [
-        ...messages,
-        {
-          role: "user",
-          content:
-            "The previous response was not valid JSON. " +
-            `Reason: ${first.error}. ` +
-            "Return exactly one compact valid JSON object now. No markdown, no comments, no prose. " +
-            repairSizeGuidance(first.error),
-        },
-      ],
-      temperature: 0,
-      response_format: { type: "json_object" },
-      max_tokens: Math.min(4096, Math.max(maxTokens * 2, 1200)),
-    }, options.signal, `${options.label ?? "json response"} repair`);
-    this.lastUsage = mergeUsage(this.lastUsage, usageFromPayload(repair.usage));
-    this.lastReasoning = [
-      this.lastReasoning,
-      repair.choices?.[0]?.message?.reasoning_content ?? "",
-    ].filter(Boolean).join("\n");
-    const second = parseJsonResponse(repair, `${options.label ?? "json response"} repair`);
-    if (second.ok) return second.value;
-
-    throw new Error(
-      `DeepSeek JSON response invalid after retry: ${first.error}; retry: ${second.error}`,
-    );
-  }
-
-  async completeJsonStream(messages: ChatMessage[], options: {
-    label?: string;
-    maxTokens?: number;
-    onReasoningDelta?: (text: string) => void;
-    signal?: AbortSignal;
-  } = {}): Promise<unknown> {
-    const maxTokens = options.maxTokens ?? this.config.maxOutputTokens ?? 1200;
-    try {
-      const streamed = await this.requestJsonStream({
-        model: this.config.model,
-        messages,
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-        stream: true,
-        stream_options: { include_usage: true },
-        max_tokens: maxTokens,
-      }, options.onReasoningDelta, options.signal, options.label ?? "json stream");
-      this.lastUsage = streamed.usage;
-      this.lastReasoning = streamed.reasoning || undefined;
-      const first = parseJsonText(streamed.content, {
-        label: options.label ?? "json stream",
-        finish: streamed.finishReason ?? "unknown",
-        reasoningChars: streamed.reasoning.length,
-      });
-      if (first.ok) return first.value;
-    } catch (error) {
-      if (isAbortError(error, options.signal)) throw error;
-      // Streaming JSON is an optimization for live thinking. Some gateways
-      // support JSON mode only on non-streaming requests, so fall through to
-      // the stricter non-stream path instead of failing the user task.
-    }
-    return this.completeJson(messages, {
-      label: options.label,
-      maxTokens,
-      signal: options.signal,
-    });
+    throw new Error(`DeepSeek JSON response invalid: ${first.error}`);
   }
 
   private async requestJson(
@@ -327,81 +279,12 @@ export class DeepSeekClient implements DeepSeekProviderClient {
     auditLabel = "json",
   ): Promise<DeepSeekResponse> {
     const response = await this.requestRaw(body, signal, auditLabel);
-    return (await response.json()) as DeepSeekResponse;
-  }
-
-  private async requestJsonStream(
-    body: Record<string, unknown>,
-    onReasoningDelta?: (text: string) => void,
-    signal?: AbortSignal,
-    auditLabel = "json stream",
-  ): Promise<{
-    content: string;
-    reasoning: string;
-    finishReason?: string | null;
-    usage: UsageSnapshot;
-  }> {
-    const response = await this.requestRaw(body, signal, auditLabel);
-    if (!response.body) throw new Error("DeepSeek stream response has no body");
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    const dataLines: string[] = [];
-    let content = "";
-    let reasoning = "";
-    let finishReason: string | null | undefined;
-    let usage: UsageSnapshot = {};
-
-    const flushEvent = (): void => {
-      const event = dataLines.join("\n").trim();
-      dataLines.length = 0;
-      if (!event || event === "[DONE]") return;
-      let chunk: DeepSeekResponse;
-      try {
-        chunk = JSON.parse(event) as DeepSeekResponse;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Invalid DeepSeek stream event: ${message}; data=${compact(event, 240)}`);
-      }
-      const choice = chunk.choices?.[0];
-      const delta = choice?.delta;
-      finishReason = choice?.finish_reason ?? finishReason;
-      if (delta?.reasoning_content) {
-        reasoning += delta.reasoning_content;
-        onReasoningDelta?.(delta.reasoning_content);
-      }
-      if (delta?.content) {
-        content += delta.content;
-      }
-      if (chunk.usage) {
-        usage = mergeUsage(usage, usageFromPayload(chunk.usage));
-      }
-    };
-
-    const readLine = (line: string): void => {
-      const trimmed = line.trimEnd();
-      if (!trimmed) {
-        flushEvent();
-        return;
-      }
-      if (trimmed.startsWith(":")) return;
-      if (!trimmed.startsWith("data:")) return;
-      dataLines.push(trimmed.slice("data:".length).trimStart());
-    };
-
-    while (true) {
-      throwIfAborted(signal);
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split(/\r?\n/);
-      buffer = lines.pop() ?? "";
-      for (const line of lines) readLine(line);
+    try {
+      return (await response.json()) as DeepSeekResponse;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`DeepSeek API response was not valid JSON during ${auditLabel}: ${message}`);
     }
-    buffer += decoder.decode();
-    if (buffer) readLine(buffer);
-    flushEvent();
-    return { content, reasoning, finishReason, usage };
   }
 
   private async requestRaw(
@@ -415,71 +298,105 @@ export class DeepSeekClient implements DeepSeekProviderClient {
       label: auditLabel,
       body,
     });
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(new Error("DeepSeek request timed out")), this.config.timeoutSecs * 1000);
-    const abortFromCaller = () => controller.abort(new DeepSeekCodeAbortError(signal?.reason));
-    if (signal?.aborted) abortFromCaller();
-    else signal?.addEventListener("abort", abortFromCaller, { once: true });
-    try {
-      const response = await fetch(endpointFor(this.config.baseUrl), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.config.apiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      if (!response.ok) {
+    const maxAttempts = isStreamingRequest(body) ? 1 : 3;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(new Error("DeepSeek request timed out")), this.config.timeoutSecs * 1000);
+      const abortFromCaller = () => controller.abort(new DeepSeekCodeAbortError(signal?.reason));
+      if (signal?.aborted) abortFromCaller();
+      else signal?.addEventListener("abort", abortFromCaller, { once: true });
+      try {
+        const response = await fetch(endpointFor(this.config.baseUrl), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${this.config.apiKey}`,
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        if (response.ok) return response;
         const text = await response.text();
-        throw new Error(`DeepSeek API ${response.status}: ${compact(text, 1000)}`);
+        if (attempt < maxAttempts && isRetryableStatus(response.status)) {
+          await sleep(retryDelayMs(attempt), signal);
+          continue;
+        }
+        throw new Error(formatApiError(response.status, text, body));
+      } catch (error) {
+        if (isAbortError(error, signal)) throw error;
+        lastError = error;
+        if (attempt >= maxAttempts || !isRetryableNetworkError(error)) throw error;
+        await sleep(retryDelayMs(attempt), signal);
+      } finally {
+        clearTimeout(timeout);
+        signal?.removeEventListener("abort", abortFromCaller);
       }
-      return response;
-    } finally {
-      clearTimeout(timeout);
-      signal?.removeEventListener("abort", abortFromCaller);
     }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "DeepSeek request failed"));
   }
 }
 
-export function buildActionPlanningMessages(input: {
+function isInitialLocalToolPlan(input: {
+  feedback?: ActionExecutionReport;
+  trajectory?: ActionPlanTurn[];
+}): boolean {
+  return !input.feedback && (!input.trajectory || input.trajectory.length === 0);
+}
+
+export function buildNativeToolPlanningMessages(input: {
   userMessage: string;
   systemPrompt: string;
   contextSummary: string;
   feedback?: ActionExecutionReport;
   trajectory?: ActionPlanTurn[];
-}): ChatMessage[] {
-  const messages: ChatMessage[] = [
-    { role: "system", content: input.systemPrompt },
+}): NativeChatMessage[] {
+  const messages: NativeChatMessage[] = [
+    {
+      role: "system",
+      content: [
+        input.systemPrompt,
+        "",
+        "Native tool calling mode is active.",
+        "Use function tool calls for local work, exactly like ClaudeCode emits tool_use blocks.",
+        "After tool results, continue with the next useful tool call or provide the final answer.",
+        "Use at most 3 tool calls in one assistant turn; split large work into additional turns.",
+        "For ordinary chat or a completed task, answer normally without tool calls.",
+      ].join("\n"),
+    },
     {
       role: "user",
       content: [
-        "You must return json only and it must be an ActionEnvelope.",
         input.contextSummary ? `Project context:\n${input.contextSummary}` : "",
         `Current user request:\n${input.userMessage}`,
       ].filter(Boolean).join("\n\n"),
     },
   ];
+
   const turns = (input.trajectory ?? []).slice(-6);
   for (const turn of turns) {
+    const toolCalls = envelopeActionsToToolCalls(turn);
+    if (toolCalls.length === 0) {
+      messages.push({
+        role: "assistant",
+        content: turn.assistantEnvelope.final_message || "(no tool call)",
+      });
+      continue;
+    }
     messages.push({
       role: "assistant",
-      content: [
-        `<assistant_action_envelope attempt="${turn.attempt}">`,
-        JSON.stringify(compactEnvelope(turn.assistantEnvelope), null, 2),
-        "</assistant_action_envelope>",
-      ].join("\n"),
+      content: turn.assistantEnvelope.final_message || null,
+      reasoning_content: turn.reasoning || fallbackToolReasoning(turn),
+      tool_calls: toolCalls,
     });
-    messages.push({
-      role: "user",
-      content: formatToolResultMessage(turn.toolReport, turn.note, turn.attempt),
-    });
+    messages.push(...reportToToolMessages(turn));
   }
+
   const feedbackAlreadyInTrajectory = turns.some((turn) => turn.toolReport === input.feedback);
   if (input.feedback && !feedbackAlreadyInTrajectory) {
     messages.push({
       role: "user",
-      content: formatToolResultMessage(input.feedback, undefined, turns.length + 1),
+      content: feedbackToUserMessage(input.feedback),
     });
   }
   return messages;
@@ -567,6 +484,77 @@ function endpointFor(baseUrl: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
 }
 
+function isStreamingRequest(body: Record<string, unknown>): boolean {
+  return body.stream === true;
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+function retryDelayMs(attempt: number): number {
+  return Math.min(2_000, 250 * 2 ** Math.max(0, attempt - 1));
+}
+
+function isRetryableNetworkError(error: unknown): boolean {
+  if (error instanceof DeepSeekCodeAbortError) return false;
+  const message = error instanceof Error ? error.message : String(error);
+  return /fetch failed|network|socket|econnreset|econnrefused|etimedout|timeout|terminated/i.test(message);
+}
+
+async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) return;
+  if (signal?.aborted) throw new DeepSeekCodeAbortError(signal.reason);
+  await new Promise<void>((resolve, reject) => {
+    const done = () => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DeepSeekCodeAbortError(signal?.reason));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function formatApiError(status: number, text: string, body: Record<string, unknown>): string {
+  const hasTools = Array.isArray(body.tools);
+  const label = hasTools ? "native tool calling request" : "request";
+  const detail = compact(text || "(empty response body)", 1_000);
+  const hint = apiErrorHint(status, hasTools, text);
+  return [`DeepSeek API ${status} failed during ${label}: ${detail}`, hint].filter(Boolean).join(" ");
+}
+
+function apiErrorHint(status: number, hasTools: boolean, text = ""): string {
+  if (status === 400 && /reasoning_content/i.test(text)) {
+    return "DeepSeek thinking mode requires assistant reasoning_content to be replayed with prior tool calls.";
+  }
+  if (status === 400 && hasTools) {
+    return "The selected model or gateway rejected the tools schema; choose a tool-calling model or reduce/repair the schema.";
+  }
+  if (status === 401 || status === 403) {
+    return "Check the configured API key and provider permissions.";
+  }
+  if (status === 404 && hasTools) {
+    return "The selected provider endpoint may not support chat/completions tool calling.";
+  }
+  if (status === 429) {
+    return "Rate limited; DeepSeekCode retried network-safe attempts and then stopped.";
+  }
+  if (status >= 500) {
+    return "Provider-side error; retry later or switch model/provider.";
+  }
+  return "";
+}
+
+function fallbackToolReasoning(turn: ActionPlanTurn): string {
+  return turn.note
+    ? `DeepSeekCode replayed a compact local tool turn: ${compact(turn.note, 240)}`
+    : "DeepSeekCode replayed a compact local tool turn for native tool-result continuity.";
+}
+
 function usageFromPayload(payload?: UsagePayload | null): UsageSnapshot {
   if (!payload) return {};
   return {
@@ -576,22 +564,6 @@ function usageFromPayload(payload?: UsagePayload | null): UsageSnapshot {
       payload.prompt_cache_hit_tokens ?? payload.prompt_tokens_details?.cached_tokens,
     cacheMissTokens: payload.prompt_cache_miss_tokens,
   };
-}
-
-function mergeUsage(left: UsageSnapshot | undefined, right: UsageSnapshot): UsageSnapshot {
-  if (!left) return right;
-  return {
-    inputTokens: addOptional(left.inputTokens, right.inputTokens),
-    outputTokens: addOptional(left.outputTokens, right.outputTokens),
-    cacheHitTokens: addOptional(left.cacheHitTokens, right.cacheHitTokens),
-    cacheMissTokens: addOptional(left.cacheMissTokens, right.cacheMissTokens),
-  };
-}
-
-function addOptional(left: number | undefined, right: number | undefined): number | undefined {
-  if (left === undefined) return right;
-  if (right === undefined) return left;
-  return left + right;
 }
 
 function normalizeClassification(value: unknown): TurnClassification {
@@ -611,69 +583,4 @@ function stripJsonFence(text: string): string {
 
 function compact(text: string, max: number): string {
   return text.replace(/\s+/g, " ").trim().slice(0, max);
-}
-
-function compactReport(report: ActionExecutionReport): ActionExecutionReport {
-  return {
-    status: report.status,
-    final_message: compact(report.final_message ?? "", 500),
-    results: report.results.map((result) => ({
-      ...result,
-      message: result.message ? compact(result.message, 900) : result.message,
-    })),
-  };
-}
-
-function compactEnvelope(envelope: ActionEnvelope): Record<string, unknown> {
-  return {
-    task_kind: envelope.task_kind,
-    needs_local_tools: envelope.needs_local_tools,
-    acceptance_criteria: envelope.acceptance_criteria,
-    final_message: compact(envelope.final_message ?? "", 360),
-    continue_work: envelope.continue_work ?? false,
-    remaining_work: compact(envelope.remaining_work ?? "", 360),
-    actions: envelope.actions.map(summarizeAction),
-  };
-}
-
-function formatToolResultMessage(
-  report: ActionExecutionReport,
-  note: string | undefined,
-  attempt: number,
-): string {
-  return [
-    `<tool_result attempt="${attempt}" status="${report.status}">`,
-    JSON.stringify(compactReport(report), null, 2),
-    "</tool_result>",
-    note ? `<runtime_note>${compact(note, 600)}</runtime_note>` : "",
-    "Continue from this tool_result exactly, like ClaudeCode after a tool_result user message.",
-    "If the tool_result shows failure, fix the next concrete issue. If it shows success and all acceptance criteria are met, return needs_local_tools=false with a concise final_message.",
-  ].filter(Boolean).join("\n");
-}
-
-function summarizeAction(action: ActionRequest): Record<string, unknown> {
-  const candidate = action as Record<string, unknown>;
-  const summary: Record<string, unknown> = { type: action.type };
-  for (const key of ["path", "pattern", "include", "command", "cwd", "profile", "server", "tool", "expected_kind", "scope", "goal"]) {
-    if (candidate[key] !== undefined) summary[key] = candidate[key];
-  }
-  if (typeof candidate.content === "string") {
-    summary.content_chars = candidate.content.length;
-    summary.content_head = compact(candidate.content, 160);
-  }
-  if (Array.isArray(candidate.edits)) {
-    summary.edits = candidate.edits.length;
-  }
-  return summary;
-}
-
-function repairSizeGuidance(error: string): string {
-  if (!/finish=length|Unterminated string|Unexpected end|contentChars=/i.test(error)) return "";
-  return [
-    "The previous JSON was probably truncated.",
-    "If this is an ActionEnvelope, return a smaller batch:",
-    "at most 3 actions, write_file content under 2500 chars, final_message under 300 chars,",
-    "use write_file content_lines arrays for Markdown or multiline text instead of raw multiline content strings,",
-    "and set continue_work=true with remaining_work for the next batch instead of emitting everything now.",
-  ].join(" ");
 }

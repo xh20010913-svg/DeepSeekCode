@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { discoverSkills, type SkillSummary } from "../../skills/discovery.js";
+import { bundledRuntimeSkillContent, discoverSkills, type SkillSummary } from "../../skills/discovery.js";
 import { loadSkill, type LoadedSkill } from "../../skills/loader.js";
 import {
   normalizeSkillName,
@@ -9,10 +9,14 @@ import {
   validateSkillDocument,
   type SkillValidationResult,
 } from "../../skills/manifest.js";
+import { resolveInstallSource } from "../install/installSource.js";
 
 export interface SkillSourceMetadata {
-  kind: "path";
+  kind: "path" | "git";
   sourcePath: string;
+  sourceUrl?: string;
+  ref?: string;
+  subpath?: string;
   installedAtMs: number;
   updatedAtMs?: number;
 }
@@ -69,9 +73,13 @@ export class SkillService {
   }
 
   installFromPath(input: { sourcePath: string; name?: string; overwrite?: boolean }): LoadedSkill {
-    const sourcePath = path.isAbsolute(input.sourcePath)
-      ? path.resolve(input.sourcePath)
-      : path.resolve(this.projectPath, input.sourcePath);
+    const resolvedSource = resolveInstallSource({
+      sourcePath: input.sourcePath,
+      projectPath: this.projectPath,
+      dataDir: this.dataDir,
+      cacheNamespace: "skills",
+    });
+    const sourcePath = resolvedSource.path;
     const sourceSkillPath = path.join(sourcePath, "SKILL.md");
     if (!fs.existsSync(sourceSkillPath)) {
       throw new Error(`skill document not found: ${sourceSkillPath}`);
@@ -82,7 +90,8 @@ export class SkillService {
     if (!name) throw new Error("skill name is empty");
     const skillRoot = path.join(this.projectPath, ".deepseekcode", "skills");
     const targetPath = path.join(skillRoot, name);
-    if (path.relative(skillRoot, targetPath).startsWith("..")) {
+    const targetRelative = path.relative(skillRoot, targetPath);
+    if (targetRelative.startsWith("..") || path.isAbsolute(targetRelative)) {
       throw new Error(`skill target escapes project skill root: ${targetPath}`);
     }
     if (fs.existsSync(targetPath)) {
@@ -104,8 +113,7 @@ export class SkillService {
       ), "utf8");
     }
     writeSourceMetadata(targetPath, {
-      kind: "path",
-      sourcePath,
+      ...resolvedSource.metadata,
       installedAtMs: Date.now(),
     });
     const skill = this.load(name);
@@ -143,8 +151,13 @@ export class SkillService {
     const skill = this.requireProjectSkill(name);
     const source = readSourceMetadata(skill.path);
     if (!source) throw new Error(`skill has no tracked source: ${name}`);
-    if (source.kind !== "path") throw new Error(`unsupported skill source kind: ${source.kind}`);
-    if (!fs.existsSync(path.join(source.sourcePath, "SKILL.md"))) {
+    const resolvedSource = resolveInstallSource({
+      sourcePath: source.sourcePath,
+      projectPath: this.projectPath,
+      dataDir: this.dataDir,
+      cacheNamespace: "skills",
+    });
+    if (!fs.existsSync(path.join(resolvedSource.path, "SKILL.md"))) {
       throw new Error(`skill source is missing: ${source.sourcePath}`);
     }
     const updated = this.installFromPath({
@@ -173,6 +186,10 @@ export class SkillService {
       }];
     }
     return skills.map((skill) => {
+      const bundled = skill.path.startsWith("builtin:") ? bundledRuntimeSkillContent(skill.name) : undefined;
+      if (bundled) {
+        return validateSkillDocument(skill.name, skill.path, bundled);
+      }
       const skillPath = path.join(skill.path, "SKILL.md");
       return validateSkillDocument(
         skill.name,
@@ -209,7 +226,7 @@ export class SkillService {
 
 function shouldCopySkillPath(sourcePath: string): boolean {
   const parts = sourcePath.split(/[\\/]/);
-  return !parts.some((part) => part === ".git" || part === "node_modules" || part === ".DS_Store");
+  return !parts.some((part) => part === ".git" || part === "node_modules" || part === ".DS_Store" || part === ".env");
 }
 
 function sourceMetadataPath(skillPath: string): string {
@@ -225,7 +242,7 @@ function readSourceMetadata(skillPath: string): SkillSourceMetadata | undefined 
   if (!fs.existsSync(metadataPath)) return undefined;
   try {
     const parsed = JSON.parse(fs.readFileSync(metadataPath, "utf8")) as SkillSourceMetadata;
-    if (parsed.kind !== "path" || typeof parsed.sourcePath !== "string") return undefined;
+    if (!["path", "git"].includes(parsed.kind) || typeof parsed.sourcePath !== "string") return undefined;
     return parsed;
   } catch {
     return undefined;

@@ -137,7 +137,7 @@ export function queuePanelModel(input: {
 export function runControlPanelModel(input: {
   run?: RunRecord;
   runId: string;
-  action: "paused" | "resumed" | "cancelled";
+  action: "paused" | "resumed" | "cancelled" | "retry";
   reason: string;
 }): RunPanelModel {
   return {

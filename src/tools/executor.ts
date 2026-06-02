@@ -8,6 +8,7 @@ import { executeToolPlan, type ToolOrchestrationOptions, type ToolRunEvent } fro
 import type { StateStore } from "../state/sqlite.js";
 import type { FileStateCache } from "../utils/fileStateCache.js";
 import type { ToolExecutionContext } from "../Tool.js";
+import type { TencentMemoryService } from "../services/memory/tencentMemoryService.js";
 import { baseTools } from "./registry.js";
 import type { ShellPolicy } from "./shell.js";
 
@@ -21,6 +22,7 @@ export interface ExecutionOptions {
   fileStateCache?: FileStateCache;
   state?: StateStore;
   runId?: string;
+  memoryService?: TencentMemoryService;
   skillRunner?: ToolExecutionContext["skillRunner"];
   abortSignal?: AbortSignal;
 }
@@ -41,6 +43,7 @@ export async function executeEnvelope(
       fileStateCache: options.fileStateCache,
       state: options.state,
       runId: options.runId,
+      memoryService: options.memoryService,
       skillRunner: options.skillRunner,
       abortSignal: options.abortSignal,
     },

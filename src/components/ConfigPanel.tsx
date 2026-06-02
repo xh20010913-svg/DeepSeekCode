@@ -124,7 +124,7 @@ export function configPanelModel(input: {
     title: "DeepSeekCode runtime config",
     subtitle: "safe read-only view; secrets are never printed",
     rows,
-    footer: "/config keeps JSON fallback output for scripts; use /doctor for diagnostics",
+    footer: "/config shows runtime settings; /doctor verifies native tool calling and integrations",
   };
 }
 

@@ -47,6 +47,10 @@ export function parsePluginManifest(value: unknown): PluginManifest {
   return PluginManifestSchema.parse(normalizePluginManifestShape(value));
 }
 
+export function parsePluginManifestJson(content: string): PluginManifest {
+  return parsePluginManifest(JSON.parse(stripJsonBom(content)));
+}
+
 function normalizePluginManifestShape(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const raw = { ...(value as Record<string, unknown>) };
@@ -137,7 +141,7 @@ export function validatePluginManifest(
 
   let manifest: PluginManifest | null = null;
   try {
-    manifest = parsePluginManifest(JSON.parse(content));
+    manifest = parsePluginManifestJson(content);
   } catch (error) {
     errors.push(error instanceof Error ? error.message : String(error));
   }
@@ -194,4 +198,8 @@ export function validatePluginManifest(
 
 function pathEscapesPlugin(relativePath: string): boolean {
   return relativePath.includes("..") || /^[A-Za-z]:[\\/]/.test(relativePath) || relativePath.startsWith("/") || relativePath.startsWith("\\");
+}
+
+function stripJsonBom(content: string): string {
+  return content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
 }

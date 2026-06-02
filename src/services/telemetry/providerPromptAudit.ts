@@ -39,14 +39,44 @@ function promptAuditDir(): string | undefined {
   return undefined;
 }
 
-function normalizeMessage(value: unknown): { role: string; content: string; chars: number } {
+function normalizeMessage(value: unknown): {
+  role: string;
+  content: string;
+  chars: number;
+  tool_call_id?: string;
+  tool_calls?: Array<{ id?: string; name?: string; arguments?: string }>;
+} {
   const record = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const content = stringifyContent(record.content);
   const sanitized = redactSecrets(content);
-  return {
+  const message = {
     role: typeof record.role === "string" ? record.role : "unknown",
     content: truncatePromptContent(sanitized),
     chars: sanitized.length,
+  };
+  if (typeof record.tool_call_id === "string") {
+    return { ...message, tool_call_id: record.tool_call_id };
+  }
+  if (Array.isArray(record.tool_calls)) {
+    return {
+      ...message,
+      tool_calls: record.tool_calls.map(normalizeToolCall),
+    };
+  }
+  return message;
+}
+
+function normalizeToolCall(value: unknown): { id?: string; name?: string; arguments?: string } {
+  const record = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const fn = record.function && typeof record.function === "object"
+    ? record.function as Record<string, unknown>
+    : {};
+  return {
+    id: typeof record.id === "string" ? record.id : undefined,
+    name: typeof fn.name === "string" ? fn.name : undefined,
+    arguments: typeof fn.arguments === "string"
+      ? truncatePromptContent(redactSecrets(fn.arguments))
+      : undefined,
   };
 }
 
@@ -57,7 +87,7 @@ function sanitizeRequest(body: Record<string, unknown>): Record<string, unknown>
       copy.messages = Array.isArray(value) ? value.map(normalizeMessage) : [];
       continue;
     }
-    if (/api[_-]?key|authorization|token|secret|password/i.test(key)) {
+    if (isSensitiveKey(key)) {
       copy[key] = "[REDACTED]";
       continue;
     }
@@ -72,13 +102,19 @@ function sanitizeValue(value: unknown): unknown {
   if (value && typeof value === "object") {
     const output: Record<string, unknown> = {};
     for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-      output[key] = /api[_-]?key|authorization|token|secret|password/i.test(key)
+      output[key] = isSensitiveKey(key)
         ? "[REDACTED]"
         : sanitizeValue(nested);
     }
     return output;
   }
   return value;
+}
+
+function isSensitiveKey(key: string): boolean {
+  const normalized = key.trim().toLowerCase();
+  if (["authorization", "api_key", "apikey", "password", "secret", "token"].includes(normalized)) return true;
+  return /(^|[_-])(api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|secret|password)$/i.test(normalized);
 }
 
 function stringifyContent(value: unknown): string {

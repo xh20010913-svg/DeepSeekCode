@@ -7,6 +7,7 @@ import type { UsageSnapshot } from "../protocol/provider.js";
 
 export type RunStatus = "running" | "succeeded" | "failed" | "paused" | "cancelled";
 export type TaskStatus = "queued" | "running" | "succeeded" | "failed" | "paused" | "cancelled";
+export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
 export interface RunRecord {
   id: string;
@@ -46,6 +47,37 @@ export interface TaskRecord {
 export interface TaskDependencyRecord {
   taskId: string;
   dependsOnTaskId: string;
+  createdAtMs: number;
+}
+
+export interface JobRecord {
+  id: string;
+  runId: string | null;
+  kind: string;
+  status: JobStatus;
+  payload: unknown;
+  detail: string;
+  attempts: number;
+  maxAttempts: number;
+  lockedBy: string | null;
+  lockedAtMs: number | null;
+  createdAtMs: number;
+  updatedAtMs: number;
+}
+
+export interface CheckpointRecord {
+  id: string;
+  runId: string;
+  scope: string;
+  snapshot: unknown;
+  createdAtMs: number;
+}
+
+export interface ContextSnapshotRecord {
+  id: string;
+  runId: string;
+  kind: string;
+  content: unknown;
   createdAtMs: number;
 }
 
@@ -240,6 +272,16 @@ export class StateStore {
     return id;
   }
 
+  getTask(taskId: string): TaskRecord | undefined {
+    const row = this.db.prepare(`
+      SELECT id, run_id, parent_task_id, agent, title, status, detail, created_at_ms, updated_at_ms
+      FROM tasks
+      WHERE id = ?
+      LIMIT 1
+    `).get(taskId);
+    return row ? rowToTaskRecord(row as Record<string, unknown>) : undefined;
+  }
+
   addTaskDependency(taskId: string, dependsOnTaskId: string): void {
     this.db.prepare(`
       INSERT OR IGNORE INTO task_dependencies (task_id, depends_on_task_id, created_at_ms)
@@ -259,6 +301,29 @@ export class StateStore {
     if (task) this.appendEvent(task.run_id, "task_status_updated", { task_id: taskId, status, detail });
   }
 
+  retryTask(taskId: string, detail = "retry requested"): TaskRecord {
+    const task = this.getTask(taskId);
+    if (!task) throw new Error(`task not found: ${taskId}`);
+    if (task.status === "succeeded") {
+      throw new Error(`cannot retry succeeded task: ${taskId}`);
+    }
+    this.db.prepare(`
+      UPDATE tasks
+      SET status = 'queued', detail = ?, updated_at_ms = ?
+      WHERE id = ?
+    `).run(detail, Date.now(), taskId);
+    const run = this.getRun(task.runId);
+    if (run && run.status !== "running") {
+      this.updateRunStatus(task.runId, "running", "task retry requested");
+    }
+    this.appendEvent(task.runId, "task_retry_queued", {
+      task_id: taskId,
+      previous_status: task.status,
+      detail,
+    });
+    return this.getTask(taskId) ?? task;
+  }
+
   saveCheckpoint(runId: string, scope: string, snapshot: unknown): void {
     this.db.prepare(`
       INSERT INTO checkpoints (id, run_id, scope, snapshot_json, created_at_ms)
@@ -266,11 +331,241 @@ export class StateStore {
     `).run(`chk_${randomUUID()}`, runId, scope, stableJson(snapshot), Date.now());
   }
 
+  listCheckpoints(runId: string, limit = 20): CheckpointRecord[] {
+    const rows = this.db.prepare(`
+      SELECT id, run_id, scope, snapshot_json, created_at_ms
+      FROM checkpoints
+      WHERE run_id = ?
+      ORDER BY created_at_ms DESC
+      LIMIT ?
+    `).all(runId, limit);
+    return rows.map(rowToCheckpointRecord);
+  }
+
+  getCheckpoint(id: string): CheckpointRecord | undefined {
+    const row = this.db.prepare(`
+      SELECT id, run_id, scope, snapshot_json, created_at_ms
+      FROM checkpoints
+      WHERE id = ?
+      LIMIT 1
+    `).get(id);
+    return row ? rowToCheckpointRecord(row as Record<string, unknown>) : undefined;
+  }
+
   saveContextSnapshot(runId: string, kind: string, content: unknown): void {
     this.db.prepare(`
       INSERT INTO context_snapshots (id, run_id, kind, content_json, created_at_ms)
       VALUES (?, ?, ?, ?, ?)
     `).run(`ctx_${randomUUID()}`, runId, kind, stableJson(content), Date.now());
+  }
+
+  listContextSnapshots(runId: string, limit = 20): ContextSnapshotRecord[] {
+    const rows = this.db.prepare(`
+      SELECT id, run_id, kind, content_json, created_at_ms
+      FROM context_snapshots
+      WHERE run_id = ?
+      ORDER BY created_at_ms DESC
+      LIMIT ?
+    `).all(runId, limit);
+    return rows.map(rowToContextSnapshotRecord);
+  }
+
+  createJob(input: {
+    runId?: string | null;
+    kind: string;
+    payload?: unknown;
+    detail?: string;
+    status?: JobStatus;
+    maxAttempts?: number;
+  }): string {
+    const id = `job_${randomUUID()}`;
+    const now = Date.now();
+    this.db.prepare(`
+      INSERT INTO jobs (
+        id, run_id, kind, status, payload_json, detail, attempts, max_attempts,
+        locked_by, locked_at_ms, created_at_ms, updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?)
+    `).run(
+      id,
+      input.runId ?? null,
+      input.kind,
+      input.status ?? "queued",
+      stableJson(input.payload ?? {}),
+      input.detail ?? "",
+      Math.max(1, Math.trunc(input.maxAttempts ?? 3)),
+      now,
+      now,
+    );
+    this.appendEvent(input.runId ?? null, "job_created", {
+      job_id: id,
+      kind: input.kind,
+      status: input.status ?? "queued",
+    });
+    return id;
+  }
+
+  ensureRunJob(input: {
+    runId: string;
+    kind: string;
+    payload?: unknown;
+    detail?: string;
+    maxAttempts?: number;
+  }): JobRecord {
+    const existing = this.db.prepare(`
+      SELECT id, run_id, kind, status, payload_json, detail, attempts, max_attempts,
+             locked_by, locked_at_ms, created_at_ms, updated_at_ms
+      FROM jobs
+      WHERE run_id = ? AND kind = ? AND status IN ('queued', 'running')
+      ORDER BY updated_at_ms DESC
+      LIMIT 1
+    `).get(input.runId, input.kind);
+    if (existing) return rowToJobRecord(existing as Record<string, unknown>);
+    const id = this.createJob(input);
+    const job = this.getJob(id);
+    if (!job) throw new Error(`job not found after create: ${id}`);
+    return job;
+  }
+
+  getJob(jobId: string): JobRecord | undefined {
+    const row = this.db.prepare(`
+      SELECT id, run_id, kind, status, payload_json, detail, attempts, max_attempts,
+             locked_by, locked_at_ms, created_at_ms, updated_at_ms
+      FROM jobs
+      WHERE id = ?
+      LIMIT 1
+    `).get(jobId);
+    return row ? rowToJobRecord(row as Record<string, unknown>) : undefined;
+  }
+
+  listJobs(input: { runId?: string; status?: JobStatus; kind?: string; limit?: number } = {}): JobRecord[] {
+    const clauses: string[] = [];
+    const params: Array<string | number> = [];
+    if (input.runId) {
+      clauses.push("run_id = ?");
+      params.push(input.runId);
+    }
+    if (input.status) {
+      clauses.push("status = ?");
+      params.push(input.status);
+    }
+    if (input.kind) {
+      clauses.push("kind = ?");
+      params.push(input.kind);
+    }
+    params.push(Math.max(1, Math.trunc(input.limit ?? 50)));
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db.prepare(`
+      SELECT id, run_id, kind, status, payload_json, detail, attempts, max_attempts,
+             locked_by, locked_at_ms, created_at_ms, updated_at_ms
+      FROM jobs
+      ${where}
+      ORDER BY updated_at_ms DESC
+      LIMIT ?
+    `).all(...params);
+    return rows.map(rowToJobRecord);
+  }
+
+  claimJob(jobId: string, claimant = "local-worker", staleAfterMs = 10 * 60 * 1000): JobRecord | undefined {
+    const job = this.getJob(jobId);
+    if (!job) throw new Error(`job not found: ${jobId}`);
+    const now = Date.now();
+    const stale = job.status === "running" && job.lockedAtMs !== null && now - job.lockedAtMs > staleAfterMs;
+    if (job.status !== "queued" && !stale) return undefined;
+    if (job.status === "queued" && job.attempts >= job.maxAttempts) {
+      this.finishJob(jobId, "failed", `max attempts reached (${job.attempts}/${job.maxAttempts})`);
+      return undefined;
+    }
+    this.db.prepare(`
+      UPDATE jobs
+      SET status = 'running',
+          detail = ?,
+          attempts = attempts + 1,
+          locked_by = ?,
+          locked_at_ms = ?,
+          updated_at_ms = ?
+      WHERE id = ?
+    `).run(stale ? `reclaimed stale job by ${claimant}` : `claimed by ${claimant}`, claimant, now, now, jobId);
+    this.appendEvent(job.runId, stale ? "job_reclaimed" : "job_claimed", {
+      job_id: jobId,
+      kind: job.kind,
+      claimant,
+      previous_status: job.status,
+    });
+    return this.getJob(jobId);
+  }
+
+  claimNextJob(input: {
+    claimant?: string;
+    kind?: string;
+    runId?: string;
+    staleAfterMs?: number;
+  } = {}): JobRecord | undefined {
+    const jobs = this.listJobs({
+      kind: input.kind,
+      runId: input.runId,
+      status: "queued",
+      limit: 20,
+    });
+    for (const job of jobs) {
+      const claimed = this.claimJob(job.id, input.claimant ?? "local-worker", input.staleAfterMs);
+      if (claimed) return claimed;
+    }
+    return undefined;
+  }
+
+  releaseJob(jobId: string, detail = "waiting for next worker tick"): JobRecord {
+    const job = this.getJob(jobId);
+    if (!job) throw new Error(`job not found: ${jobId}`);
+    const now = Date.now();
+    this.db.prepare(`
+      UPDATE jobs
+      SET status = 'queued', detail = ?, locked_by = NULL, locked_at_ms = NULL, updated_at_ms = ?
+      WHERE id = ?
+    `).run(detail, now, jobId);
+    this.appendEvent(job.runId, "job_released", {
+      job_id: jobId,
+      kind: job.kind,
+      detail,
+    });
+    return this.getJob(jobId) ?? job;
+  }
+
+  finishJob(jobId: string, status: Extract<JobStatus, "succeeded" | "failed" | "cancelled">, detail = ""): JobRecord {
+    const job = this.getJob(jobId);
+    if (!job) throw new Error(`job not found: ${jobId}`);
+    const now = Date.now();
+    this.db.prepare(`
+      UPDATE jobs
+      SET status = ?, detail = COALESCE(NULLIF(?, ''), detail),
+          locked_by = NULL, locked_at_ms = NULL, updated_at_ms = ?
+      WHERE id = ?
+    `).run(status, detail, now, jobId);
+    this.appendEvent(job.runId, "job_finished", {
+      job_id: jobId,
+      kind: job.kind,
+      status,
+      detail,
+    });
+    return this.getJob(jobId) ?? job;
+  }
+
+  retryJob(jobId: string, detail = "retry requested"): JobRecord {
+    const job = this.getJob(jobId);
+    if (!job) throw new Error(`job not found: ${jobId}`);
+    const now = Date.now();
+    this.db.prepare(`
+      UPDATE jobs
+      SET status = 'queued', detail = ?, attempts = 0,
+          locked_by = NULL, locked_at_ms = NULL, updated_at_ms = ?
+      WHERE id = ?
+    `).run(detail, now, jobId);
+    this.appendEvent(job.runId, "job_retry_queued", {
+      job_id: jobId,
+      kind: job.kind,
+      previous_status: job.status,
+      detail,
+    });
+    return this.getJob(jobId) ?? job;
   }
 
   createApprovalGate(input: {
@@ -628,7 +923,13 @@ export class StateStore {
       WHERE run_id = ?
       ORDER BY created_at_ms ASC
     `).all(runId);
-    return { run, tasks, actions, artifacts, events };
+    const jobs = this.listJobs({ runId, limit: 20 });
+    const checkpoints = this.listCheckpoints(runId, 20).map((checkpoint) => ({
+      id: checkpoint.id,
+      scope: checkpoint.scope,
+      createdAtMs: checkpoint.createdAtMs,
+    }));
+    return { run, tasks, jobs, actions, artifacts, checkpoints, events };
   }
 
   setUiState(scope: string, key: string, value: unknown): void {
@@ -735,6 +1036,21 @@ export class StateStore {
         PRIMARY KEY (task_id, depends_on_task_id)
       );
 
+      CREATE TABLE IF NOT EXISTS jobs (
+        id TEXT PRIMARY KEY,
+        run_id TEXT REFERENCES runs(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        detail TEXT NOT NULL DEFAULT '',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 3,
+        locked_by TEXT,
+        locked_at_ms INTEGER,
+        created_at_ms INTEGER NOT NULL,
+        updated_at_ms INTEGER NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS checkpoints (
         id TEXT PRIMARY KEY,
         run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
@@ -813,6 +1129,8 @@ export class StateStore {
       CREATE INDEX IF NOT EXISTS idx_events_run_id_id ON events(run_id, id);
       CREATE INDEX IF NOT EXISTS idx_actions_run_id_step ON actions(run_id, step_index);
       CREATE INDEX IF NOT EXISTS idx_tasks_run_id_status ON tasks(run_id, status);
+      CREATE INDEX IF NOT EXISTS idx_jobs_status_kind ON jobs(status, kind, updated_at_ms);
+      CREATE INDEX IF NOT EXISTS idx_jobs_run_id ON jobs(run_id, updated_at_ms);
     `);
   }
 }
@@ -852,6 +1170,43 @@ function rowToTaskDependencyRecord(row: Record<string, unknown>): TaskDependency
   return {
     taskId: String(row.task_id),
     dependsOnTaskId: String(row.depends_on_task_id),
+    createdAtMs: Number(row.created_at_ms),
+  };
+}
+
+function rowToJobRecord(row: Record<string, unknown>): JobRecord {
+  return {
+    id: String(row.id),
+    runId: row.run_id === null ? null : String(row.run_id),
+    kind: String(row.kind),
+    status: String(row.status) as JobStatus,
+    payload: parseJson(String(row.payload_json ?? "{}")),
+    detail: String(row.detail ?? ""),
+    attempts: Number(row.attempts ?? 0),
+    maxAttempts: Number(row.max_attempts ?? 1),
+    lockedBy: row.locked_by === null ? null : String(row.locked_by),
+    lockedAtMs: optionalNumber(row.locked_at_ms) ?? null,
+    createdAtMs: Number(row.created_at_ms),
+    updatedAtMs: Number(row.updated_at_ms),
+  };
+}
+
+function rowToCheckpointRecord(row: Record<string, unknown>): CheckpointRecord {
+  return {
+    id: String(row.id),
+    runId: String(row.run_id),
+    scope: String(row.scope),
+    snapshot: parseJson(String(row.snapshot_json ?? "{}")),
+    createdAtMs: Number(row.created_at_ms),
+  };
+}
+
+function rowToContextSnapshotRecord(row: Record<string, unknown>): ContextSnapshotRecord {
+  return {
+    id: String(row.id),
+    runId: String(row.run_id),
+    kind: String(row.kind),
+    content: parseJson(String(row.content_json ?? "{}")),
     createdAtMs: Number(row.created_at_ms),
   };
 }

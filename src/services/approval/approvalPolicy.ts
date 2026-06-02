@@ -195,9 +195,9 @@ function summarizeActionForApproval(action: ActionRequest, context?: ToolExecuti
     case "browser_type":
       return `browser_type url=${action.url} selector=${action.selector} textChars=${action.text.length}`;
     case "create_docx":
-      return `create_docx path=${action.path} markdownChars=${action.markdown.length}`;
+      return `create_docx path=${action.path} markdownChars=${markdownContent(action).length}`;
     case "create_pdf":
-      return `create_pdf path=${action.path} markdownChars=${action.markdown.length}`;
+      return `create_pdf path=${action.path} markdownChars=${markdownContent(action).length}`;
     case "computer_use":
       return `computer_use instructionChars=${action.instruction.length}`;
     default:
@@ -217,6 +217,12 @@ function stableStringify(value: unknown): string {
 function actionContent(action: { content?: string; content_lines?: string[] }): string {
   if (typeof action.content === "string") return action.content;
   if (Array.isArray(action.content_lines)) return action.content_lines.join("\n");
+  return "";
+}
+
+function markdownContent(action: { markdown?: string; markdown_lines?: string[] }): string {
+  if (typeof action.markdown === "string") return action.markdown;
+  if (Array.isArray(action.markdown_lines)) return action.markdown_lines.join("\n");
   return "";
 }
 

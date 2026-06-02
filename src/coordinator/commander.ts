@@ -92,7 +92,7 @@ export async function runProviderMultiAgent(input: ProviderMultiAgentInput): Pro
       input.state.appendEvent(runId, "provider_request_diagnostics", buildRequestDiagnostics({
         provider: input.provider.providerName,
         model: input.provider.model,
-        kind: "action_plan",
+        kind: "native_tool_plan",
         systemText: systemPrompt,
         userText: userMessage,
       }));
@@ -119,10 +119,10 @@ export async function runProviderMultiAgent(input: ProviderMultiAgentInput): Pro
         });
         if (attempt + 1 < maxRoleAttempts) {
           roleFeedback = [
-            `Provider action plan failed: ${message}`,
-            "Return a smaller valid ActionEnvelope JSON object. Use content_lines for Markdown or multiline text files.",
+            `Provider native tool planning failed: ${message}`,
+            "Retry with valid native tool calls. Use content_lines for Markdown or multiline text files.",
           ].join("\n");
-          input.state.updateTaskStatus(taskId, "running", `Retrying ${role.agent} after invalid action plan.`);
+          input.state.updateTaskStatus(taskId, "running", `Retrying ${role.agent} after native tool planning failed.`);
           continue;
         }
         input.state.updateTaskStatus(taskId, "failed", message);
@@ -136,7 +136,7 @@ export async function runProviderMultiAgent(input: ProviderMultiAgentInput): Pro
         return [
           "Multi-agent flow failed.",
           `Failed role: ${role.agent}.`,
-          "The provider returned an invalid action plan; prompt audit and trace were recorded for diagnosis.",
+          "The provider failed native tool planning; prompt audit and trace were recorded for diagnosis.",
         ].join(" ");
       }
       const usage = input.provider.takeLastUsage();
@@ -145,7 +145,7 @@ export async function runProviderMultiAgent(input: ProviderMultiAgentInput): Pro
         recordUsageSnapshot(usage);
         input.onUsage?.(usage);
       }
-      input.state.saveCheckpoint(runId, `${role.agent}:action_envelope_attempt_${attempt + 1}`, envelope);
+      input.state.saveCheckpoint(runId, `${role.agent}:native_tool_plan_attempt_${attempt + 1}`, envelope);
 
       const report = await executeEnvelope(input.config.projectPath, envelope, {
         shellPolicy: { ...defaultShellPolicy, allowShell: input.permissions.allowShell },
@@ -159,9 +159,36 @@ export async function runProviderMultiAgent(input: ProviderMultiAgentInput): Pro
             action: event.action,
             result: event.result,
           });
+          const hookEvent = toolRunEventToHookEvent(event);
+          const hookPayload = toolRunEventPayload(event);
+          if (event.phase === "start") {
+            const decision = await hookService.runPreToolUse(
+              hookPayload,
+              { allowShell: input.permissions.allowShell },
+            );
+            if (decision.results.length > 0) {
+              input.state.appendEvent(runId, "hooks_executed", {
+                task_id: taskId,
+                agent: role.agent,
+                tool_phase: event.phase,
+                hook_event: hookEvent,
+                blocked: decision.blocked,
+                reason: decision.reason,
+                results: decision.results,
+              });
+            }
+            if (decision.blocked) {
+              return {
+                action_type: event.action.type,
+                status: "failed" as const,
+                message: decision.reason ?? "blocked by PreToolUse hook",
+              };
+            }
+            return;
+          }
           const hookResults = await hookService.runEvent(
-            toolRunEventToHookEvent(event),
-            toolRunEventPayload(event),
+            hookEvent,
+            hookPayload,
             { allowShell: input.permissions.allowShell },
           );
           if (hookResults.length > 0) {
@@ -169,7 +196,7 @@ export async function runProviderMultiAgent(input: ProviderMultiAgentInput): Pro
               task_id: taskId,
               agent: role.agent,
               tool_phase: event.phase,
-              hook_event: toolRunEventToHookEvent(event),
+              hook_event: hookEvent,
               results: hookResults,
             });
           }

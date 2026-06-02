@@ -90,6 +90,6 @@ function themePickerSelectOption(option: ThemePickerOption): SelectListOption {
 function themeTone(name: string): TerminalTone {
   if (name.includes("cache")) return "success";
   if (name.includes("contrast")) return "warning";
-  if (name.includes("claude")) return "brand";
+  if (name.includes("classic") || name.includes("warm")) return "brand";
   return "muted";
 }

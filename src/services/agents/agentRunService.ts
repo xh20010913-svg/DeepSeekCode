@@ -58,6 +58,12 @@ export class AgentRunService {
       task: input.task,
       task_id: taskId,
     });
+    this.ensureRunnableAgentRunJob({
+      runId,
+      payload: { runId, firstTaskId: taskId },
+      detail: "agent run queued",
+      maxAttempts: 5,
+    });
     return { runId, taskId };
   }
 
@@ -83,13 +89,23 @@ export class AgentRunService {
       task: input.task,
       depends_on_task_id: input.dependsOnTaskId,
     });
+    this.ensureRunnableAgentRunJob({
+      runId: input.runId,
+      payload: { runId: input.runId },
+      detail: "agent task queued",
+      maxAttempts: 5,
+    });
     return taskId;
   }
 
   list(limit = 20): AgentRunSummary[] {
+    const jobRunIds = new Set(this.state
+      .listJobs({ kind: "agent_run", limit: Math.max(limit * 10, 100) })
+      .map((job) => job.runId)
+      .filter((runId): runId is string => Boolean(runId)));
     return this.state
       .listRuns(Math.max(limit * 3, limit))
-      .filter((run) => run.message.startsWith("agent:"))
+      .filter((run) => run.message.startsWith("agent:") || jobRunIds.has(run.id))
       .slice(0, limit)
       .map((run) => ({
         run,
@@ -162,6 +178,7 @@ export class AgentRunService {
       }
       queue.fail(task.id, result.execution.final_message || "agent task failed");
       this.state.updateRunStatus(input.runId, "failed", result.execution.final_message || "agent task failed");
+      this.finishAgentRunJobs(input.runId, "failed", result.execution.final_message || "agent task failed");
       return {
         runId: input.runId,
         task,
@@ -173,6 +190,7 @@ export class AgentRunService {
       const message = error instanceof Error ? error.message : String(error);
       queue.fail(task.id, message);
       this.state.updateRunStatus(input.runId, "failed", message);
+      this.finishAgentRunJobs(input.runId, "failed", message);
       this.state.appendEvent(input.runId, "agent_run_failed", {
         task_id: task.id,
         agent: task.agent,
@@ -238,12 +256,44 @@ export class AgentRunService {
     if (tasks.length === 0) return undefined;
     if (tasks.some((task) => task.status === "failed" || task.status === "cancelled")) {
       this.state.updateRunStatus(runId, "failed", "agent run failed");
+      this.finishAgentRunJobs(runId, "failed", "agent run failed");
       return "failed";
     }
     if (tasks.every((task) => task.status === "succeeded")) {
       this.state.updateRunStatus(runId, "succeeded", "agent run completed");
+      this.finishAgentRunJobs(runId, "succeeded", "agent run completed");
       return "succeeded";
     }
     return undefined;
+  }
+
+  private ensureRunnableAgentRunJob(input: {
+    runId: string;
+    payload?: unknown;
+    detail: string;
+    maxAttempts: number;
+  }): void {
+    const job = this.state.ensureRunJob({
+      runId: input.runId,
+      kind: "agent_run",
+      payload: input.payload,
+      detail: input.detail,
+      maxAttempts: input.maxAttempts,
+    });
+    if (job.status === "succeeded" || job.status === "failed" || job.status === "cancelled") {
+      this.state.retryJob(job.id, input.detail);
+    }
+  }
+
+  private finishAgentRunJobs(
+    runId: string,
+    status: "succeeded" | "failed" | "cancelled",
+    detail: string,
+  ): void {
+    for (const job of this.state.listJobs({ runId, kind: "agent_run", limit: 50 })) {
+      if (job.status === "queued" || job.status === "running") {
+        this.state.finishJob(job.id, status, detail);
+      }
+    }
   }
 }

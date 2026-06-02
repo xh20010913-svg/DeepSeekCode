@@ -48,6 +48,7 @@ export interface ActionPlanTurn {
   assistantEnvelope: ActionEnvelope;
   toolReport: ActionExecutionReport;
   note?: string;
+  reasoning?: string;
 }
 
 export interface ActionPlanOptions {

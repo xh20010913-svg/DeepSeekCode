@@ -3,7 +3,7 @@ import { approximateTokens } from "../../query/promptCache.js";
 export interface RequestDiagnostics {
   provider: string;
   model: string;
-  kind: "chat" | "classification" | "action_plan" | "verify" | "side_question";
+  kind: "chat" | "classification" | "native_tool_plan" | "verify" | "side_question";
   stablePrefixHash?: string;
   systemChars: number;
   userChars: number;

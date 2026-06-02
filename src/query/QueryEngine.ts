@@ -4,10 +4,10 @@ import React, { type ReactNode } from "react";
 import { runSlashCommand } from "../commands/index.js";
 import { CacheGuardPanel, buildCacheGuardPanelModel } from "../components/CacheGuardPanel.js";
 import { recordUsageSnapshot } from "../cost-tracker.js";
-import { buildContextBundle, contextBundlePrompt } from "../context/contextBundle.js";
+import { buildContextBundle, contextBundlePrompt, type ContextBundle } from "../context/contextBundle.js";
 import { readProjectMemory } from "../memdir/projectMemory.js";
 import type { ActionPlanTurn, ChatMessage, DeepSeekProviderClient, UsageSnapshot } from "../protocol/provider.js";
-import type { ActionEnvelope, ActionExecutionReport, ActionResult } from "../protocol/actions.js";
+import type { ActionEnvelope, ActionExecutionReport, ActionRequest, ActionResult } from "../protocol/actions.js";
 import { ApprovalService } from "../services/approval/approvalService.js";
 import { resultRequiresApproval } from "../services/approval/approvalPolicy.js";
 import { RollingSummary } from "../services/compact/rollingSummary.js";
@@ -26,7 +26,7 @@ import { buildResonixPromptPlan } from "../services/cache/resonixPolicy.js";
 import { HookService } from "../services/hooks/hookService.js";
 import { toolRunEventPayload, toolRunEventToHookEvent } from "../services/hooks/toolHookBridge.js";
 import type { ToolRunEvent } from "../services/tools/toolOrchestration.js";
-import { InferenceSettingsService } from "../services/inference/inferenceSettingsService.js";
+import { InferenceSettingsService, type InferenceBudget } from "../services/inference/inferenceSettingsService.js";
 import { OutputStyleService } from "../services/outputStyles/outputStyleService.js";
 import type { RuntimePermissionState } from "../services/permissions/permissionProfiles.js";
 import { WorkspaceCheckpointService } from "../services/rewind/workspaceCheckpointService.js";
@@ -36,6 +36,7 @@ import { getCurrentSessionId, setCurrentSessionId } from "../services/session/re
 import { SessionStorage } from "../services/session/sessionStorage.js";
 import { compactActionReport, formatToolResultSummary } from "../services/session/toolResultSummary.js";
 import { runSkillTask } from "../services/skills/skillRunner.js";
+import { getTencentMemoryService, type TencentMemoryRecall } from "../services/memory/tencentMemoryService.js";
 import { buildRequestDiagnostics } from "../services/telemetry/requestDiagnostics.js";
 import type { ApprovalGateRecord, StateStore } from "../state/sqlite.js";
 import { discoverSkills } from "../skills/discovery.js";
@@ -95,6 +96,7 @@ export class QueryEngine {
   private readonly actionPrefix = new PrefixStabilityManager();
   private readonly rollingSummary = new RollingSummary();
   private readonly fileStateCache = new FileStateCache();
+  private readonly memoryService: ReturnType<typeof getTencentMemoryService>;
   private loadedSessionId?: string;
   private activeAbortController?: AbortController;
 
@@ -114,6 +116,7 @@ export class QueryEngine {
     this.switchLanguage = options.switchLanguage;
     this.awaitUserDecisions = Boolean(options.awaitUserDecisions);
     this.sessionPersistence = options.sessionPersistence ?? "managed";
+    this.memoryService = getTencentMemoryService(this.config, this.provider, this.state);
   }
 
   commandContext(): CommandContext {
@@ -199,23 +202,41 @@ export class QueryEngine {
 
     try {
       throwIfAborted(signal);
+      yield { type: "status", phase: "classifying", text: "Recalling long-term memory", detail: "TencentDB-Agent-Memory" };
+      const memoryRecall = await this.recallMemory(trimmed, runId, signal);
       yield { type: "status", phase: "classifying", text: "Classifying request", detail: this.provider.model };
-      const classification = await this.provider.classifyTurn(this.classificationInput(trimmed), { signal });
+      const classifyStartedAtMs = Date.now();
+      let classification = await this.provider.classifyTurn(this.classificationInput(trimmed, memoryRecall), { signal });
+      const classifyDurationMs = Date.now() - classifyStartedAtMs;
+      if (!classification.needs_local_tools && explicitlyRequestsLocalTool(trimmed)) {
+        classification = {
+          task_kind: "tool_calling",
+          needs_local_tools: true,
+          reason: "User explicitly requested a registered local tool.",
+        };
+      }
       const classifyUsage = this.provider.takeLastUsage();
       if (this.recordProviderUsage(runId, classifyUsage, "turn_classification")) {
         yield { type: "usage", usage: classifyUsage! };
       }
+      this.state.appendEvent(runId, "provider_call_timing", {
+        kind: "classification",
+        status: "succeeded",
+        model: this.provider.model,
+        duration_ms: classifyDurationMs,
+        usage: classifyUsage,
+      });
       this.state.appendEvent(runId, "provider_request_diagnostics", buildRequestDiagnostics({
         provider: this.provider.providerName,
         model: this.provider.model,
         kind: "classification",
         systemText: "classify user turn",
-        userText: this.classificationInput(trimmed),
+        userText: this.classificationInput(trimmed, memoryRecall),
       }));
       this.state.appendEvent(runId, "turn_classified", classification);
 
       if (!classification.needs_local_tools) {
-        yield* this.streamChatTurn(runId, trimmed, signal);
+        yield* this.streamChatTurn(runId, trimmed, memoryRecall, signal);
         this.state.updateRunStatus(runId, "succeeded", "chat turn completed");
         return;
       }
@@ -262,7 +283,7 @@ export class QueryEngine {
       let completed = false;
       let final = "";
       let actionError: unknown;
-      const actionLoop = this.runActionLoop(runId, trimmed, (event) => {
+      const actionLoop = this.runActionLoop(runId, trimmed, memoryRecall, (event) => {
         pendingEvents.push(event);
         wake?.();
       }, signal)
@@ -289,6 +310,7 @@ export class QueryEngine {
       }
       await actionLoop;
       if (actionError) throw actionError;
+      await this.captureMemoryTurn(trimmed, final, runId, true);
       this.rememberTurn(trimmed, final, runId);
       yield { type: "assistant", text: final };
     } catch (error) {
@@ -315,9 +337,10 @@ export class QueryEngine {
   private async *streamChatTurn(
     runId: string,
     userMessage: string,
+    memoryRecall?: TencentMemoryRecall,
     signal?: AbortSignal,
   ): AsyncGenerator<QueryEvent, void, void> {
-    const messages = this.buildChatMessages(userMessage);
+    const messages = this.buildChatMessages(userMessage, memoryRecall);
     let assistant = "";
     yield { type: "status", phase: "chatting", text: "Streaming answer", detail: this.provider!.model };
     for await (const event of this.provider!.streamChat(messages, { signal })) {
@@ -334,6 +357,7 @@ export class QueryEngine {
         }
       }
     }
+    await this.captureMemoryTurn(userMessage, assistant, runId, true);
     this.rememberTurn(userMessage, assistant, runId);
     this.state.appendEvent(runId, "chat_finished", { text_chars: assistant.length });
     yield { type: "assistant", text: assistant };
@@ -355,15 +379,18 @@ export class QueryEngine {
   private async runActionLoop(
     runId: string,
     userMessage: string,
+    memoryRecall?: TencentMemoryRecall,
     onEvent?: (event: QueryEvent) => void,
     signal?: AbortSignal,
   ): Promise<string> {
     throwIfAborted(signal);
     const inference = new InferenceSettingsService(this.config.projectPath).effective();
     if (this.config.provider) this.config.provider.maxOutputTokens = inference.maxOutputTokens;
+    const actionBudget = contextBudgetFor(userMessage, inference);
     const projectMemory = readProjectMemory(this.config.projectPath);
-    const initialContextBundle = buildContextBundle(this.config.projectPath, inference.actionContextChars, userMessage);
+    const initialContextBundle = buildContextBundle(this.config.projectPath, actionBudget.contextChars, userMessage);
     this.state.saveContextSnapshot(runId, "context_bundle_v1", {
+      budget: actionBudget,
       repositoryMap: initialContextBundle.repositoryMap,
       selectedFiles: initialContextBundle.selectedFiles.map((file) => ({
         path: file.path,
@@ -402,7 +429,7 @@ export class QueryEngine {
       throwIfAborted(signal);
       const contextBundle = attempt === 0
         ? initialContextBundle
-        : buildContextBundle(this.config.projectPath, inference.actionContextChars, userMessage);
+        : buildContextBundle(this.config.projectPath, actionBudget.contextChars, userMessage);
       if (attempt > 0) {
         this.state.appendEvent(runId, "context_bundle_refreshed", {
           attempt: attempt + 1,
@@ -413,22 +440,19 @@ export class QueryEngine {
             truncated: file.truncated,
           })),
           approx_tokens: contextBundle.approxTokens,
+          budget: actionBudget,
         });
       }
       const promptPlan = buildResonixPromptPlan([
         ...new CachePinService(this.config.projectPath).promptBlocks(),
+        ...this.tencentMemoryPromptBlocks(memoryRecall),
         { title: "project_memory", body: projectMemory || "(empty)", priority: "project" },
         { title: "available_skills", body: this.availableSkillsPrompt(), priority: "project" },
         { title: "runtime_permissions", body: this.runtimePermissionPrompt(), priority: "context" },
-        ...this.conversationPromptBlocks(),
-        {
-          title: "project_repository_map",
-          body: contextBundle.repositoryMap.files.map((file) => `${file.path} (${file.size} bytes)`).join("\n"),
-          priority: "project",
-        },
-        { title: "selected_context", body: contextBundlePrompt(contextBundle), priority: "context" },
+        ...(explicitlyRequestsMemoryTool(userMessage) ? [] : this.conversationPromptBlocks()),
+        ...workspaceContextPromptBlocks(contextBundle, actionBudget.contextChars > 0),
         { title: "current_user_request", body: userMessage, priority: "request" },
-      ], { maxDynamicChars: inference.actionDynamicChars });
+      ], { maxDynamicChars: actionBudget.dynamicChars });
       this.state.appendEvent(runId, "cache_prompt_plan", {
         attempt: attempt + 1,
         effort: inference.effort,
@@ -445,13 +469,14 @@ export class QueryEngine {
       this.state.appendEvent(runId, "provider_request_diagnostics", buildRequestDiagnostics({
         provider: this.provider!.providerName,
         model: this.provider!.model,
-        kind: "action_plan",
+        kind: "native_tool_plan",
         systemText: stablePrompt.text,
         userText: promptPlan.userMessage,
         stablePrefixHash: stablePrompt.hash,
       }));
       let streamedPlanningReasoning = false;
       let envelope: ActionEnvelope;
+      const planStartedAtMs = Date.now();
       try {
         envelope = await this.provider!.planActions({
           userMessage: promptPlan.userMessage,
@@ -475,8 +500,17 @@ export class QueryEngine {
           onEvent?.({ type: "reasoning_delta", text: nonStreamReasoning });
         }
         const planUsage = this.provider!.takeLastUsage();
-        this.recordProviderUsage(runId, planUsage, `action_plan_attempt_${attempt + 1}`, onEvent);
-        this.state.appendEvent(runId, "action_plan_failed", {
+        this.recordProviderUsage(runId, planUsage, `native_tool_plan_attempt_${attempt + 1}`, onEvent);
+        this.state.appendEvent(runId, "provider_call_timing", {
+          kind: "native_tool_plan",
+          attempt: attempt + 1,
+          status: "failed",
+          model: this.provider!.model,
+          duration_ms: Date.now() - planStartedAtMs,
+          usage: planUsage,
+          message,
+        });
+        this.state.appendEvent(runId, "native_tool_plan_failed", {
           attempt: attempt + 1,
           message,
         });
@@ -495,9 +529,17 @@ export class QueryEngine {
         onEvent?.({ type: "reasoning_delta", text: nonStreamReasoning });
       }
       const planUsage = this.provider!.takeLastUsage();
-      this.recordProviderUsage(runId, planUsage, `action_plan_attempt_${attempt + 1}`, onEvent);
-      this.state.saveCheckpoint(runId, `action_envelope_attempt_${attempt + 1}`, envelope);
-      this.state.appendEvent(runId, "action_envelope_received", {
+      this.recordProviderUsage(runId, planUsage, `native_tool_plan_attempt_${attempt + 1}`, onEvent);
+      this.state.appendEvent(runId, "provider_call_timing", {
+        kind: "native_tool_plan",
+        attempt: attempt + 1,
+        status: "succeeded",
+        model: this.provider!.model,
+        duration_ms: Date.now() - planStartedAtMs,
+        usage: planUsage,
+      });
+      this.state.saveCheckpoint(runId, `native_tool_plan_attempt_${attempt + 1}`, envelope);
+      this.state.appendEvent(runId, "native_tool_plan_received", {
         attempt: attempt + 1,
         task_kind: envelope.task_kind,
         action_count: envelope.actions.length,
@@ -521,9 +563,11 @@ export class QueryEngine {
         browserPolicy: { allowBrowser: this.permissions.allowBrowser },
         dataDir: this.config.dataDir,
         fileStateCache: this.fileStateCache,
+        memoryService: this.memoryService,
         approvalPolicy,
         state: this.state,
         runId,
+        onBeforeTool: (_tool, action) => topLevelSkillRouteFeedback(userMessage, action),
         skillRunner: async (skillInput) => {
           const result = await runSkillTask({
             name: skillInput.name,
@@ -608,6 +652,8 @@ export class QueryEngine {
       });
       let report = await executeEnvelope(this.config.projectPath, envelope, executionOptions);
       const validationEnvelope = this.autoValidationEnvelope(userMessage, report);
+      let validationTrajectoryTurn: ActionPlanTurn | undefined;
+      let combinedReport = report;
       if (validationEnvelope) {
         onEvent?.({
           type: "status",
@@ -616,20 +662,32 @@ export class QueryEngine {
           detail: summarizeActionTypes(validationEnvelope.actions),
         });
         const validationReport = await executeEnvelope(this.config.projectPath, validationEnvelope, executionOptions);
-        report = mergeReports(report, validationReport);
+        combinedReport = mergeReports(report, validationReport);
+        validationTrajectoryTurn = {
+          attempt: attempt + 10_001,
+          assistantEnvelope: validationEnvelope,
+          toolReport: compactActionReport(validationReport),
+          note: "Runtime artifact validation.",
+          reasoning: "DeepSeekCode scheduled artifact validation after the model-created artifact.",
+        };
       }
       throwIfAborted(signal);
       const compactReport = compactActionReport(report);
-      this.persistToolResultSummary(runId, attempt + 1, compactReport);
-      this.saveRunProgressCheckpoint(runId, attempt + 1, envelope, compactReport);
-      this.state.recordActionResults(runId, report);
-      finalMessage = envelope.final_message || report.final_message;
+      const compactCombinedReport = validationTrajectoryTurn ? compactActionReport(combinedReport) : compactReport;
+      const pushTrajectory = (note?: string) => {
+        trajectory.push({ attempt: attempt + 1, assistantEnvelope: envelope, toolReport: compactReport, note, reasoning: nonStreamReasoning });
+        if (validationTrajectoryTurn) trajectory.push(validationTrajectoryTurn);
+      };
+      this.persistToolResultSummary(runId, attempt + 1, compactCombinedReport);
+      this.saveRunProgressCheckpoint(runId, attempt + 1, envelope, compactCombinedReport);
+      this.state.recordActionResults(runId, combinedReport);
+      finalMessage = envelope.final_message || combinedReport.final_message;
       let trajectoryNote: string | undefined;
 
-      const enteredPlanMode = report.results.some((result) => result.action_type === "EnterPlanMode");
-      const exitedPlanMode = report.results.some((result) => result.action_type === "ExitPlanMode");
+      const enteredPlanMode = combinedReport.results.some((result) => result.action_type === "EnterPlanMode");
+      const exitedPlanMode = combinedReport.results.some((result) => result.action_type === "ExitPlanMode");
       if (enteredPlanMode && !exitedPlanMode) {
-        trajectory.push({ attempt: attempt + 1, assistantEnvelope: envelope, toolReport: compactReport, note: "Plan mode pauses execution." });
+        pushTrajectory("Plan mode pauses execution.");
         const message = [
           "Entered plan mode; no implementation files were changed yet.",
           "For direct build requests, ask DeepSeekCode to create the first batch of files instead of entering plan mode.",
@@ -639,10 +697,10 @@ export class QueryEngine {
         return message;
       }
 
-      const userDecisionResult = report.results.find(resultRequiresUserDecision);
+      const userDecisionResult = combinedReport.results.find(resultRequiresUserDecision);
       if (userDecisionResult) {
         const message = userVisibleDecisionMessage(userDecisionResult.message ?? "User decision required before continuing.");
-        trajectory.push({ attempt: attempt + 1, assistantEnvelope: envelope, toolReport: compactReport, note: "User decision gate pauses execution." });
+        pushTrajectory("User decision gate pauses execution.");
         const pendingGate = this.latestPendingGateForRun(runId);
         if (this.awaitUserDecisions && pendingGate) {
           this.state.updateRunStatus(runId, "paused", message);
@@ -664,7 +722,7 @@ export class QueryEngine {
           });
           if (decidedGate?.status === "approved") {
             this.state.updateRunStatus(runId, "running", "user decision approved");
-            feedback = userDecisionFeedback(compactReport, decidedGate);
+            feedback = userDecisionFeedback(compactCombinedReport, decidedGate);
             continue;
           }
           const status = decidedGate?.status ?? "cancelled";
@@ -676,12 +734,13 @@ export class QueryEngine {
         return withLatestRunDetails(message);
       }
 
-      if (report.status === "succeeded") {
-        const changedSomething = hasImplementationProgress(report);
-        if (!envelope.continue_work && expectsImplementation(envelope) && !changedSomething) {
+      if (combinedReport.status === "succeeded") {
+        const changedSomething = hasImplementationProgress(combinedReport);
+        const implementationExpected = expectsImplementation(envelope);
+        if (!envelope.continue_work && implementationExpected && !changedSomething) {
           const message = "The model claimed a file-change task was complete without changing or validating any files.";
           trajectoryNote = message;
-          trajectory.push({ attempt: attempt + 1, assistantEnvelope: envelope, toolReport: compactReport, note: trajectoryNote });
+          pushTrajectory(trajectoryNote);
           this.state.appendEvent(runId, "action_feedback_no_progress", {
             attempt: attempt + 1,
             task_kind: envelope.task_kind,
@@ -698,7 +757,7 @@ export class QueryEngine {
               "Continue like ClaudeCode after tool_result feedback: issue the next useful file/tool action, or truthfully explain why the request cannot be completed.",
             ].join("\n"),
             status: "failed",
-            results: compactReport.results,
+            results: compactCombinedReport.results,
           };
           continue;
         }
@@ -709,15 +768,24 @@ export class QueryEngine {
             remaining_work: remainingWork,
             implementation_progress: changedSomething,
           });
-          trajectory.push({
-            attempt: attempt + 1,
-            assistantEnvelope: envelope,
-            toolReport: compactReport,
-            note: changedSomething ? undefined : "Previous batch had no implementation progress.",
-          });
+          pushTrajectory(implementationExpected && !changedSomething ? "Previous batch had no implementation progress." : undefined);
           if (attempt + 1 >= maxActionTurns) {
+            if (hasCompletionSignal(finalMessage, combinedReport)) {
+              this.state.appendEvent(runId, "action_batch_limit_completed", {
+                attempt: attempt + 1,
+                remaining_work: remainingWork,
+                reason: "completed tool report at batch limit",
+              });
+              this.state.updateRunStatus(runId, "succeeded", finalMessage || compactCombinedReport.final_message);
+              return summarizeReport(
+                finalMessage || compactCombinedReport.final_message,
+                runId,
+                this.state.getRun(runId)?.actionCount ?? combinedReport.results.length,
+                combinedReport,
+              );
+            }
             const message = [
-              summarizeReport(finalMessage, runId, this.state.getRun(runId)?.actionCount ?? report.results.length),
+              summarizeReport(finalMessage, runId, this.state.getRun(runId)?.actionCount ?? combinedReport.results.length),
               "Paused after reaching the automatic batch limit.",
               `remaining=${remainingWork}`,
             ].join("\n");
@@ -726,43 +794,45 @@ export class QueryEngine {
           }
           feedback = {
             final_message: [
-              compactReport.final_message,
+              compactCombinedReport.final_message,
               `Continue with the next compact batch: ${remainingWork}`,
-              changedSomething
+              changedSomething || !implementationExpected
                 ? ""
                 : "Continue like ClaudeCode after tool_result feedback: the last batch only inspected or updated planning state. The next response must use write_file, apply_patch, validate_artifact, or set continue_work=false if the runnable result is complete.",
             ].filter(Boolean).join("\n"),
-            status: report.status,
-            results: compactReport.results,
+            status: combinedReport.status,
+            results: compactCombinedReport.results,
           };
           finalMessage = remainingWork;
           continue;
         }
-        trajectory.push({ attempt: attempt + 1, assistantEnvelope: envelope, toolReport: compactReport, note: trajectoryNote });
+        pushTrajectory(trajectoryNote);
         this.state.updateRunStatus(runId, "succeeded", finalMessage);
         return summarizeReport(
           finalMessage,
           runId,
-          this.state.getRun(runId)?.actionCount ?? report.results.length,
-          report,
+          this.state.getRun(runId)?.actionCount ?? combinedReport.results.length,
+          combinedReport,
         );
       }
 
-      trajectory.push({ attempt: attempt + 1, assistantEnvelope: envelope, toolReport: compactReport, note: "Tool report failed; retry with feedback." });
-      feedback = compactReport;
+      pushTrajectory("Tool report failed; retry with feedback.");
+      feedback = compactCombinedReport;
     }
 
     this.state.updateRunStatus(runId, "failed", finalMessage || "action loop failed");
     return withLatestRunDetails("执行失败。");
   }
 
-  private buildChatMessages(userMessage: string): ChatMessage[] {
+  private buildChatMessages(userMessage: string, memoryRecall?: TencentMemoryRecall): ChatMessage[] {
+    const memoryBlock = formatTencentMemoryRecall(memoryRecall);
     const system: ChatMessage = {
       role: "system",
       content:
         "You are DeepSeekCode, a Chinese-first local coding assistant. " +
         "Answer normal chat directly. Do not claim local files were changed unless the tool runtime changed them.\n\n" +
-        `<output_style>\n${this.currentOutputStylePrompt()}\n</output_style>`,
+        `<output_style>\n${this.currentOutputStylePrompt()}\n</output_style>` +
+        (memoryBlock ? `\n\n<tdai_memory_recall>\n${memoryBlock}\n</tdai_memory_recall>` : ""),
     };
     const summary: ChatMessage[] = this.rollingSummary
       ? this.rollingSummary.text
@@ -782,6 +852,57 @@ export class QueryEngine {
     this.history.push({ role: "assistant", content: assistantMessage });
     this.persistChatTurn(userMessage, assistantMessage, runId);
     this.updateRollingSummary();
+  }
+
+  private async recallMemory(
+    userMessage: string,
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<TencentMemoryRecall | undefined> {
+    try {
+      throwIfAborted(signal);
+      const recall = await this.memoryService.recall(userMessage, this.history, runId);
+      throwIfAborted(signal);
+      this.state.appendEvent(runId, "tdai_memory_recall", {
+        enabled: this.memoryService.status.enabled,
+        initialized: this.memoryService.status.initialized,
+        prepend_chars: recall?.prependContext?.length ?? 0,
+        append_system_chars: recall?.appendSystemContext?.length ?? 0,
+        recalled_l1: recall?.recalledL1Memories?.length ?? 0,
+        recalled_l3: Boolean(recall?.recalledL3Persona),
+        strategy: recall?.recallStrategy ?? "none",
+      });
+      return recall;
+    } catch (error) {
+      if (isAbortError(error, signal)) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      this.state.appendEvent(runId, "tdai_memory_recall_failed", { message });
+      return undefined;
+    }
+  }
+
+  private async captureMemoryTurn(
+    userMessage: string,
+    assistantMessage: string,
+    runId: string,
+    success: boolean,
+  ): Promise<void> {
+    try {
+      const result = await this.memoryService.captureTurn({
+        userText: userMessage,
+        assistantText: assistantMessage,
+        runId,
+        success,
+      });
+      this.state.appendEvent(runId, "tdai_memory_capture", {
+        enabled: this.memoryService.status.enabled,
+        initialized: this.memoryService.status.initialized,
+        result,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.state.appendEvent(runId, "tdai_memory_capture_failed", { message });
+    }
   }
 
   private ensureSessionContext(runId?: string): void {
@@ -845,8 +966,11 @@ export class QueryEngine {
     });
   }
 
-  private classificationInput(userMessage: string): string {
-    const context = this.conversationPromptBlocks();
+  private classificationInput(userMessage: string, memoryRecall?: TencentMemoryRecall): string {
+    const context = [
+      ...this.tencentMemoryPromptBlocks(memoryRecall),
+      ...(explicitlyRequestsMemoryTool(userMessage) ? [] : this.conversationPromptBlocks()),
+    ];
     if (context.length === 0) return userMessage;
     return [
       ...context.map((block) => `<${block.title}>\n${block.body}\n</${block.title}>`),
@@ -882,6 +1006,13 @@ export class QueryEngine {
       });
     }
     return blocks;
+  }
+
+  private tencentMemoryPromptBlocks(memoryRecall?: TencentMemoryRecall): Array<{ title: string; body: string; priority: "context" }> {
+    const body = formatTencentMemoryRecall(memoryRecall);
+    return body
+      ? [{ title: "tdai_memory_recall", body, priority: "context" }]
+      : [];
   }
 
   private saveRunProgressCheckpoint(
@@ -973,21 +1104,17 @@ export class QueryEngine {
 
   private buildPreRunCacheGuard(userMessage: string) {
     const inference = new InferenceSettingsService(this.config.projectPath).effective();
-    const contextBundle = buildContextBundle(this.config.projectPath, inference.actionContextChars, userMessage);
+    const actionBudget = contextBudgetFor(userMessage, inference);
+    const contextBundle = buildContextBundle(this.config.projectPath, actionBudget.contextChars, userMessage);
     const projectMemory = readProjectMemory(this.config.projectPath);
     const plan = buildResonixPromptPlan([
       ...new CachePinService(this.config.projectPath).promptBlocks(),
       { title: "project_memory", body: projectMemory || "(empty)", priority: "project" },
       { title: "available_skills", body: this.availableSkillsPrompt(), priority: "project" },
       { title: "runtime_permissions", body: this.runtimePermissionPrompt(), priority: "context" },
-      {
-        title: "project_repository_map",
-        body: contextBundle.repositoryMap.files.map((file) => `${file.path} (${file.size} bytes)`).join("\n"),
-        priority: "project",
-      },
-      { title: "selected_context", body: contextBundlePrompt(contextBundle), priority: "context" },
+      ...workspaceContextPromptBlocks(contextBundle, actionBudget.contextChars > 0),
       { title: "current_user_request", body: userMessage, priority: "request" },
-    ], { maxDynamicChars: inference.actionDynamicChars });
+    ], { maxDynamicChars: actionBudget.dynamicChars });
     const stability = buildCacheStabilityReport(plan);
     const shapeService = new CacheShapeHistoryService(this.config.projectPath);
     const shapeObservation = shapeService.record(stability);
@@ -1146,6 +1273,91 @@ function hasUsageTokens(usage: UsageSnapshot): boolean {
   ].some((value) => typeof value === "number" && value > 0);
 }
 
+function contextBudgetFor(userMessage: string, inference: InferenceBudget): {
+  mode: "minimal" | "standard" | "deep";
+  contextChars: number;
+  dynamicChars: number;
+  reason: string;
+} {
+  const lower = userMessage.toLowerCase();
+  if (explicitlyRequestsReadOnlyLocalTool(userMessage)) {
+    return {
+      mode: "minimal",
+      contextChars: 0,
+      dynamicChars: Math.min(inference.actionDynamicChars, 8_000),
+      reason: "explicit read-only tool request",
+    };
+  }
+  const deepMarkers = [
+    "继续",
+    "大型",
+    "项目",
+    "多agent",
+    "多 agent",
+    "agent",
+    "ppt",
+    "pptx",
+    "docx",
+    "word",
+    "报告",
+    "答辩",
+    "课程",
+    "查资料",
+    "浏览器",
+    "browser",
+    "修复",
+    "bug",
+    "review",
+    "refactor",
+    "architecture",
+    "website",
+    "web app",
+  ];
+  if (deepMarkers.some((marker) => lower.includes(marker))) {
+    return {
+      mode: "deep",
+      contextChars: inference.actionContextChars,
+      dynamicChars: inference.actionDynamicChars,
+      reason: "large or research-heavy task",
+    };
+  }
+
+  const createsSingleFile =
+    /(创建|生成|写入|create|write|generate)/i.test(userMessage) &&
+    /\.(md|markdown|html|json|txt|csv|docx|pptx)\b/i.test(userMessage);
+  const validationOnly = /(验证|validate|检查).*\.(md|markdown|html|json|txt|docx|pptx|pdf)\b/i.test(userMessage);
+  if (createsSingleFile || validationOnly) {
+    return {
+      mode: "minimal",
+      contextChars: Math.min(inference.actionContextChars, 4_000),
+      dynamicChars: Math.min(inference.actionDynamicChars, 8_000),
+      reason: createsSingleFile ? "single-file artifact request" : "artifact validation request",
+    };
+  }
+
+  return {
+    mode: "standard",
+    contextChars: Math.min(inference.actionContextChars, 10_000),
+    dynamicChars: Math.min(inference.actionDynamicChars, 16_000),
+    reason: "default compact context",
+  };
+}
+
+function workspaceContextPromptBlocks(
+  contextBundle: ContextBundle,
+  includeWorkspaceContext: boolean,
+): Array<{ title: string; body: string; priority: "project" | "context" }> {
+  if (!includeWorkspaceContext) return [];
+  return [
+    {
+      title: "project_repository_map",
+      body: contextBundle.repositoryMap.files.map((file) => `${file.path} (${file.size} bytes)`).join("\n"),
+      priority: "project",
+    },
+    { title: "selected_context", body: contextBundlePrompt(contextBundle), priority: "context" },
+  ];
+}
+
 function usageSnapshotFromEvent(event: UsageSnapshot): UsageSnapshot {
   return {
     inputTokens: event.inputTokens,
@@ -1157,7 +1369,38 @@ function usageSnapshotFromEvent(event: UsageSnapshot): UsageSnapshot {
 
 function hasImplementationProgress(report: ActionExecutionReport): boolean {
   return report.results.some((result) =>
-    ["write_file", "apply_patch", "run_command", "validate_artifact", "browser_screenshot"].includes(result.action_type));
+    result.status === "succeeded" && (
+      [
+        "write_file",
+        "apply_patch",
+        "run_command",
+        "ssh_write_file",
+        "validate_artifact",
+        "browser_screenshot",
+        "create_docx",
+        "create_pptx",
+        "create_pdf",
+        "invoke_skill",
+      ].includes(result.action_type) ||
+      (Boolean(result.path) && ["file", "html", "markdown", "docx", "pptx", "pdf", "image", "screenshot"].includes(result.artifact_kind ?? ""))
+    ));
+}
+
+function hasCompletionSignal(finalMessage: string, report: ActionExecutionReport): boolean {
+  const text = [
+    finalMessage,
+    report.final_message,
+    ...report.results.map((result) => `${result.action_type} ${result.status} ${result.message ?? ""}`),
+  ].join("\n").toLowerCase();
+  return [
+    "all todos completed",
+    "todo list cleared",
+    "all checks passed",
+    "self-check passed",
+    "completed successfully",
+    "no remaining issues",
+    "no remaining work",
+  ].some((marker) => text.includes(marker));
 }
 
 function expectsImplementation(envelope: { task_kind?: string; acceptance_criteria?: string[] }): boolean {
@@ -1177,16 +1420,56 @@ function actionPlanFailureFeedback(message: string): ActionExecutionReport {
   return {
     status: "failed",
     final_message: [
-      `Provider action plan failed before tool execution: ${message}`,
-      "Continue like ClaudeCode after tool_result feedback: retry with a smaller valid ActionEnvelope JSON object instead of ending the task.",
-      "Use content_lines for multiline files, keep the next batch compact, and set continue_work=true when more files remain.",
+      `Provider native tool planning failed before local tool execution: ${message}`,
+      "Continue like ClaudeCode after tool_result feedback: retry with valid native tool calls instead of ending the task.",
+      "Use content_lines for multiline files, keep the next batch compact, and split remaining files across later tool-call turns.",
     ].join("\n"),
     results: [{
-      action_type: "action_plan",
+      action_type: "native_tool_plan",
       status: "failed",
       message,
     }],
   };
+}
+
+function topLevelSkillRouteFeedback(userMessage: string, action: ActionRequest): ActionResult | undefined {
+  if (/^Skill:/i.test(userMessage.trim())) return undefined;
+  if (action.type === "create_pptx" && asksForPresentationDeliverable(userMessage)) {
+    return {
+      action_type: action.type,
+      status: "failed",
+      path: action.path,
+      artifact_kind: "pptx",
+      message: [
+        "Top-level PPTX and slide-deck requests must invoke the presentations skill before using the low-level create_pptx tool.",
+        "Call invoke_skill with name=presentations and pass the full user task, including the output path and exact slide count.",
+        "Inside the skill, create_pptx is allowed. Its slides.length is the final slide count unless include_title_slide=true adds an extra cover slide.",
+      ].join(" "),
+    };
+  }
+  if (action.type === "create_docx" && asksForDocumentDeliverable(userMessage)) {
+    return {
+      action_type: action.type,
+      status: "failed",
+      path: action.path,
+      artifact_kind: "docx",
+      message: [
+        "Top-level DOCX, Word, report, and memo requests must invoke the documents skill before using the low-level create_docx tool.",
+        "Call invoke_skill with name=documents and pass the full user task, including the output path and audience or structure requirements.",
+        "Inside the skill, create_docx is allowed.",
+      ].join(" "),
+    };
+  }
+  return undefined;
+}
+
+function asksForPresentationDeliverable(text: string): boolean {
+  return /pptx?|powerpoint|slides?|slide\s*deck|presentation|deck|\u5e7b\u706f\u7247|\u8bfe\u4ef6|\u6f14\u793a|\u7b54\u8fa9/i.test(text);
+}
+
+function asksForDocumentDeliverable(text: string): boolean {
+  if (asksForPresentationDeliverable(text)) return false;
+  return /docx|word|document|report|memo|brief|\u6587\u6863|\u62a5\u544a|\u603b\u7ed3|\u65b9\u6848|\u5907\u5fd8\u5f55/i.test(text);
 }
 
 function userVisibleDecisionMessage(message: string): string {
@@ -1264,6 +1547,60 @@ function summarizeActionTypes(actions: ActionEnvelope["actions"]): string {
     .slice(0, 4)
     .join(", ");
 }
+
+function formatTencentMemoryRecall(recall?: TencentMemoryRecall): string {
+  if (!recall) return "";
+  const parts: string[] = [];
+  if (recall.appendSystemContext?.trim()) {
+    parts.push(`<system_context>\n${recall.appendSystemContext.trim()}\n</system_context>`);
+  }
+  if (recall.prependContext?.trim()) {
+    parts.push(`<relevant_memories>\n${recall.prependContext.trim()}\n</relevant_memories>`);
+  }
+  if (recall.recalledL1Memories?.length) {
+    parts.push([
+      "<memory_hits>",
+      ...recall.recalledL1Memories.slice(0, 8).map((memory, index) =>
+        `${index + 1}. [${memory.type}; score=${Number(memory.score).toFixed(3)}] ${compact(memory.content.replace(/\s+/g, " ").trim(), 500)}`,
+      ),
+      "</memory_hits>",
+    ].join("\n"));
+  }
+  if (recall.recalledL3Persona?.trim()) {
+    parts.push(`<persona>\n${compact(recall.recalledL3Persona.trim(), 1500)}\n</persona>`);
+  }
+  return parts.join("\n\n").trim();
+}
+
+function explicitlyRequestsLocalTool(userMessage: string): boolean {
+  const lower = userMessage.toLowerCase();
+  if (!/(call|invoke|use|run|调用|使用|执行|必须调用|必须使用).{0,80}(tool|工具|tdai_|read_file|write_file|run_command)/i.test(userMessage)) {
+    return false;
+  }
+  return baseTools.some((tool) => lower.includes(tool.name.toLowerCase()));
+}
+
+function explicitlyRequestsReadOnlyLocalTool(userMessage: string): boolean {
+  const lower = userMessage.toLowerCase();
+  if (!explicitlyRequestsLocalTool(userMessage)) return false;
+  return READ_ONLY_TOOL_NAMES.some((name) => lower.includes(name));
+}
+
+function explicitlyRequestsMemoryTool(userMessage: string): boolean {
+  const lower = userMessage.toLowerCase();
+  return lower.includes("tdai_memory_search") || lower.includes("tdai_conversation_search");
+}
+
+const READ_ONLY_TOOL_NAMES = [
+  "read_file",
+  "list_files",
+  "glob_files",
+  "grep_files",
+  "validate_artifact",
+  "tdai_memory_search",
+  "tdai_conversation_search",
+  "browser_snapshot",
+].map((name) => name.toLowerCase());
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {

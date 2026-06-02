@@ -13,7 +13,7 @@ export const pluginsCommand: Command = {
   name: "plugins",
   aliases: ["plugin"],
   description: "List, search, show, create, install, update, validate, enable, disable, and uninstall DeepSeekCode plugins.",
-  usage: "[search [query]|show <name>|source <name>|create <name> <description>|install <path> [name]|update <name>|uninstall <name>|validate [name]|path [name]|enable <name>|disable <name>]",
+  usage: "[search [query]|show <name>|source <name>|create <name> <description>|install <path-or-git-url> [name]|update <name>|uninstall <name>|validate [name]|path [name]|enable <name>|disable <name>]",
   execute(args, context) {
     const trimmed = args.trim();
     const service = new PluginService(context.config.projectPath, context.config.dataDir);
@@ -53,7 +53,7 @@ export const pluginsCommand: Command = {
     }
     if (trimmed.startsWith("install ")) {
       const [sourcePath, name] = parseArgs(trimmed.slice("install ".length));
-      if (!sourcePath) return { message: "Usage: /plugins install <path> [name]" };
+      if (!sourcePath) return { message: "Usage: /plugins install <path-or-git-url> [name]" };
       try {
         const plugin = service.installFromPath({ sourcePath, name });
         return {

@@ -18,6 +18,7 @@ export interface SkillValidationResult {
 }
 
 export function parseSkillDocument(content: string): ParsedSkillDocument {
+  content = stripBom(content);
   if (!content.startsWith("---")) {
     return { frontmatter: {}, body: content };
   }
@@ -104,6 +105,10 @@ function parseFrontmatter(content: string): SkillFrontmatter {
 
 function stripQuotes(value: string): string {
   return value.replace(/^['"]|['"]$/g, "");
+}
+
+function stripBom(content: string): string {
+  return content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
 }
 
 function firstUsefulLine(content: string): string {

@@ -52,7 +52,25 @@ export class AgentDaemonService {
 
     const results: AgentDaemonRunResult[] = [];
     for (const runId of runIds) {
+      const job = this.state.ensureRunJob({
+        runId,
+        kind: "agent_run",
+        payload: { runId },
+        detail: "agent daemon scheduled",
+        maxAttempts: 5,
+      });
+      const claimedJob = this.state.claimJob(job.id, "agent-daemon");
+      if (!claimedJob) {
+        this.state.appendEvent(runId, "agent_daemon_run_skipped", {
+          job_id: job.id,
+          status: job.status,
+          detail: job.detail,
+        });
+        continue;
+      }
       this.state.appendEvent(runId, "agent_daemon_run_started", {
+        job_id: claimedJob.id,
+        attempt: claimedJob.attempts,
         max_steps_per_run: input.maxStepsPerRun ?? 5,
       });
       const drain = await this.runs.drain({
@@ -62,10 +80,18 @@ export class AgentDaemonService {
         maxSteps: input.maxStepsPerRun ?? 5,
       });
       this.state.appendEvent(runId, "agent_daemon_run_finished", {
+        job_id: claimedJob.id,
         status: drain.status,
         steps: drain.steps.length,
         message: drain.message,
       });
+      if (drain.status === "succeeded") {
+        this.state.finishJob(claimedJob.id, "succeeded", drain.message);
+      } else if (drain.status === "failed") {
+        this.state.finishJob(claimedJob.id, "failed", drain.message);
+      } else {
+        this.state.releaseJob(claimedJob.id, drain.message);
+      }
       results.push({ runId, drain });
       if (drain.status === "failed") break;
     }
@@ -97,14 +123,22 @@ export class AgentDaemonService {
     if (runId) {
       const run = this.state.getRun(runId);
       if (!run) throw new Error(`run not found: ${runId}`);
-      if (!run.message.startsWith("agent:")) throw new Error(`run is not an agent run: ${runId}`);
+      if (!this.isAgentRun(runId)) throw new Error(`run is not an agent run: ${runId}`);
+      if (run.status !== "running") return [];
       return [runId];
     }
     return this.state
       .listUnfinishedRuns(this.config.projectPath, Math.max(1, maxRuns * 3))
-      .filter((run) => run.message.startsWith("agent:"))
+      .filter((run) => this.isAgentRun(run.id))
+      .filter((run) => run.status === "running")
       .slice(0, Math.max(1, maxRuns))
       .map((run) => run.id);
+  }
+
+  private isAgentRun(runId: string): boolean {
+    const run = this.state.getRun(runId);
+    if (run?.message.startsWith("agent:")) return true;
+    return this.state.listJobs({ runId, kind: "agent_run", limit: 1 }).length > 0;
   }
 }
 

@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import type { ActionExecutionReport, ActionResult } from "./protocol/actions.js";
+import type { TencentMemoryService } from "./services/memory/tencentMemoryService.js";
 import type { StateStore } from "./state/sqlite.js";
 import type { FileStateCache } from "./utils/fileStateCache.js";
 
@@ -10,6 +11,7 @@ export interface ToolPermissionContext {
   dataDir?: string;
   state?: StateStore;
   runId?: string;
+  memoryService?: TencentMemoryService;
 }
 
 export interface ToolExecutionContext extends ToolPermissionContext {

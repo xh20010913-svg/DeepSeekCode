@@ -25,6 +25,7 @@ export function discoverPlugins(projectPath: string, dataDir: string): PluginSum
       if (!entry.isDirectory()) continue;
       if (seenNames.has(entry.name)) continue;
       const pluginDir = path.join(root.dir, entry.name);
+      if (!hasPluginManifest(pluginDir)) continue;
       seenNames.add(entry.name);
       plugins.push({
         name: entry.name,
@@ -35,6 +36,11 @@ export function discoverPlugins(projectPath: string, dataDir: string): PluginSum
     }
   }
   return plugins.sort((a, b) => scopeOrder(a.scope) - scopeOrder(b.scope) || a.name.localeCompare(b.name));
+}
+
+function hasPluginManifest(pluginPath: string): boolean {
+  return fs.existsSync(path.join(pluginPath, ".codex-plugin", "plugin.json"))
+    || fs.existsSync(path.join(pluginPath, ".claude-plugin", "plugin.json"));
 }
 
 function scopeOrder(scope: PluginSummary["scope"]): number {

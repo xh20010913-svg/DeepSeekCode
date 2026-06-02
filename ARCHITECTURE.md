@@ -1,159 +1,170 @@
 # DeepSeekCode Architecture
 
-DeepSeekCode is organized as a local terminal workbench around DeepSeek, typed tool execution, durable state, and explicit permission boundaries. The release architecture is intentionally practical: it explains the runtime pieces a user or contributor needs to understand without carrying internal planning notes.
+DeepSeekCode v0.2 is a terminal runtime built around native DeepSeek tool calls, local typed tools, durable state, and cache-aware context.
 
-## Runtime Overview
+## Runtime Loop
 
 ```text
-CLI entrypoint
+src/cli/main.tsx
   -> bootstrap config
-  -> Ink/React workbench or headless prompt
+  -> Workbench or headless prompt
   -> QueryEngine
-  -> DeepSeek provider client
-  -> structured action envelope
-  -> typed tool executor
-  -> SQLite state and artifacts
+  -> DeepSeekClient
+  -> native tool_calls
+  -> baseTools registry
+  -> tool_result summaries
+  -> SQLite state + session transcript
 ```
 
-The CLI entrypoint is `src/cli/main.tsx`. It parses flags, loads config, opens the state store, and either renders the terminal workbench or runs a headless prompt.
-
-The `QueryEngine` is the orchestration center. It classifies a turn, chooses chat or local-tool flow, prepares stable prompt blocks, asks DeepSeek for an action envelope, executes validated tool actions, records state, and streams terminal events back to the UI.
-
-Headless CLI runs can restore persisted transcript state with `--continue` or `--resume <session-id>`. This lets a new process continue useful work without relying on terminal memory.
-
-## Pillar 1: Cache-First Loop
-
-DeepSeekCode keeps a stable prompt prefix for runtime instructions and tool schemas. Dynamic task content is added later. This lets large local tasks reuse as much DeepSeek prefix cache as possible.
-
-Important pieces:
-
-- Stable runtime prompt: immutable tool and behavior instructions.
-- Cache pins: project facts that should stay stable across turns.
-- Repository map: bounded project context built from the selected workspace.
-- Cache guard: preflight checks, shape history, readiness reports, and profile forecasts.
-- Telemetry: provider usage snapshots with cache hit and miss tokens when available.
-
-User-facing commands include:
-
-```text
-/cache
-/cache guard <goal>
-/cache prepare <goal>
-/cache profile save <name> <goal>
-```
-
-## Pillar 2: Typed Local Action Runtime
-
-The model does not directly edit files or run shell commands. It proposes a structured action envelope. DeepSeekCode validates that envelope before execution.
-
-Execution boundaries:
-
-- File tools are scoped to the launched `--project` path.
-- Patch and write actions produce explicit artifact records.
-- Shell execution is disabled unless the active permission profile allows it.
-- Browser actions are disabled unless browser permission is enabled.
-- Approval and validation gates can pause work before sensitive actions continue.
-
-This design keeps local automation inspectable. It also makes the terminal UI, state database, and final report agree about what actually happened.
-
-## Pillar 3: Durable Long-Running Work
-
-Runs are persisted in SQLite instead of living only in terminal memory. The state store records:
-
-- Runs and statuses.
-- Tool actions and artifacts.
-- Events and traces.
-- Tasks and task dependencies.
-- Approval and validation gates.
-- Usage snapshots and cache telemetry.
-- UI state and context checkpoints.
-- Run progress checkpoints and compact tool feedback.
-
-This makes `/runs`, `/trace`, `/events`, `/approval list`, and related commands useful after the terminal has redrawn or a run has paused.
-
-Session history is persisted separately as JSONL transcript records. On resume, DeepSeekCode builds a layered context:
-
-- `conversation_summary` for older high-value goals, paths, failures, and constraints.
-- `recent_conversation` for the last useful turns.
-- `tool_result_summary` for compact tool feedback.
-- `runtime_run_state` for recent or paused runs, task DAGs, actions, artifacts, gates, and progress checkpoints.
-
-The raw transcript and SQLite state remain the source of truth; summaries are prompt inputs, not the only persisted record.
-
-## Pillar 4: Multi-Agent Execution
-
-Provider multi-agent mode runs a fixed Planner -> Builder -> Tester -> Reviewer chain over durable task records. Each role receives the global goal, role instruction, compact feedback from prior roles, and current `runtime_run_state`.
-
-Role attempts write `agent_progress_checkpoint` events and compact tool summaries. Failed role output can queue a rework task instead of losing state in a long chat transcript.
+The model-facing planning path is native tool calling only. Internal `ActionEnvelope` records still exist as a runtime batch container after native tool calls are converted and validated, but the provider prompt no longer asks the model to output an ActionEnvelope JSON object.
 
 ## Main Modules
 
 | Area | Path | Responsibility |
 | --- | --- | --- |
-| CLI | `src/cli/main.tsx` | Parse flags, load config, run workbench, doctor, verify-model, or headless prompt. |
-| Config | `src/bootstrap/config.ts` | Load `.env`, provider config, model, data dir, and permission profile. |
-| Orchestration | `src/query/QueryEngine.ts` | Classify turns, build prompts, run action loop, stream events, record state. |
-| Commands | `src/commands/` | Slash command catalog and command handlers. |
-| Provider | `src/services/deepseek/` | DeepSeek-compatible API client. |
-| Tools | `src/tools/` | Typed local action execution and tool adapters. |
-| State | `src/state/sqlite.ts` | SQLite schema and durable runtime records. |
-| Permissions | `src/services/permissions/` | Safe/dev/browser/open profiles and runtime toggles. |
-| Cache | `src/services/cache/` | Guard reports, pins, profiles, telemetry, prompt-shape checks. |
-| Session | `src/services/session/` | Transcript storage, resume state, tool-result compaction, and run-state prompt summaries. |
-| Coordinator | `src/coordinator/commander.ts` | Provider multi-agent Planner/Builder/Tester/Reviewer workflow. |
-| UI | `src/components/` | Ink/React terminal panels and workbench rendering. |
-| Website | `website/` | Static public site and guide page. |
+| CLI | `src/cli/main.tsx` | Parse flags, configure runtime, run TUI or headless prompts. |
+| Config | `src/bootstrap/config.ts` | Load provider, project path, data dir, language, model, and permissions. |
+| Orchestration | `src/query/QueryEngine.ts` | Classify turns, build context, request native tool calls, execute tools, record usage. |
+| Provider | `src/services/deepseek/` | DeepSeek-compatible client, native tool schema conversion, prompt audit capture, retry/error handling. |
+| Tools | `src/tools/registry.ts` | Real local tool registry exposed to native function calling. |
+| Tool execution | `src/tools/executor.ts` | Validate tool arguments, apply permissions, execute tools, emit hooks/events. |
+| State | `src/state/sqlite.ts` | Runs, tasks, actions, artifacts, events, gates, usage, and checkpoints. |
+| Sessions | `src/services/session/` | JSONL transcripts, resume, recent conversation, compact tool summaries. |
+| Long-term memory | `src/services/memory/` + `src/vendor/tencentdb-agent-memory/` | Vendored MIT TencentDB-Agent-Memory runtime, recall injection, turn capture, and memory search tools. |
+| Skills | `src/skills/`, `src/services/skills/` | Built-in and installed `SKILL.md` discovery, validation, and forked skill runs. |
+| Plugins | `src/plugins/`, `src/services/plugins/` | Plugin manifest loading, install/update/uninstall, commands, hooks, skills. |
+| MCP | `src/services/mcp/` | MCP configuration and unified `mcp_call` execution. |
+| Hooks | `src/hooks/`, `src/services/hooks/` | PreToolUse/PostToolUse and related hook execution. |
+| UI | `src/components/` | Ink/React TUI panels, picker, transcript, permission and status views. |
+| Website | `website/` | Static public manual site. |
 
-## Configuration Loading
+The release tree intentionally removed unconnected upstream source-path adapters. The directory layout is DeepSeekCode-oriented rather than a mirror of another agent.
 
-DeepSeekCode loads environment in this order:
+## Provider And Tool Calling
 
-1. `.env` from the current process directory.
-2. `.env` from the `--project` directory.
-3. Explicit provider profile JSON via `DEEPSEEKCODE_PROVIDER_CONFIG`.
-4. Project provider profile at `.deepseekcode/providers.json`.
-5. Data-dir provider profile at `$DEEPSEEKCODE_HOME/config/providers.json`.
+`DeepSeekClient.planActions` sends:
 
-The default data directory is `~/.deepseekcode`, or `DEEPSEEKCODE_HOME` when set. Runtime state is stored below `state/deepseekcode.sqlite`.
+- messages built from stable runtime prompt and dynamic context
+- `tools: toNativeFunctionTools(baseTools)`
+- `tool_choice: "auto"`
 
-## Permission Model
+The response must contain native `tool_calls` for local work. Tool calls are converted to internal `ActionRequest` objects and validated against Zod schemas before execution.
 
-The runtime starts in `safe` mode unless configured otherwise.
+Provider failures are handled explicitly:
 
-| Profile | Shell | Browser |
-| --- | --- | --- |
-| `safe` | off | off |
-| `dev` | on | off |
-| `browser` | off | on |
-| `open` | on | on |
+| Failure | Behavior |
+| --- | --- |
+| Unsupported tools/schema rejection | Clear error; no JSON fallback. |
+| Invalid local arguments | Clear schema validation error. |
+| Network/429/5xx | Limited retry. |
+| 400/401/403/404 | No retry unless provider returns a retryable status. |
 
-CLI flags can grant tool categories for a session:
+## Tool Surface
 
-```bash
-npm run start -- --project . --permission-profile dev
-npm run start -- --project . --allow-shell
-npm run start -- --project . --allow-browser
+The real provider-facing tool surface is `baseTools`:
+
+- file: `read_file`, `list_files`, `write_file`, `glob_files`, `grep_files`, `apply_patch`
+- shell/remote: `run_command`, `ssh_run`, `ssh_read_file`, `ssh_write_file`
+- browser: `browser_session_start`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_screenshot`
+- planning/user gates: `TodoWrite`, `EnterPlanMode`, `ExitPlanMode`, `AskUserQuestion`
+- extension: `invoke_skill`, `invoke_agent`, `mcp_call`
+- long-term memory: `tdai_memory_search`, `tdai_conversation_search`
+- artifacts: `create_docx`, `create_pptx`, `create_pdf`, `validate_artifact`
+- reserved: `computer_use`
+
+`/tools` reports supported, partial, experimental, and reserved status.
+
+## Context And Cache
+
+DeepSeekCode separates context into stable and dynamic layers:
+
+| Layer | Purpose |
+| --- | --- |
+| Stable prompt | Runtime rules and tool-use policy. |
+| Tool schema | Deterministic tool definitions for native tool calling. |
+| Project memory | User/project facts from `.deepseekcode`. |
+| TencentDB-Agent-Memory recall | L1/L3 long-term memories recalled before prompt planning and inserted as dynamic context. |
+| Repository map | Bounded file map for orientation. |
+| Recent conversation | Last useful user/assistant turns. |
+| Rolling summary | Older goals, constraints, decisions, failures, and paths. |
+| Tool result summary | Compact stdout/diff/error/artifact summaries. |
+| Runtime run state | Recent runs, tasks, checkpoints, gates, artifacts, and remaining work. |
+
+Usage snapshots record input/output/cache hit/cache miss tokens when the provider returns them. `/cache`, `/usage`, and `/cost` expose this state.
+
+## Long-Term Memory
+
+DeepSeekCode vendors the MIT-licensed TencentDB-Agent-Memory runtime instead of installing it as an upstream OpenClaw plugin. The adapter gives the Tencent plugin a small runtime API, then wires its hooks and tools into DeepSeekCode:
+
+```text
+before user turn
+  -> TDAI before_prompt_build recall
+  -> DeepSeekCode dynamic context block
+  -> native DeepSeek tool call planning
+  -> local tools and tool_result messages
+  -> final assistant response
+  -> TDAI agent_end capture/extraction
 ```
 
-Slash commands such as `/permissions`, `/shell on|off`, and `/browser on|off` expose the active state in the workbench.
+Default behavior is local-first:
 
-## Extension Points
+- Data is written under `<data-dir>/tdai/memory-tdai/`.
+- L0 conversation capture and L1 extraction are enabled when the provider is configured.
+- Local SQLite is the default store.
+- Embeddings and Tencent Cloud VectorDB require explicit environment configuration.
+- `/memory status`, `/memory search`, and `/memory conversation` expose the runtime to users.
 
-DeepSeekCode supports several extension surfaces:
+The memory layer is a real supported capability, but semantic vector quality depends on embedding/TCVDB configuration. Without those settings, documentation and `/doctor` present it as local SQLite memory rather than full vector memory.
 
-- Slash commands in `src/commands/`.
-- User and plugin command discovery.
-- Skills, plugins, hooks, and MCP adapters.
-- Provider profiles for OpenAI-compatible DeepSeek endpoints.
-- Website assets and static pages.
+## Long-Running Work
 
-When adding a runtime feature, keep the same boundaries: parse user intent in commands or QueryEngine, validate with typed services, execute through the tool runtime, and record state in SQLite when the action has lasting value.
+SQLite stores:
+
+- runs and statuses
+- action records
+- artifact records
+- event trace
+- tasks and dependencies
+- approval and validation gates
+- usage snapshots
+- checkpoints
+
+`--continue` and `--resume <session-id>` restore transcript state. `/pause`, `/run-resume`, and `/cancel` update durable run state. `/multi provider <task>` writes Planner -> Builder -> Tester -> Reviewer role progress into the same state store.
+
+The current worker system is partial: task records, checkpoints, resume/cancel/retry surfaces, and multi-agent scheduling exist, while a fully independent background worker pool remains an active development area.
+
+## Skills, Plugins, MCP, Hooks
+
+Skills and plugins are extension surfaces:
+
+- project/user/cache/plugin skill discovery
+- `.claude` folder discovery for compatibility
+- `.deepseekcode` install targets
+- local path, GitHub URL, Git URL, and `file://` Git installs
+- manifest/BOM/path traversal validation
+- plugin commands, skills, and hooks
+
+MCP is exposed through `mcp_call`. Future work can expand individual MCP tools directly into native function schemas.
+
+Hooks run around local tools. PreToolUse can block a tool; PostToolUse records output. Hook errors are stored as events and do not replace the main task result.
+
+## Capability Status
+
+| Capability | Status |
+| --- | --- |
+| Native tool calling | supported |
+| File tools | supported |
+| Shell tools | supported with permission |
+| Browser CDP | partial |
+| MCP | partial |
+| Hooks | supported |
+| Skills/plugins | supported |
+| DOCX/PPTX | supported |
+| TencentDB-Agent-Memory | supported |
+| PDF | experimental |
+| Long-running worker | partial |
+| `computer_use` | reserved |
 
 ## Release Boundary
 
-The release tree keeps user-facing runtime files and public docs. It does not include internal development notes, test scripts, smoke output, local secrets, or generated build folders. Public documentation belongs at the repository root or in the static `website/` tree so GitHub links resolve without the old `docs/` directory.
-
-Related:
-
-- [Guide](./GUIDE.md)
-- [CLI Reference](./CLI_REFERENCE.md)
+Published files are runtime source, assets, website, and user manuals. The release excludes prompt audits, test artifacts, local `.env`, runtime databases, generated reports, development handoff notes, and unconnected upstream source mirrors.

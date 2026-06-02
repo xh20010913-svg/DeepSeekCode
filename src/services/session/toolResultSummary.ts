@@ -77,7 +77,7 @@ function compactActionResult(result: ActionResult, maxMessageChars: number): Act
     status: result.status,
     path: result.path,
     artifact_kind: result.artifact_kind,
-    message: result.message ? compactText(result.message, maxMessageChars) : result.message,
+    message: result.message ? compactText(sanitizeToolMessage(result.message), maxMessageChars) : result.message,
   };
 }
 
@@ -93,4 +93,14 @@ function compactText(value: string | undefined, max: number): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (normalized.length <= max) return normalized;
   return `${normalized.slice(0, Math.max(0, max - 32)).trimEnd()} ... [truncated ${normalized.length - max} chars]`;
+}
+
+function sanitizeToolMessage(message: string): string {
+  if (/Invalid arguments for tool/i.test(message) && /\braw=/.test(message)) {
+    return `${message.split(/\braw=/, 1)[0].trim()} raw tool arguments omitted from prompt context; inspect local prompt audit or run trace for full payload.`;
+  }
+  if (/Unterminated string in JSON/i.test(message) && /\braw=/.test(message)) {
+    return `${message.split(/\braw=/, 1)[0].trim()} raw tool arguments omitted from prompt context; inspect local prompt audit or run trace for full payload.`;
+  }
+  return message;
 }

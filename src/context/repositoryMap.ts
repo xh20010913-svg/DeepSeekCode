@@ -28,8 +28,12 @@ const SKIP_DIRS = new Set([
   "playwright-report",
   "results",
   "runtime-scenarios",
+  "reports",
   "test-results",
   "tmp",
+  "tmp-install-sources",
+  "scenario-sources",
+  "tencentdb-memory-inspect",
 ]);
 
 export function buildRepositoryMap(root: string, limit = 300): RepositoryMap {
@@ -74,7 +78,12 @@ export function buildRepositoryMap(root: string, limit = 300): RepositoryMap {
 function shouldSkipDir(name: string): boolean {
   if (SKIP_DIRS.has(name)) return true;
   const lower = name.toLowerCase();
-  return lower.startsWith(".deepseekcode-");
+  return (
+    lower.startsWith(".deepseekcode-") ||
+    lower.startsWith("prompt-audit") ||
+    lower.startsWith("scenario-reports") ||
+    lower.startsWith("scenario-report")
+  );
 }
 
 function shouldSkipFile(name: string): boolean {
@@ -88,7 +97,9 @@ function shouldSkipFile(name: string): boolean {
     lower.endsWith(".sqlite") ||
     lower.endsWith(".sqlite-shm") ||
     lower.endsWith(".sqlite-wal") ||
-    lower.endsWith(".db")
+    lower.endsWith(".db") ||
+    lower.endsWith(".jsonl") ||
+    lower.endsWith(".tgz")
   );
 }
 

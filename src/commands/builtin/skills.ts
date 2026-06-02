@@ -13,7 +13,7 @@ import {
 export const skillsCommand: Command = {
   name: "skills",
   description: "List, search, show, create, install, update, uninstall, validate, and run DeepSeekCode skills.",
-  usage: "[search [query]|show <name>|source <name>|create <name> <description>|install <path> [name]|update <name>|uninstall <name>|run <name> <task>|validate [name]|path [name]]",
+  usage: "[search [query]|show <name>|source <name>|create <name> <description>|install <path-or-git-url> [name]|update <name>|uninstall <name>|run <name> <task>|validate [name]|path [name]]",
   async execute(args, context) {
     const trimmed = args.trim();
     const service = new SkillService(context.config.projectPath, context.config.dataDir);
@@ -53,7 +53,7 @@ export const skillsCommand: Command = {
     }
     if (trimmed.startsWith("install ")) {
       const [sourcePath, name] = parseArgs(trimmed.slice("install ".length));
-      if (!sourcePath) return { message: "Usage: /skills install <path> [name]" };
+      if (!sourcePath) return { message: "Usage: /skills install <path-or-git-url> [name]" };
       try {
         const skill = service.installFromPath({ sourcePath, name });
         return {

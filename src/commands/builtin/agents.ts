@@ -96,13 +96,13 @@ export const agentsCommand: Command = {
           const taskSummary = tasks.length
             ? tasks.map((task) => `${task.status}:${task.agent}`).join(",")
             : "no-tasks";
-          return `run ${index + 1} ${run.status} actions=${run.actionCount} tasks=${taskSummary} ${run.message}`;
+          return `run ${index + 1} ${run.id} ${run.status} actions=${run.actionCount} tasks=${taskSummary} ${run.message}`;
         }).join("\n"),
         display: React.createElement(AgentPanel, { model: agentRunsPanelModel(runs) }),
       };
     }
     if (trimmed === "detail" || trimmed.startsWith("detail ")) {
-      const runId = resolveRunId(trimmed.startsWith("detail ") ? trimmed.slice("detail ".length) : "", context);
+      const runId = resolveAgentRunId(trimmed.startsWith("detail ") ? trimmed.slice("detail ".length) : "", context);
       if (!runId) return { message: "No run records yet." };
       try {
         const detail = new AgentRunService(context.state, context.config).detail(runId);
@@ -179,7 +179,7 @@ export const agentsCommand: Command = {
       if (!runSelector || !name || taskParts.length === 0) {
         return { message: "Usage: /agents add <attached|current> <name> <task>" };
       }
-      const runId = resolveRunId(runSelector, context);
+      const runId = resolveAgentRunId(runSelector, context);
       if (!runId) return { message: "No run records yet." };
       try {
         new AgentRunService(context.state, context.config).addTask({
@@ -209,7 +209,7 @@ export const agentsCommand: Command = {
       if (!context.provider) {
         return { message: "Provider missing; configure DEEPSEEK_API_KEY before stepping agent runs." };
       }
-      const runId = resolveRunId(trimmed.startsWith("step ") ? trimmed.slice("step ".length) : "", context);
+      const runId = resolveAgentRunId(trimmed.startsWith("step ") ? trimmed.slice("step ".length) : "", context);
       if (!runId) return { message: "No run records yet." };
       try {
         const result = await new AgentRunService(context.state, context.config).step({
@@ -236,7 +236,7 @@ export const agentsCommand: Command = {
         return { message: "Provider missing; configure DEEPSEEK_API_KEY before draining agent runs." };
       }
       const parts = parseArgs(trimmed.startsWith("drain ") ? trimmed.slice("drain ".length) : "");
-      const runId = resolveRunId(parts[0] ?? "", context);
+      const runId = resolveAgentRunId(parts[0] ?? "", context);
       if (!runId) return { message: "No run records yet." };
       const maxSteps = parts[1] ? Number.parseInt(parts[1], 10) : undefined;
       try {
@@ -265,7 +265,7 @@ export const agentsCommand: Command = {
       }
       const parts = parseArgs(trimmed.startsWith("daemon ") ? trimmed.slice("daemon ".length) : "");
       const selector = parts[0] ?? "all";
-      const runId = selector === "all" ? undefined : resolveRunId(selector, context);
+      const runId = selector === "all" ? undefined : resolveAgentRunId(selector, context);
       if (selector !== "all" && !runId) return { message: `Run not found: ${selector}` };
       const maxRuns = parts[1] ? Number.parseInt(parts[1], 10) : undefined;
       const maxStepsPerRun = parts[2] ? Number.parseInt(parts[2], 10) : undefined;
@@ -355,6 +355,14 @@ function parseArgs(args: string): string[] {
 function summarizePayload(payload: unknown): string {
   const text = redactInternalAgentIds(JSON.stringify(payload ?? {}));
   return text.length > 160 ? `${text.slice(0, 157)}...` : text;
+}
+
+function resolveAgentRunId(selector: string, context: Parameters<typeof resolveRunId>[1]): string | undefined {
+  const runId = resolveRunId(selector, context);
+  const run = runId ? context.state.getRun(runId) : undefined;
+  if (run?.message.startsWith("agent:")) return run.id;
+  if (runId && context.state.listJobs({ runId, kind: "agent_run", limit: 1 }).length > 0) return runId;
+  return new AgentRunService(context.state, context.config).list(1)[0]?.run.id;
 }
 
 function redactInternalAgentIds(text: string): string {

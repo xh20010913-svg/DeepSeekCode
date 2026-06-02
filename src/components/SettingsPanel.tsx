@@ -241,7 +241,7 @@ function actionsForTab(tab: SettingsTabId): SelectListOption[] {
     return [
       common("theme-list", "theme list", "/theme list", "show all built-in terminal themes"),
       common("theme-cache", "cache green", "/theme set cache-green", "use the cache-first DeepSeek palette", "success"),
-      common("theme-claude", "claude classic", "/theme set claude-classic", "use the warmer reference-inspired palette"),
+      common("theme-warm", "warm classic", "/theme set warm-classic", "use the warmer terminal palette"),
       common("theme-reset", "theme reset", "/theme reset", "return to the default DeepSeek palette", "warning"),
     ];
   }

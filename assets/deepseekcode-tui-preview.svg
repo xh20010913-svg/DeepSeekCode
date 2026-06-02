@@ -1,10 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="820" viewBox="0 0 1440 820" role="img" aria-labelledby="title desc">
+﻿<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="820" viewBox="0 0 1440 820" role="img" aria-labelledby="title desc">
   <title id="title">DeepSeekCode terminal interface preview</title>
   <desc id="desc">A generated preview of the DeepSeekCode terminal workbench.</desc>
   <rect width="1440" height="820" fill="#050505"/>
   <rect x="0" y="0" width="1440" height="820" fill="#070707"/>
   <text x="20" y="56" fill="#2dd4bf" font-family="Cascadia Mono,Consolas,monospace" font-size="24" font-weight="700">DeepSeekCode</text>
-  <text x="188" y="56" fill="#7a7a7a" font-family="Cascadia Mono,Consolas,monospace" font-size="22" font-weight="700">D:\code\DeepSeekTest</text>
+  <text x="188" y="56" fill="#7a7a7a" font-family="Cascadia Mono,Consolas,monospace" font-size="22" font-weight="700">D:\work\agent-test</text>
   <text x="1070" y="56" fill="#22c55e" font-family="Cascadia Mono,Consolas,monospace" font-size="22" font-weight="700">&gt;&gt; [ready]</text>
   <text x="1218" y="56" fill="#8a8a8a" font-family="Cascadia Mono,Consolas,monospace" font-size="22" font-weight="700">deepseek-v4-flash</text>
 
@@ -38,3 +38,4 @@
   <text x="20" y="786" fill="#8a8a8a" font-family="Cascadia Mono,Consolas,monospace" font-size="20">[idle] cache 58% (6080/10418)</text>
   <text x="760" y="786" fill="#8a8a8a" font-family="Cascadia Mono,Consolas,monospace" font-size="20">safe | shell off | browser off | gates 0 | deepseek-v4-flash</text>
 </svg>
+

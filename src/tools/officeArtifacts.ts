@@ -68,7 +68,7 @@ const DOCX_CONTENT_WIDTH_DXA = 9360;
 export async function createDocxArtifact(root: string, input: PlannedDocxAction): Promise<string> {
   const target = ensureExtension(safeJoin(root, input.path), ".docx");
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  const sections = markdownToDocxChildren(input.markdown);
+  const sections = markdownToDocxChildren(markdownFromInput(input));
   const document = new Document({
     creator: "DeepSeekCode",
     title: path.basename(target, ".docx"),
@@ -138,6 +138,12 @@ export async function createDocxArtifact(root: string, input: PlannedDocxAction)
   return target;
 }
 
+function markdownFromInput(input: { markdown?: string; markdown_lines?: string[] }): string {
+  return typeof input.markdown === "string"
+    ? input.markdown
+    : (input.markdown_lines ?? []).join("\n");
+}
+
 export async function createPptxArtifact(root: string, input: PlannedPptxAction): Promise<string> {
   const target = ensureExtension(safeJoin(root, input.path), ".pptx");
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -155,7 +161,9 @@ export async function createPptxArtifact(root: string, input: PlannedPptxAction)
     lang: "zh-CN",
   };
 
-  addTitleSlide(pptx, input.title, input.subtitle);
+  if (input.include_title_slide) {
+    addTitleSlide(pptx, input.title, input.subtitle);
+  }
   input.slides.forEach((slide, index) => addContentSlide(pptx, slide, index, input.slides.length));
 
   await pptx.writeFile({ fileName: target, compression: true });

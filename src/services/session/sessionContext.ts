@@ -1,5 +1,6 @@
 import type { ChatMessage } from "../../protocol/provider.js";
 import type { TranscriptRecord } from "./sessionStorage.js";
+import { sanitizeLegacyPlannerContext } from "./legacyContextSanitizer.js";
 
 export interface SessionContextBuildOptions {
   keepTailMessages?: number;
@@ -38,7 +39,7 @@ export function buildSessionContext(
     .sort((a, b) => a.index - b.index)
     .map((entry) => entry.record);
 
-  const summary = selectedRecords
+  const summary = dedupeSummaryRecords(selectedRecords)
     .map(formatSummaryRecord)
     .filter(Boolean)
     .join("\n")
@@ -51,6 +52,24 @@ export function buildSessionContext(
     selectedRecords,
     totalRecords: records.length,
   };
+}
+
+function dedupeSummaryRecords(records: TranscriptRecord[]): TranscriptRecord[] {
+  const seen = new Set<string>();
+  return records.filter((record) => {
+    const key = summaryDedupeKey(record);
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function summaryDedupeKey(record: TranscriptRecord): string | undefined {
+  const text = record.text ?? "";
+  if (/tdai_memory_search\s+succeeded/i.test(text)) return "tool:tdai_memory_search:succeeded";
+  if (/tdai_conversation_search\s+succeeded/i.test(text)) return "tool:tdai_conversation_search:succeeded";
+  return undefined;
 }
 
 export function scoreTranscriptRecord(record: TranscriptRecord, index = 0, total = 1): number {
@@ -78,12 +97,12 @@ function isChatRecord(record: TranscriptRecord): boolean {
 function recordToChatMessage(record: TranscriptRecord): ChatMessage {
   return {
     role: record.role === "assistant" ? "assistant" : record.role === "system" ? "system" : "user",
-    content: record.text,
+    content: sanitizeLegacyPlannerContext(record.text),
   };
 }
 
 function formatSummaryRecord(record: TranscriptRecord): string {
-  const text = compact(record.text, record.role === "tool" || record.role === "error" ? 900 : 520);
+  const text = compact(sanitizeLegacyPlannerContext(record.text), record.role === "tool" || record.role === "error" ? 900 : 520);
   if (!text) return "";
   return `- ${record.role}${record.runId ? ` run=${record.runId}` : ""}: ${text}`;
 }

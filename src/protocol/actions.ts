@@ -102,6 +102,21 @@ export const McpCallActionSchema = z.object({
   timeout_ms: z.number().int().min(100).max(120_000).default(10_000),
 });
 
+export const TdaiMemorySearchActionSchema = z.object({
+  type: z.literal("tdai_memory_search"),
+  query: z.string().min(1),
+  limit: z.number().int().min(1).max(20).default(5),
+  memory_type: z.enum(["persona", "episodic", "instruction"]).optional(),
+  scene: z.string().optional(),
+});
+
+export const TdaiConversationSearchActionSchema = z.object({
+  type: z.literal("tdai_conversation_search"),
+  query: z.string().min(1),
+  limit: z.number().int().min(1).max(20).default(5),
+  session_key: z.string().optional(),
+});
+
 export const TodoWriteActionSchema = z.object({
   type: z.literal("TodoWrite"),
   scope: z.string().default("project"),
@@ -185,7 +200,8 @@ export const BrowserTypeActionSchema = z.object({
 export const PlannedDocxActionSchema = z.object({
   type: z.literal("create_docx"),
   path: z.string().min(1),
-  markdown: z.string(),
+  markdown: z.string().optional(),
+  markdown_lines: z.array(z.string()).optional(),
 });
 
 export const PptxSlideSchema = z.object({
@@ -200,13 +216,15 @@ export const PlannedPptxActionSchema = z.object({
   path: z.string().min(1),
   title: z.string().min(1),
   subtitle: z.string().optional(),
+  include_title_slide: z.boolean().default(false),
   slides: z.array(PptxSlideSchema).min(1).max(20),
 });
 
 export const PlannedPdfActionSchema = z.object({
   type: z.literal("create_pdf"),
   path: z.string().min(1),
-  markdown: z.string(),
+  markdown: z.string().optional(),
+  markdown_lines: z.array(z.string()).optional(),
 });
 
 export const PlannedComputerUseActionSchema = z.object({
@@ -239,6 +257,8 @@ export const ActionRequestSchema = z.discriminatedUnion("type", [
   SshReadFileActionSchema,
   SshWriteFileActionSchema,
   McpCallActionSchema,
+  TdaiMemorySearchActionSchema,
+  TdaiConversationSearchActionSchema,
   TodoWriteActionSchema,
   EnterPlanModeActionSchema,
   AskUserQuestionActionSchema,
@@ -287,6 +307,17 @@ export const ActionEnvelopeSchema = z
           code: z.ZodIssueCode.custom,
           message: "write action requires content or content_lines",
           path: ["actions", index, "content"],
+        });
+      }
+      if (
+        (action.type === "create_docx" || action.type === "create_pdf") &&
+        typeof action.markdown !== "string" &&
+        !Array.isArray(action.markdown_lines)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `${action.type} requires markdown or markdown_lines`,
+          path: ["actions", index, "markdown"],
         });
       }
     });

@@ -34,6 +34,8 @@ import {
   SshReadFileActionSchema,
   SshRunActionSchema,
   SshWriteFileActionSchema,
+  TdaiConversationSearchActionSchema,
+  TdaiMemorySearchActionSchema,
   TodoWriteActionSchema,
   ValidateArtifactActionSchema,
   WriteFileActionSchema,
@@ -414,6 +416,71 @@ export const baseTools: Tools = [
           status: "succeeded",
           path: input.server,
           message: JSON.stringify(output.result, null, 2),
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "tdai_memory_search",
+    displayName: "Memory Search",
+    description: "Search TencentDB-Agent-Memory L1 structured long-term memories for user preferences, past facts, project decisions, and durable instructions.",
+    inputSchema: TdaiMemorySearchActionSchema,
+    readOnly: true,
+    concurrencySafe: true,
+    async run(input, context) {
+      if (!context.memoryService) {
+        return {
+          result: {
+            action_type: input.type,
+            status: "failed",
+            message: "TencentDB-Agent-Memory is not attached to this run.",
+          },
+        };
+      }
+      const result = await context.memoryService.searchMemory({
+        query: input.query,
+        limit: input.limit,
+        memoryType: input.memory_type,
+        scene: input.scene,
+      });
+      return {
+        data: result.details,
+        result: {
+          action_type: input.type,
+          status: "succeeded",
+          message: result.text,
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "tdai_conversation_search",
+    displayName: "Conversation Search",
+    description: "Search TencentDB-Agent-Memory L0 raw conversation history when exact older wording or dialogue context is needed.",
+    inputSchema: TdaiConversationSearchActionSchema,
+    readOnly: true,
+    concurrencySafe: true,
+    async run(input, context) {
+      if (!context.memoryService) {
+        return {
+          result: {
+            action_type: input.type,
+            status: "failed",
+            message: "TencentDB-Agent-Memory is not attached to this run.",
+          },
+        };
+      }
+      const result = await context.memoryService.searchConversations({
+        query: input.query,
+        limit: input.limit,
+        sessionKey: input.session_key,
+      });
+      return {
+        data: result.details,
+        result: {
+          action_type: input.type,
+          status: "succeeded",
+          message: result.text,
         },
       };
     },
@@ -838,7 +905,7 @@ export const baseTools: Tools = [
   buildTool({
     name: "invoke_skill",
     displayName: "Skill",
-    description: "Execute a named DeepSeekCode or Claude-style SKILL.md skill in a forked local agent context.",
+    description: "Execute a named DeepSeekCode-compatible SKILL.md skill in a forked local agent context.",
     inputSchema: InvokeSkillActionSchema,
     concurrencySafe: false,
     destructive: true,
@@ -913,17 +980,18 @@ export const baseTools: Tools = [
   buildTool({
     name: "create_pptx",
     displayName: "PPTX",
-    description: "Create a real PPTX artifact from structured slide content using the runtime presentation tool; do not write helper scripts.",
+    description: "Create a real PPTX artifact from structured slide content using the runtime presentation tool; slides.length is the default final slide count, and include_title_slide adds one explicit cover slide.",
     inputSchema: PlannedPptxActionSchema,
     destructive: true,
     async run(input, context) {
       const target = await createPptxArtifact(context.root, input);
+      const slideCount = input.slides.length + (input.include_title_slide ? 1 : 0);
       return {
         result: {
           action_type: input.type,
           status: "succeeded",
           path: target,
-          message: `PPTX created by runtime presentation tool with ${input.slides.length + 1} slides`,
+          message: `PPTX created by runtime presentation tool with ${slideCount} slides`,
           artifact_kind: "pptx",
         },
       };

@@ -22,9 +22,10 @@ export const toolsCommand: Command = {
       return {
         message: [
           `${tool.name} (${tool.displayName})`,
+          `capability=${capabilityStatus(tool.name)}`,
           tool.description,
           `enabled=${tool.isEnabled(toolContext)}`,
-          `permission=${tool.checkPermissions({ type: tool.name }, toolContext).behavior}`,
+          `permission=${safePermission(tool, toolContext)}`,
         ].join("\n"),
         display,
       };
@@ -33,11 +34,29 @@ export const toolsCommand: Command = {
     return {
       message: baseTools
         .map((tool) => {
-          const permission = tool.checkPermissions({ type: tool.name }, toolContext);
-          return `${tool.name} enabled=${tool.isEnabled(toolContext)} permission=${permission.behavior} - ${tool.description}`;
+          return `${tool.name} status=${capabilityStatus(tool.name)} enabled=${tool.isEnabled(toolContext)} permission=${safePermission(tool, toolContext)} - ${tool.description}`;
         })
         .join("\n"),
       display,
     };
   },
 };
+
+function capabilityStatus(name: string): "supported" | "partial" | "experimental" | "reserved" {
+  if (name === "computer_use") return "reserved";
+  if (name === "create_pdf") return "experimental";
+  if (name.startsWith("browser_") || name === "mcp_call" || name === "invoke_agent") return "partial";
+  return "supported";
+}
+
+function safePermission(tool: (typeof baseTools)[number], context: {
+  root: string;
+  allowShell: boolean;
+  allowBrowser: boolean;
+}): string {
+  try {
+    return tool.checkPermissions({ type: tool.name }, context).behavior;
+  } catch {
+    return "input-dependent";
+  }
+}

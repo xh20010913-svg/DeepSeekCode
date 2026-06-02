@@ -3,7 +3,7 @@ import { TodoService, formatTodoList } from "../../services/todos/todoService.js
 
 export const todosCommand: Command = {
   name: "todos",
-  description: "Manage the Claude-style structured todo list for the current DeepSeekCode project.",
+  description: "Manage the structured todo list for the current DeepSeekCode project.",
   usage: "[list|add <content>|start <id|#>|done <id|#>|clear|write-json <json>|path]",
   execute(args, context) {
     const trimmed = args.trim();

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { discoverPlugins, type PluginSummary } from "./registry.js";
-import { parsePluginManifest, type PluginManifest } from "./manifest.js";
+import { parsePluginManifestJson, type PluginManifest } from "./manifest.js";
 
 export interface LoadedPlugin extends PluginSummary {
   manifest?: PluginManifest;
@@ -29,7 +29,7 @@ function readManifest(manifestPath: string): Pick<LoadedPlugin, "manifest" | "ma
   if (!fs.existsSync(manifestPath)) return {};
   try {
     return {
-      manifest: parsePluginManifest(JSON.parse(fs.readFileSync(manifestPath, "utf8"))),
+      manifest: parsePluginManifestJson(fs.readFileSync(manifestPath, "utf8")),
     };
   } catch (error) {
     return {

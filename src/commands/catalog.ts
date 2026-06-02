@@ -43,7 +43,7 @@ import { renameCommand } from "./builtin/rename.js";
 import { resumeCommand as resumeSessionCommand } from "./builtin/resume.js";
 import { rewindCommand } from "./builtin/rewind.js";
 import { reviewCommand, securityReviewCommand } from "./builtin/review.js";
-import { cancelCommand, pauseCommand, resumeCommand as resumeRunCommand } from "./builtin/runControl.js";
+import { cancelCommand, pauseCommand, resumeCommand as resumeRunCommand, retryCommand } from "./builtin/runControl.js";
 import { runsCommand } from "./builtin/runs.js";
 import { sessionsCommand } from "./builtin/sessions.js";
 import { settingsCommand } from "./builtin/settings.js";
@@ -85,6 +85,7 @@ export function buildCommandCatalog(context?: CommandContext): Command[] {
     pauseCommand,
     resumeRunCommand,
     cancelCommand,
+    retryCommand,
     resumeSessionCommand,
     settingsCommand,
     renameCommand,

@@ -2,6 +2,7 @@ import React from "react";
 import { RunPanel, runControlPanelModel } from "../../components/RunPanel.js";
 import type { Command } from "../../types/command.js";
 import { DurableTaskQueue } from "../../tasks/queue.js";
+import { resolveRunId } from "../runSelection.js";
 
 export const pauseCommand: Command = {
   name: "pause",
@@ -57,3 +58,72 @@ export const cancelCommand: Command = {
     };
   },
 };
+
+export const retryCommand: Command = {
+  name: "retry",
+  description: "Retry failed or selected tasks in a run and requeue its persistent job.",
+  usage: "[run-id|attached|current|latest] [failed|all|task-id] [reason]",
+  execute(args, context) {
+    const parts = parseArgs(args.trim());
+    const selector = parts[0] ?? "latest";
+    const runId = selector === "latest" ? context.state.listRuns(1)[0]?.id : resolveRunId(selector, context);
+    if (!runId) return { message: "No run records yet." };
+    const target = parts[1] ?? "failed";
+    const reason = parts.slice(2).join(" ") || "retry requested";
+    const queue = new DurableTaskQueue(context.state);
+    const tasks = context.state.listTasks(runId);
+    const candidates = selectRetryTasks(tasks, target);
+    if (candidates.length === 0) {
+      return {
+        message: `No retryable tasks matched ${target} for ${runId}.`,
+        display: React.createElement(RunPanel, {
+          model: runControlPanelModel({ runId, run: context.state.getRun(runId), action: "retry", reason }),
+        }),
+      };
+    }
+
+    const retried = candidates.map((task) => queue.retry(task.id, reason));
+    const job = context.state.ensureRunJob({
+      runId,
+      kind: "agent_run",
+      payload: { runId },
+      detail: reason,
+      maxAttempts: 5,
+    });
+    context.state.retryJob(job.id, reason);
+    return {
+      message: [
+        `${runId} retry queued`,
+        `tasks=${retried.length}`,
+        `job=${job.kind} attempts reset`,
+        ...retried.map((task) => `- ${task.id} queued ${task.agent}: ${task.title}`),
+      ].join("\n"),
+      display: React.createElement(RunPanel, {
+        model: runControlPanelModel({ runId, run: context.state.getRun(runId), action: "retry", reason }),
+      }),
+    };
+  },
+};
+
+function selectRetryTasks(
+  tasks: ReturnType<typeof DurableTaskQueue.prototype.runnable>,
+  target: string,
+) {
+  if (target === "all") {
+    return tasks.filter((task) => task.status !== "succeeded");
+  }
+  if (target === "failed") {
+    return tasks.filter((task) => task.status === "failed" || task.status === "cancelled");
+  }
+  if (target === "running") {
+    return tasks.filter((task) => task.status === "running");
+  }
+  return tasks.filter((task) => task.id === target);
+}
+
+function parseArgs(args: string): string[] {
+  if (!args) return [];
+  return [...args.matchAll(/"([^"]+)"|'([^']+)'|(\S+)/g)].map(
+    (match) => match[1] ?? match[2] ?? match[3] ?? "",
+  );
+}

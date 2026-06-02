@@ -1,5 +1,5 @@
 export type TerminalTone = "default" | "brand" | "muted" | "success" | "warning" | "error";
-export type TerminalThemeName = "deepseek-dark" | "claude-classic" | "high-contrast" | "cache-green";
+export type TerminalThemeName = "deepseek-dark" | "warm-classic" | "high-contrast" | "cache-green";
 
 export interface TerminalThemeDefinition {
   name: TerminalThemeName;
@@ -25,9 +25,9 @@ export const terminalThemes: TerminalThemeDefinition[] = [
     },
   },
   {
-    name: "claude-classic",
-    label: "Claude Classic",
-    description: "Warmer magenta brand accent inspired by the reference UI picker flow.",
+    name: "warm-classic",
+    label: "Warm Classic",
+    description: "Warmer magenta brand accent for users who prefer a softer terminal palette.",
     colors: {
       default: undefined,
       brand: "magenta",

@@ -1,6 +1,6 @@
 {
   "name": "deepseekcode",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "DeepSeek-first local agent workbench, TypeScript runtime.",
   "type": "module",
@@ -8,19 +8,27 @@
     "deepseekcode": "./dist/cli/main.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/copy-vendor.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dev": "tsx src/cli/main.tsx",
     "start": "node dist/cli/main.js",
     "doctor": "node dist/cli/main.js --doctor"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^3.0.53",
+    "@node-rs/jieba": "^2.0.1",
+    "@tencentdb-agent-memory/tcvdb-text": "^0.1.1",
+    "ai": "^6.0.164",
     "commander": "^14.0.2",
     "docx": "^9.7.1",
     "dotenv": "^17.2.3",
     "ink": "^5.2.1",
+    "js-tiktoken": "^1.0.18",
+    "json5": "^2.2.3",
     "pptxgenjs": "^4.0.1",
     "react": "^18.3.1",
+    "sqlite-vec": "^0.1.7-alpha.2",
+    "undici": "^8.1.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {

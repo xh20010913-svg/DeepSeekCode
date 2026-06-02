@@ -1,4 +1,5 @@
 import type { EventRecord, RunRecord, StateStore, TaskRecord } from "../../state/sqlite.js";
+import { sanitizeLegacyPlannerContext } from "./legacyContextSanitizer.js";
 
 export interface RunStateContextOptions {
   maxRuns?: number;
@@ -55,7 +56,7 @@ export function buildRunStateContext(
       `cache_hit=${run.cacheHitTokens ?? 0}`,
       `cache_miss=${run.cacheMissTokens ?? 0}`,
     ].join(" "));
-    if (run.message.trim()) lines.push(`message: ${compact(oneLine(run.message), 260)}`);
+    if (run.message.trim()) lines.push(`message: ${compact(oneLine(sanitizeLegacyPlannerContext(run.message)), 260)}`);
 
     const tasks = (trace.tasks ?? []).slice(0, 8);
     if (tasks.length > 0) {
@@ -69,7 +70,9 @@ export function buildRunStateContext(
     if (actions.length > 0) {
       lines.push("recent_actions:");
       for (const action of actions) {
-        lines.push(`- ${action.action_type ?? "action"} ${action.status ?? "unknown"}${action.path ? ` path=${normalizePath(action.path)}` : ""}${action.artifact_kind ? ` artifact=${action.artifact_kind}` : ""}${action.message ? ` message=${compact(oneLine(action.message), 220)}` : ""}`);
+        const actionType = sanitizeLegacyPlannerContext(action.action_type ?? "action");
+        const message = action.message ? sanitizeLegacyPlannerContext(action.message) : "";
+        lines.push(`- ${actionType} ${action.status ?? "unknown"}${action.path ? ` path=${normalizePath(action.path)}` : ""}${action.artifact_kind ? ` artifact=${action.artifact_kind}` : ""}${message ? ` message=${compact(oneLine(message), 220)}` : ""}`);
       }
     }
 
@@ -99,7 +102,9 @@ export function buildRunStateContext(
     if (importantEvents.length > 0) {
       lines.push("recent_events:");
       for (const event of importantEvents) {
-        lines.push(`- ${event.kind}: ${compact(oneLine(stringifyPayload(event.payload)), 260)}`);
+        const kind = sanitizeLegacyPlannerContext(event.kind);
+        const payload = sanitizeLegacyPlannerContext(stringifyPayload(event.payload));
+        lines.push(`- ${kind}: ${compact(oneLine(payload), 260)}`);
       }
     }
   }

@@ -1,30 +1,14 @@
-# DeepSeekCode CLI Reference
-
-This reference covers the command line and slash commands that ship in the public release tree.
+﻿# DeepSeekCode CLI Reference
 
 ## Package Scripts
 
 | Script | Purpose |
 | --- | --- |
-| `npm run build` | Compile TypeScript into `dist/`. |
-| `npm run typecheck` | Check TypeScript without writing build output. |
-| `npm run dev` | Run the CLI from `src/cli/main.tsx` with `tsx`. |
-| `npm run start` | Run the compiled CLI from `dist/cli/main.js`. |
-| `npm run doctor` | Run `deepseekcode --doctor` through the compiled CLI. |
-
-Install and build before using `npm run start`:
-
-```bash
-npm install
-npm run build
-npm run start -- --project "D:\code\DeepSeekTest"
-```
-
-Use `npm run dev` when running from source:
-
-```bash
-npm run dev -- --project "D:\code\DeepSeekTest"
-```
+| `npm run dev` | Run the TypeScript CLI with `tsx`. |
+| `npm run start` | Run the compiled CLI from `dist/`. |
+| `npm run typecheck` | Type-check without emitting files. |
+| `npm run build` | Compile TypeScript. |
+| `npm run doctor` | Run compiled diagnostics. |
 
 ## CLI Flags
 
@@ -34,159 +18,142 @@ deepseekcode [options]
 
 | Flag | Description |
 | --- | --- |
-| `--project <path>` | Project directory to inspect and edit. Defaults to the current directory. |
-| `--data-dir <path>` | Runtime data directory. Defaults to `DEEPSEEKCODE_HOME` or `~/.deepseekcode`. |
-| `--model <model>` | DeepSeek model or provider profile name. Defaults to `DEEPSEEK_MODEL` or `deepseek-v4-flash`. |
-| `-p, --prompt <text>` | Run one headless prompt and exit. |
-| `-c, --continue` | Continue the most recent persisted transcript session before running. |
-| `--resume <session-id>` | Resume a specific persisted transcript session before running. |
-| `--doctor` | Print runtime diagnostics. |
-| `--verify-model` | Verify DeepSeek model access. |
-| `--allow-shell` | Enable shell tool execution for the session. |
-| `--allow-browser` | Enable browser bridge actions for the session. |
-| `--permission-profile <profile>` | Use `safe`, `dev`, `browser`, or `open`. |
-| `--json` | Print headless prompt events as JSON lines. |
+| `--project <path>` | Workspace root for local tools. |
+| `--data-dir <path>` | Runtime data directory. |
+| `--model <model>` | Model or provider profile. |
+| `-p, --prompt <text>` | Run one headless prompt. |
+| `-c, --continue` | Continue the latest transcript session. |
+| `--resume <session-id>` | Resume a specific transcript session. |
+| `--doctor` | Print diagnostics. |
+| `--verify-model` | Verify model access. |
+| `--allow-shell` | Enable shell tools. |
+| `--allow-browser` | Enable browser tools. |
+| `--permission-profile <profile>` | `safe`, `dev`, `browser`, or `open`. |
+| `--json` | Emit headless events as JSON lines. |
 
 Examples:
 
 ```bash
-npm run start -- --project "D:\code\DeepSeekTest"
+npm run start -- --project "D:\work\agent-test"
 npm run start -- --project . --permission-profile dev
-npm run start -- --project . --continue --prompt "Continue the previous task"
-npm run start -- --project . --resume session_xxx --prompt "Continue the paused work"
-npm run start -- --project . --verify-model
+npm run start -- --project . --continue -p "Continue the previous task"
+npm run start -- --project . --resume session_xxx -p "Continue"
 npm run start -- --project . --prompt "Summarize this repository" --json
 ```
 
-## Environment Variables
+## Environment
 
 | Variable | Purpose |
 | --- | --- |
-| `DEEPSEEK_BASE_URL` | DeepSeek-compatible base URL. Defaults to `https://api.deepseek.com`. |
-| `DEEPSEEK_API_KEY` | API key used by the default DeepSeek provider. |
-| `DEEPSEEK_MODEL` | Default model. The release default is `deepseek-v4-flash`. |
-| `DEEPSEEKCODE_LANGUAGE` / `DEEPSEEKCODE_LANG` | TUI language. Use `zh-CN` or `en`; default is `zh-CN`. |
-| `DEEPSEEK_TIMEOUT_SECS` | Provider timeout in seconds. |
-| `DEEPSEEKCODE_HOME` | Runtime data directory override. |
-| `DEEPSEEKCODE_PROVIDER_CONFIG` | Path to a provider profile JSON file. |
+| `DEEPSEEK_BASE_URL` | DeepSeek-compatible base URL. |
+| `DEEPSEEK_API_KEY` | Provider API key. |
+| `DEEPSEEK_MODEL` | Default model. |
+| `DEEPSEEK_TIMEOUT_SECS` | Provider timeout. |
+| `DEEPSEEKCODE_LANGUAGE` / `DEEPSEEKCODE_LANG` | `zh-CN` or `en`. |
+| `DEEPSEEKCODE_HOME` | Runtime data directory. |
+| `DEEPSEEKCODE_PROVIDER_CONFIG` | Provider profile JSON. |
 | `DEEPSEEKCODE_PERMISSION_PROFILE` | Default permission profile. |
-| `DEEPSEEKCODE_REASONING_EFFORT` | Reasoning effort used by provider config. |
-| `DEEPSEEKCODE_MAX_OUTPUT_TOKENS` | Max output tokens used by provider config. |
-| `DEEPSEEKCODE_PRICE_INPUT_PER_M` | Optional input-token price override per million tokens. |
-| `DEEPSEEKCODE_PRICE_OUTPUT_PER_M` | Optional output-token price override per million tokens. |
-| `DEEPSEEKCODE_PRICE_CACHE_HIT_PER_M` | Optional cache-hit input price override per million tokens. |
-| `DEEPSEEKCODE_PRICE_CACHE_MISS_PER_M` | Optional cache-miss input price override per million tokens. |
-| `DEEPSEEKCODE_BROWSER_CDP_URL` | Optional browser CDP endpoint. |
-| `DEEPSEEKCODE_SEARCH_ENGINE` | Optional search engine setting for browser/search adapters. |
-
-Do not commit real `.env` files. Use `.env.example` as the public template.
-
-## Permission Profiles
-
-| Profile | Meaning |
-| --- | --- |
-| `safe` | Shell and browser actions are off. |
-| `dev` | Shell actions are on, browser actions are off. |
-| `browser` | Browser actions are on, shell actions are off. |
-| `open` | Shell and browser actions are both on. |
-
-Aliases accepted by the runtime include `default`, `plan`, `acceptEdits`, `dontAsk`, and `bypassPermissions`.
+| `DEEPSEEKCODE_PROMPT_AUDIT_DIR` | Enable debug prompt audit output. |
+| `DEEPSEEKCODE_BROWSER_CDP_URL` | Browser CDP endpoint. |
+| `DEEPSEEKCODE_TDAI_MEMORY` | `on` by default. Set `off` to disable TencentDB-Agent-Memory. |
+| `DEEPSEEKCODE_TDAI_CAPTURE` | Capture successful user/assistant turns into TDAI L0 conversation memory. |
+| `DEEPSEEKCODE_TDAI_RECALL` | Recall long-term memory before prompt construction. |
+| `DEEPSEEKCODE_TDAI_EXTRACTION` | Let TDAI extract L1/L2/L3 memory with the configured provider. |
+| `DEEPSEEKCODE_TDAI_STORE` | `sqlite` by default, or `tcvdb` when Tencent Cloud VectorDB is configured. |
+| `DEEPSEEKCODE_TDAI_EMBEDDING_PROVIDER` | Optional embedding provider. `none` keeps vector recall disabled. |
+| `DEEPSEEKCODE_TCVDB_URL` | Optional Tencent Cloud VectorDB endpoint. |
+| `DEEPSEEKCODE_TCVDB_API_KEY` | Optional Tencent Cloud VectorDB API key. |
+| `DEEPSEEKCODE_PRICE_INPUT_PER_M` | Input-token price override. |
+| `DEEPSEEKCODE_PRICE_OUTPUT_PER_M` | Output-token price override. |
+| `DEEPSEEKCODE_PRICE_CACHE_HIT_PER_M` | Cache-hit token price override. |
+| `DEEPSEEKCODE_PRICE_CACHE_MISS_PER_M` | Cache-miss token price override. |
 
 ## Slash Commands
-
-The command list is available inside the workbench with `/help`. Common commands:
 
 | Command | Purpose |
 | --- | --- |
 | `/help` | Show command help. |
-| `/doctor` | Show provider and runtime diagnostics. |
+| `/doctor` | Provider, native tool, skills/plugins, cache, and permission diagnostics. |
 | `/version` | Show version information. |
-| `/init` | Initialize project-local DeepSeekCode files. |
-| `/model` | Open the in-TUI model selector. Use Up/Down and Enter to switch. |
-| `/model flash` / `/model pro` | Switch the current TUI session between `deepseek-v4-flash` and `deepseek-v4-pro`. |
-| `/model verify` | Verify configured model access. |
-| `/language zh` / `/language en` | Switch the TUI language. The default is Chinese. |
-| `/effort` | Inspect or adjust inference effort settings. |
-| `/project` | Inspect project scope. |
-| `/config` | Show runtime configuration. |
-| `/status` | Show current runtime status. |
-| `/runs` | List recent durable runs. |
-| `/queue` | Inspect queued work. |
-| `/pause`, `/run-resume`, `/cancel` | Control a durable run when supported. |
-| `/sessions` | Inspect saved sessions. |
-| `/resume <session-id>|current|clear` | Focus, inspect, or clear the current transcript session. |
-| `/plan` | Enter or manage plan mode. |
-| `/todo`, `/todos` | Manage task todo state. |
-| `/tasks` | Inspect task records. |
-| `/events` | List runtime events. |
-| `/trace <run>` | Inspect a run trace. |
-| `/rewind` / `/checkpoint` | Create, diff, inspect, or restore workspace checkpoints. |
-| `/context` | Inspect selected context. |
-| `/files` | Show file context. |
-| `/diff git` | Show Git diff for the project. |
-| `/review` | Ask for a code review pass. |
-| `/security-review` | Ask for a security-oriented review pass. |
-| `/permissions` | Show or adjust permission profile. |
-| `/tools` | List tool availability. |
-| `/cmd <command>` | Run a shell command when shell permission is enabled. |
-| `/shell on|off` | Toggle shell tool permission. |
-| `/browser on|off` | Toggle browser bridge permission. |
-| `/agents` | Inspect agent roles. |
-| `/hooks` | Inspect hook configuration. |
-| `/skills` | Inspect skills. |
-| `/plugins` | Inspect plugins. |
-| `/logs` | Inspect runtime logs. |
-| `/memory` | Inspect or export project memory. |
-| `/mcp` | Inspect MCP adapters. |
-| `/cache` | Show cache readiness and telemetry. |
-| `/cache guard <goal>` | Preflight a task for cache stability. |
-| `/cache prepare <goal>` | Prepare reusable context for a task. |
-| `/cache profile save <name> <goal>` | Save a reusable cache profile. |
-| `/cost` | Show token and cost summaries. |
-| `/usage` | Show usage snapshots. |
-| `/stats` | Show runtime statistics. |
-| `/approval list` | List pending approval gates. |
-| `/validation` | Inspect validation gates. |
-| `/bridge` | Inspect bridge state. |
-| `/diag` | Show diagnostics. |
-| `/multi provider <task>` | Run a multi-agent provider workflow. |
-| `/clear` | Clear current UI/session content. |
-| `/quit` | Exit the workbench. |
+| `/model` | Open model picker. |
+| `/model flash` `/model pro` | Switch model. |
+| `/language zh` `/language en` | Switch TUI language. |
+| `/settings` | Runtime settings overview. |
+| `/config` | Runtime config view. |
+| `/status` | Current runtime status. |
+| `/project` | Project scope. |
+| `/permissions` | Permission profile and gates. |
+| `/shell on|off` | Toggle shell tools. |
+| `/browser on|off` | Toggle browser tools. |
+| `/tools` | Real tool registry and capability status. |
+| `/cmd <command>` | Run a shell command when allowed. |
+| `/runs` | List durable runs. |
+| `/runs report latest <dir>` | Export scenario report Markdown/JSON. |
+| `/trace <run>` | Run trace. |
+| `/events [current|all]` | Runtime events. |
+| `/queue` | Runnable task queue. |
+| `/pause` `/run-resume` `/cancel` | Durable run controls. |
+| `/sessions` | Saved transcript sessions. |
+| `/resume <session-id>|current|clear` | Manage focused transcript session. |
+| `/cache` | Cache telemetry and readiness. |
+| `/cache guard <goal>` | Forecast cache stability. |
+| `/cache prepare <goal>` | Prepare reusable context. |
+| `/usage` `/cost` | Token and cost summaries. |
+| `/skills` | Skill discovery, install, update, validate, uninstall, run. |
+| `/plugins` | Plugin discovery, install, update, validate, enable/disable, uninstall. |
+| `/hooks` | Hook configuration. |
+| `/mcp` | MCP configuration and status. |
+| `/multi provider <task>` | Planner/Builder/Tester/Reviewer workflow. |
+| `/todo` `/todos` | Structured todo state. |
+| `/approval` `/validation` | Gate status and decisions. |
+| `/review` `/security-review` | Review current diff or files. |
+| `/diff` | Show project diff. |
+| `/files` `/context` | Inspect selected context. |
+| `/memory` | Show project memory. |
+| `/memory add <text>` | Append project-local memory. |
+| `/memory path` | Print the project memory path. |
+| `/memory status` | Show TencentDB-Agent-Memory status, storage backend, recall/capture/extraction flags, and registered memory tools. |
+| `/memory search <query>` | Search TDAI L1 structured memories. |
+| `/memory conversation <query>` | Search TDAI L0 raw conversation history. |
+| `/clear` `/quit` | Clear UI or exit. |
 
-Plugin and user commands can add more entries. Use `/help` in a live session for the exact catalog.
+Use `/help` in the TUI for the exact command catalog.
 
-## Headless Mode
+## Permission Profiles
 
-Run one prompt and exit:
+| Profile | Shell | Browser |
+| --- | --- | --- |
+| `safe` | off | off |
+| `dev` | on | off |
+| `browser` | off | on |
+| `open` | on | on |
+
+## Tool Status
+
+Use `/tools` for the exact runtime registry. Status meanings:
+
+- `supported`: fully wired to local execution.
+- `partial`: usable through a narrower integration boundary.
+- `experimental`: available but quality or scope is limited.
+- `reserved`: schema placeholder for a planned bridge; not a full capability.
+
+TencentDB-Agent-Memory adds two read-only native tools when the memory service is attached to a run:
+
+- `tdai_memory_search`: searches structured L1 memories such as durable preferences, decisions, instructions, and project facts.
+- `tdai_conversation_search`: searches raw L0 conversation history when exact older wording matters.
+
+The memory runtime stores data under `<data-dir>/tdai/`. With local SQLite only, it supports capture and text/BM25-style search. Semantic vector recall and Tencent Cloud VectorDB are enabled only when the corresponding embedding/TCVDB settings are present.
+
+## Diagnostics And Reports
 
 ```bash
-npm run start -- --project . --prompt "Summarize the runtime modules"
+npm run typecheck
+npm run build
+npm run start -- --project . --doctor
 ```
 
-Emit machine-readable events:
-
-```bash
-npm run start -- --project . --prompt "List public commands" --json
+```text
+/doctor
+/runs report latest "D:\work\agent-test"
 ```
 
-## Diagnostics
-
-Run:
-
-```bash
-npm run doctor
-npm run start -- --project . --verify-model
-```
-
-If diagnostics fail, check:
-
-- The project path exists.
-- `.env` or shell variables contain `DEEPSEEK_API_KEY`.
-- The selected model is available to the key.
-- The data directory is writable.
-- Permission profile matches the intended tool use.
-
-Related:
-
-- [Guide](./GUIDE.md)
-- [Architecture](./ARCHITECTURE.md)

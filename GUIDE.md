@@ -1,18 +1,8 @@
-# DeepSeekCode Guide
+﻿# DeepSeekCode Guide
 
-DeepSeekCode is a DeepSeek-first local coding workbench. This guide covers the release build path: install it, point it at a project, keep secrets out of Git, and use the runtime commands that are shipped in this repository.
+This guide explains how to run DeepSeekCode v0.2 as a local agent workbench.
 
-The public guide intentionally stays focused on using the project. Internal handoff notes, smoke scripts, research notes, and release staging files are not part of the published tree.
-
-## Quick Start
-
-Requirements:
-
-- Node.js 22 or newer.
-- A DeepSeek API key.
-- A project directory that DeepSeekCode can inspect and edit.
-
-Install and build:
+## 1. Install
 
 ```bash
 git clone https://github.com/xh20010913-svg/DeepSeekCode.git
@@ -21,67 +11,57 @@ npm install
 npm run build
 ```
 
-Create a local `.env` file or set these variables in your shell:
+Run from source during development:
+
+```bash
+npm run dev -- --project "D:\work\agent-test"
+```
+
+Run the compiled CLI:
+
+```bash
+npm run start -- --project "D:\work\agent-test"
+```
+
+## 2. Configure
+
+Minimal provider configuration:
 
 ```bash
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEKCODE_LANGUAGE=zh-CN
 ```
 
-Run the workbench against a project directory:
+Useful optional settings:
 
-```bash
-npm run start -- --project "D:\code\DeepSeekTest"
-```
+| Setting | Purpose |
+| --- | --- |
+| `DEEPSEEK_TIMEOUT_SECS` | Provider request timeout. |
+| `DEEPSEEKCODE_HOME` | Runtime data directory. |
+| `DEEPSEEKCODE_PROVIDER_CONFIG` | Provider profile JSON path. |
+| `DEEPSEEKCODE_PERMISSION_PROFILE` | `safe`, `dev`, `browser`, or `open`. |
+| `DEEPSEEKCODE_PROMPT_AUDIT_DIR` | Enable debug prompt audit output. |
+| `DEEPSEEKCODE_TDAI_MEMORY` | `on` by default. Set `off` to disable TencentDB-Agent-Memory. |
+| `DEEPSEEKCODE_TDAI_CAPTURE` | Capture successful turns into long-term memory. |
+| `DEEPSEEKCODE_TDAI_RECALL` | Recall long-term memory before model calls. |
+| `DEEPSEEKCODE_TDAI_EXTRACTION` | Extract structured L1/L2/L3 memories with the configured provider. |
+| `DEEPSEEKCODE_TDAI_STORE` | `sqlite` by default; `tcvdb` when Tencent Cloud VectorDB is configured. |
+| `DEEPSEEKCODE_TDAI_EMBEDDING_PROVIDER` | Optional embedding provider. `none` keeps semantic vector recall disabled. |
+| `DEEPSEEKCODE_PRICE_INPUT_PER_M` | Input-token price override. |
+| `DEEPSEEKCODE_PRICE_OUTPUT_PER_M` | Output-token price override. |
+| `DEEPSEEKCODE_PRICE_CACHE_HIT_PER_M` | Cache-hit input price override. |
+| `DEEPSEEKCODE_PRICE_CACHE_MISS_PER_M` | Cache-miss input price override. |
 
-For source-mode development, use:
-
-```bash
-npm run dev -- --project "D:\code\DeepSeekTest"
-```
-
-Continue work after restarting the CLI:
-
-```bash
-npm run start -- --project "D:\code\DeepSeekTest" --continue -p "Continue the last task"
-npm run start -- --project "D:\code\DeepSeekTest" --resume session_xxx -p "Continue the paused work"
-```
-
-## First Run Checklist
-
-1. Run `npm run doctor` to confirm Node, project path, model, provider, permissions, and state paths.
-2. Run `npm run typecheck` before changing runtime code.
-3. Run `npm run build` before publishing or sharing a release tree.
-4. Keep `.env`, state databases, logs, `node_modules/`, and `dist/` out of commits unless a release process explicitly needs them.
-
-## Project Scope
-
-DeepSeekCode uses the `--project` path as the workspace boundary for file-oriented tools. Start it from the repository root or pass an explicit path:
-
-```bash
-npm run start -- --project "D:\code\SomeProject"
-npm run start -- --project .
-```
-
-Runtime state defaults to `~/.deepseekcode`. Override it when you want a separate test sandbox:
-
-```bash
-npm run start -- --project "D:\code\DeepSeekTest" --data-dir "D:\code\DeepSeekTest\.deepseekcode-state"
-```
-
-When in doubt, use a disposable test project first. That keeps live tool runs, generated files, and local state away from the source repository.
-
-## Permission Profiles
-
-Shell and browser actions are off by default. Choose the smallest profile that fits the task:
+## 3. Choose A Permission Profile
 
 | Profile | Shell | Browser | Use when |
 | --- | --- | --- | --- |
-| `safe` | off | off | Reading, editing, planning, and validating project files. |
-| `dev` | on | off | Running local build, typecheck, and test commands. |
-| `browser` | off | on | Inspecting a browser or UI surface through the browser bridge. |
-| `open` | on | on | Trusted local development sessions that need both shell and browser tools. |
+| `safe` | off | off | Read, edit, and validate files without external execution. |
+| `dev` | on | off | Build, typecheck, test, and run local scripts. |
+| `browser` | off | on | Validate web UI through the browser bridge. |
+| `open` | on | on | Trusted local projects that need shell and browser. |
 
 Examples:
 
@@ -91,155 +71,170 @@ npm run start -- --project . --allow-shell
 npm run start -- --project . --allow-browser
 ```
 
-Inside the workbench, use `/permissions`, `/shell on|off`, and `/browser on|off` to inspect or change the active session.
+Inside the TUI, use `/permissions`, `/shell on|off`, and `/browser on|off`.
 
-## Cache-First Workflow
+## 4. Native Tool Workflow
 
-DeepSeekCode treats prompt prefix stability as a runtime concern. Stable runtime rules, tool schemas, repository maps, project memory, and cache pins should stay early and deterministic; current user text and tool feedback should stay late.
-
-Long-running work uses layered context instead of full transcript replay:
-
-- Recent conversation keeps the last high-value user and assistant turns.
-- Rolling summaries preserve older goals, constraints, paths, failures, and remaining work.
-- `tool_result_summary` records compact tool feedback instead of full stdout, long diffs, or logs.
-- `runtime_run_state` summarizes recent or paused runs, task DAGs, actions, artifacts, gates, and progress checkpoints.
-
-Before a large task:
+DeepSeekCode v0.2 requires native tool calls for local work:
 
 ```text
-/cache
-/cache guard refactor the provider runtime without changing public commands
-/cache prepare refactor the provider runtime without changing public commands
-/cache profile save provider-refactor refactor the provider runtime without changing public commands
+provider messages + tools schema
+  -> assistant tool_calls
+  -> local tool execution
+  -> tool_result messages
+  -> next provider turn
 ```
 
-Use this pattern when the task will involve multiple files or several tool turns. It helps keep reusable context visible and makes cache drift easier to diagnose.
+If a model or gateway does not support tool calling, the run fails with a clear provider error. It does not fall back to a JSON action planner.
 
-## Working In A Session
+## 5. Long-Term Memory
+
+DeepSeekCode includes a vendored MIT runtime of TencentDB-Agent-Memory. It is enabled by default and stores memory under the runtime data directory:
+
+```text
+<data-dir>\tdai\memory-tdai\
+```
+
+What it does:
+
+- recalls relevant long-term memory before prompt construction
+- captures successful user/assistant turns after a run
+- exposes `tdai_memory_search` and `tdai_conversation_search` as native read-only tools
+- supports local SQLite by default
+- supports Tencent Cloud VectorDB and embeddings only when explicitly configured
 
 Useful commands:
 
 ```text
-/help
-/doctor
-/status
-/config
-/files
-/diff git
-/plan start
-/approval list
-/memory list
-/cache
-/sessions
-/resume current
-/rewind list
-/model verify
-/quit
+/memory status
+/memory search 中文默认
+/memory conversation 继续完善
 ```
 
-Typical flow:
-
-1. Start with a plain request or `/plan start` for larger changes.
-2. Review file changes with `/diff git`.
-3. Run `npm run typecheck` or `npm run build` when local shell is enabled.
-4. Use `/approval list`, `/trace <run>`, and `/events` if a run pauses or fails.
-5. Use `/sessions` plus `/resume <session-id>` or CLI `--continue` when continuing after a restart.
-
-## Multi-Agent Workflow
-
-Provider multi-agent mode runs Planner, Builder, Tester, and Reviewer over durable task state:
-
-```text
-/multi provider Create a SaaS incident handoff package with code, tests, docs, and an acceptance report.
-```
-
-Role feedback is compacted into `tool_result_summary` before it is passed to the next role. Each role attempt writes an agent progress checkpoint so follow-up turns can inspect what happened without replaying full logs.
-
-## Provider Profiles
-
-The default provider configuration can come from environment variables:
+Disable it for a run:
 
 ```bash
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_API_KEY=your_deepseek_api_key
-DEEPSEEK_MODEL=deepseek-v4-flash
-DEEPSEEKCODE_REASONING_EFFORT=high
-DEEPSEEKCODE_MAX_OUTPUT_TOKENS=1200
+set DEEPSEEKCODE_TDAI_MEMORY=off
 ```
 
-For multiple providers or accounts, set `DEEPSEEKCODE_PROVIDER_CONFIG` or create `.deepseekcode/providers.json` in the project. Prefer `api_key_env` entries so the JSON file can stay secret-free:
+## 6. Skills And Plugins
 
-```json
-{
-  "default_profile": "deepseek-fast",
-  "profiles": [
-    {
-      "name": "deepseek-fast",
-      "kind": "open_ai_compatible",
-      "base_url": "https://api.deepseek.com",
-      "api_key_env": "DEEPSEEK_API_KEY",
-      "model": "deepseek-v4-flash",
-      "timeout_secs": 45,
-      "reasoning_effort": "high"
-    }
-  ]
-}
-```
-
-## Release Tree Rules
-
-The published repository should contain files that a user needs to install, run, inspect, or view the project:
-
-- Runtime source under `src/`.
-- Website files under `website/`.
-- Public docs: `README*.md`, `GUIDE.md`, `ARCHITECTURE.md`, `CLI_REFERENCE.md`.
-- Public assets under `assets/`.
-- Package metadata, license, TypeScript config, and GitHub Pages workflow.
-
-Do not publish local secrets, generated build output, test sandboxes, internal handoff docs, or test artifacts:
+Skills are `SKILL.md` instruction packs. Plugins can contribute commands, skills, and hooks.
 
 ```text
-.env
-.deepseekcode/
-.release/
-node_modules/
-dist/
-*.log
-*.sqlite
-docs/
-scripts/
-src/**/*.test.ts
+/skills
+/skills search office
+/skills install "D:\skills\office-report"
+/skills install https://github.com/example/agent-skills/tree/main/office/report
+/skills install file:///D:/repos/agent-skills.git#main:office/report
+/skills update office-report
+/skills validate
+
+/plugins
+/plugins install "D:\plugins\review-kit"
+/plugins install https://github.com/example/deepseekcode-plugin
+/plugins install file:///D:/repos/deepseekcode-plugin.git#main
+/plugins enable review-kit
+/plugins validate
 ```
 
-Release validation for this version included:
+Compatibility rules:
 
-- `npm run typecheck`
-- `npm run build`
-- live cross-process session resume in `D:\code\DeepSeekTest`
-- live `/multi provider` workflow in `D:\code\DeepSeekTest`
-- provider prompt audit confirming `recent_conversation`, `tool_result_summary`, and `runtime_run_state`
+- `.deepseekcode` is the write target.
+- `.claude` skill/plugin folders can be discovered as read-compatible sources.
+- Git subpaths are checked for path traversal.
+- `.env`, `.git`, `node_modules`, and OS metadata are filtered during installs.
 
-## Troubleshooting
+## 7. Long Tasks
 
-`npm run doctor` reports provider missing:
+For long-running work, use sessions, runs, checkpoints, and reports:
 
-Set `DEEPSEEK_API_KEY` in the shell or in a local `.env` file. Do not commit the real key.
+```bash
+npm run start -- --project "D:\work\agent-test" --continue -p "Continue the last task"
+npm run start -- --project "D:\work\agent-test" --resume session_xxx -p "Continue the paused work"
+```
 
-The README image is broken on GitHub:
+Useful commands:
 
-Use paths relative to the repository root, such as `assets/readme-runtime-terminal.png`, and make sure the asset is committed.
+```text
+/runs
+/trace latest
+/events current
+/queue
+/pause latest
+/run-resume latest
+/cancel latest
+```
 
-The model cannot run local commands:
+Multi-agent mode:
 
-Start with `--permission-profile dev` or enable `/shell on` inside a trusted session.
+```text
+/multi provider Build a small dashboard project with tests and review it.
+```
 
-State from one project appears in another project:
+The durable multi-agent flow uses Planner -> Builder -> Tester -> Reviewer, task records, compact role feedback, and run checkpoints.
 
-Pass a separate `--data-dir` for test runs or clean the state directory you selected.
+## 8. Cache And Cost
 
-## Related Documents
+DeepSeekCode keeps stable prompt blocks before dynamic context to improve provider prefix-cache reuse. Old history is compressed into:
 
-- [Architecture](./ARCHITECTURE.md)
-- [CLI Reference](./CLI_REFERENCE.md)
-- [Website](https://xh20010913-svg.github.io/DeepSeekCode/)
-- [Website Guide](./website/guide.html)
+- recent conversation
+- rolling summary
+- TencentDB-Agent-Memory recall
+- `tool_result_summary`
+- `runtime_run_state`
+- artifact manifest
+
+Inspect:
+
+```text
+/cache
+/cache guard <goal>
+/cache prepare <goal>
+/usage
+/cost
+```
+
+Prompt audit is a testing feature:
+
+```bash
+set DEEPSEEKCODE_PROMPT_AUDIT_DIR=D:\work\agent-test\prompt-audit
+```
+
+## 9. Real Scenario Testing
+
+Run realistic tests in a separate project directory:
+
+```bash
+npm run start -- --project "D:\work\agent-test" --permission-profile dev
+```
+
+Recommended scenario set:
+
+| Scenario | What to check |
+| --- | --- |
+| Large website | Multi-file HTML/CSS/JS generation, follow-up improvement, browser validation. |
+| Defense PPT | Natural request, structure, visual slides, PPTX validation. |
+| Course PPT | Research-heavy outline, diagrams, slide quality. |
+| OFDR principles PPT | Technical explanation, diagrams, references, layout. |
+| DOCX report | Title hierarchy, tables/lists, document validation. |
+| Failure repair | Tool failure diagnosis, follow-up fix, final verification. |
+| Multi-agent project | Planner/Builder/Tester/Reviewer handoff and checkpoints. |
+| Resume | CLI restart and `--continue`/`--resume` recovery. |
+| Long-term memory | Teach a durable preference, restart, recall it with `/memory search`, then verify a natural follow-up uses it. |
+
+Export a report:
+
+```text
+/runs report latest "D:\work\agent-test"
+```
+
+## 10. Release Checks
+
+```bash
+npm run typecheck
+npm run build
+```
+
+The public release includes runtime source, assets, website, and user manuals. It does not include test output, prompt audit logs, runtime databases, or development handoff notes.
+

@@ -4,14 +4,19 @@ import { discoverPlugins, type PluginSummary } from "../../plugins/registry.js";
 import { loadPlugin, pluginManifestPath, type LoadedPlugin } from "../../plugins/loader.js";
 import {
   normalizePluginName,
+  parsePluginManifestJson,
   renderPluginManifest,
   validatePluginManifest,
   type PluginValidationResult,
 } from "../../plugins/manifest.js";
+import { resolveInstallSource } from "../install/installSource.js";
 
 export interface PluginSourceMetadata {
-  kind: "path";
+  kind: "path" | "git";
   sourcePath: string;
+  sourceUrl?: string;
+  ref?: string;
+  subpath?: string;
   installedAtMs: number;
   updatedAtMs?: number;
 }
@@ -72,19 +77,24 @@ export class PluginService {
   }
 
   installFromPath(input: { sourcePath: string; name?: string; overwrite?: boolean }): LoadedPlugin {
-    const sourcePath = path.isAbsolute(input.sourcePath)
-      ? path.resolve(input.sourcePath)
-      : path.resolve(this.projectPath, input.sourcePath);
+    const resolvedSource = resolveInstallSource({
+      sourcePath: input.sourcePath,
+      projectPath: this.projectPath,
+      dataDir: this.dataDir,
+      cacheNamespace: "plugins",
+    });
+    const sourcePath = resolvedSource.path;
     const sourceManifestPath = pluginManifestPath(sourcePath);
     if (!fs.existsSync(sourceManifestPath)) {
       throw new Error(`plugin manifest not found: ${path.join(sourcePath, ".codex-plugin", "plugin.json")} or ${path.join(sourcePath, ".claude-plugin", "plugin.json")}`);
     }
-    const rawManifest = JSON.parse(fs.readFileSync(sourceManifestPath, "utf8")) as { name?: unknown };
-    const name = normalizePluginName(input.name ?? (typeof rawManifest.name === "string" ? rawManifest.name : ""));
+    const rawManifest = parsePluginManifestJson(fs.readFileSync(sourceManifestPath, "utf8"));
+    const name = normalizePluginName(input.name ?? rawManifest.name);
     if (!name) throw new Error("plugin name is empty");
     const pluginRoot = path.join(this.projectPath, ".deepseekcode", "plugins");
     const targetPath = path.join(pluginRoot, name);
-    if (path.relative(pluginRoot, targetPath).startsWith("..")) {
+    const targetRelative = path.relative(pluginRoot, targetPath);
+    if (targetRelative.startsWith("..") || path.isAbsolute(targetRelative)) {
       throw new Error(`plugin target escapes project plugin root: ${targetPath}`);
     }
     if (fs.existsSync(targetPath)) {
@@ -97,14 +107,13 @@ export class PluginService {
       filter: (source) => shouldCopyPluginPath(source),
     });
     const manifestPath = pluginManifestPath(targetPath);
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
+    const manifest = parsePluginManifestJson(fs.readFileSync(manifestPath, "utf8")) as unknown as Record<string, unknown>;
     if (manifest.name !== name) {
       manifest.name = name;
       fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
     }
     writeSourceMetadata(targetPath, {
-      kind: "path",
-      sourcePath,
+      ...resolvedSource.metadata,
       installedAtMs: Date.now(),
     });
     const plugin = this.load(name);
@@ -136,8 +145,13 @@ export class PluginService {
     const plugin = this.requirePlugin(name);
     const source = readSourceMetadata(plugin.path);
     if (!source) throw new Error(`plugin has no tracked source: ${name}`);
-    if (source.kind !== "path") throw new Error(`unsupported plugin source kind: ${source.kind}`);
-    if (!fs.existsSync(pluginManifestPath(source.sourcePath))) {
+    const resolvedSource = resolveInstallSource({
+      sourcePath: source.sourcePath,
+      projectPath: this.projectPath,
+      dataDir: this.dataDir,
+      cacheNamespace: "plugins",
+    });
+    if (!fs.existsSync(pluginManifestPath(resolvedSource.path))) {
       throw new Error(`plugin source is missing: ${source.sourcePath}`);
     }
     const updated = this.installFromPath({
@@ -221,7 +235,7 @@ export class PluginService {
 
 function shouldCopyPluginPath(sourcePath: string): boolean {
   const parts = sourcePath.split(/[\\/]/);
-  return !parts.some((part) => part === ".git" || part === "node_modules" || part === ".DS_Store");
+  return !parts.some((part) => part === ".git" || part === "node_modules" || part === ".DS_Store" || part === ".env");
 }
 
 function sourceMetadataPath(pluginPath: string): string {
@@ -237,7 +251,7 @@ function readSourceMetadata(pluginPath: string): PluginSourceMetadata | undefine
   if (!fs.existsSync(metadataPath)) return undefined;
   try {
     const parsed = JSON.parse(fs.readFileSync(metadataPath, "utf8")) as PluginSourceMetadata;
-    if (parsed.kind !== "path" || typeof parsed.sourcePath !== "string") return undefined;
+    if (!["path", "git"].includes(parsed.kind) || typeof parsed.sourcePath !== "string") return undefined;
     return parsed;
   } catch {
     return undefined;

@@ -63,11 +63,11 @@ export async function runSkillTask(input: {
     input.state?.appendEvent(input.runId ?? null, "provider_request_diagnostics", buildRequestDiagnostics({
       provider: input.provider.providerName,
       model: input.provider.model,
-      kind: "action_plan",
+      kind: "native_tool_plan",
       systemText: systemPrompt,
       userText: userMessage,
     }));
-    input.state?.appendEvent(input.runId ?? null, "skill_action_plan_started", {
+    input.state?.appendEvent(input.runId ?? null, "skill_native_tool_plan_started", {
       skill: skill.name,
       turn: index,
       max_turns: maxTurns,
@@ -81,7 +81,7 @@ export async function runSkillTask(input: {
       signal: input.signal,
     });
     const planUsage = input.provider.takeLastUsage();
-    const usageSource = `skill_${skill.name}_action_plan_turn_${index}`;
+    const usageSource = `skill_${skill.name}_native_tool_plan_turn_${index}`;
     if (planUsage && input.onUsage) {
       input.onUsage(planUsage, usageSource);
     } else if (planUsage && input.state && input.runId) {
