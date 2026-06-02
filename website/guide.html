@@ -1,54 +1,81 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>DeepSeekCode Guide</title>
-    <meta name="description" content="DeepSeekCode quick guide and command reference." />
+    <title>DeepSeekCode 使用指南</title>
+    <meta name="description" content="DeepSeekCode 中文快速指南、运行命令和能力状态说明。" />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="stylesheet" href="src/styles.css" />
   </head>
   <body>
     <header class="site-header">
-      <a class="brand" href="index.html"><span class="brand-mark">DS</span><span>DeepSeekCode</span></a>
+      <a class="brand" href="index.html"><span class="brand-mark">DS</span><span>DeepSeekCode</span><small>v0.2.1</small></a>
       <nav>
-        <a href="index.html#quickstart">Quickstart</a>
-        <a href="index.html#capabilities">Capabilities</a>
+        <a href="index.html#quickstart">快速开始</a>
+        <a href="index.html#capabilities">能力矩阵</a>
+        <a href="index.html#screenshots">运行截图</a>
         <a href="https://github.com/xh20010913-svg/DeepSeekCode">GitHub</a>
       </nav>
     </header>
     <main>
       <section class="section doc">
         <p class="eyebrow">Guide</p>
-        <h1>DeepSeekCode v0.2 Guide</h1>
-        <p>Start in a separate project directory, use native tool-calling models, and inspect `/doctor` before long tasks.</p>
-        <pre><code>npm run build
+        <h1>DeepSeekCode 使用指南</h1>
+        <p>
+          DeepSeekCode 应该在独立项目目录中运行。源码仓库只用于构建和发布，真实任务、测试产物、prompt audit、运行数据库和 `.env`
+          都应放在你的工作目录或测试目录里。
+        </p>
+        <pre><code>npm install
+npm run build
 npm run start -- --project "D:\work\agent-test"
 /doctor
 /tools
 /memory status
 /model flash</code></pre>
-        <h2>Recommended workflow</h2>
+
+        <h2>推荐启动流程</h2>
         <ol>
-          <li>Run `/doctor` to confirm provider, model, native tools, skills/plugins, cache, and permissions.</li>
-          <li>Use `/permissions` or `--permission-profile dev` when shell validation is required.</li>
-          <li>Run realistic tasks in a test project, not inside the source tree.</li>
-          <li>Use `/memory status`, `/memory search`, and `/memory conversation` when validating long-term memory.</li>
-          <li>Export `/runs report latest "D:\work\agent-test"` after each scenario.</li>
-          <li>Use `/usage`, `/cost`, and `/cache` to inspect token, cache, and long-context behavior.</li>
+          <li>先运行 `/doctor`，确认 provider、native tool calling、skills/plugins、缓存、权限和运行目录。</li>
+          <li>需要 shell 验证时再使用 `--permission-profile dev` 或在 TUI 中授权。</li>
+          <li>真实任务只在独立项目目录跑，不在源码仓库里生成测试产物。</li>
+          <li>验证长期记忆时使用 `/memory status`、`/memory search` 和 `/memory conversation`。</li>
+          <li>每个场景结束后用 `/runs report latest "D:\work\agent-test"` 导出 Markdown/JSON 报告。</li>
+          <li>用 `/usage`、`/cost`、`/cache` 检查 token、费用估算和缓存命中情况。</li>
         </ol>
-        <h2>Long-term memory</h2>
+
+        <h2>常用命令</h2>
+        <pre><code>/doctor
+/tools
+/model
+/model flash
+/model pro
+/language zh
+/skills
+/plugins
+/memory search 中文默认
+/runs report latest "D:\work\agent-test"</code></pre>
+
+        <h2>长期记忆</h2>
         <p>
-          DeepSeekCode vendors TencentDB-Agent-Memory as a local MIT runtime. It recalls durable preferences before model calls,
-          captures successful turns afterward, and stores data under the selected runtime data directory.
+          DeepSeekCode 内置 TencentDB-Agent-Memory 的 MIT runtime。它会在模型调用前召回相关长期记忆，并在成功回合后捕获对话、提取结构化记忆。
+          默认存储是本地 SQLite；embedding 和腾讯云 VectorDB 需要显式配置。
         </p>
         <pre><code>/memory status
 /memory search 中文默认
 /memory conversation 继续完善</code></pre>
-        <h2>More manuals</h2>
+
+        <h2>能力状态</h2>
+        <p>
+          README 和官网统一使用“已验证、需权限、部分可用、实验中、保留”五类状态。`computer_use` 仍是保留能力，PDF
+          仍是实验能力，长任务后台 worker pool、Browser CDP/GUI 自动化和 Office/PPT 质量增强还在继续完善。
+        </p>
+
+        <h2>更多说明</h2>
         <p>
           <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/README.zh-CN.md">中文 README</a>
-          · <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/GUIDE.md">Guide</a>
+          · <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/README.md">English README</a>
+          · <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/GUIDE.md">完整 Guide</a>
           · <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/ARCHITECTURE.md">Architecture</a>
           · <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/CLI_REFERENCE.md">CLI Reference</a>
         </p>
@@ -56,4 +83,3 @@ npm run start -- --project "D:\work\agent-test"
     </main>
   </body>
 </html>
-

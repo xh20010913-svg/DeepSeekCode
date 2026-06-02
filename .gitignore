@@ -2,7 +2,8 @@ dist/
 node_modules/
 target/
 docs/
-scripts/
+scripts/*
+!scripts/copy-vendor.mjs
 src/**/*.test.ts
 src/**/*.test.tsx
 src/**/*.test.js

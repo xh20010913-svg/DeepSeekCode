@@ -19,15 +19,15 @@
 <p align="center">
   <a href="https://github.com/xh20010913-svg/DeepSeekCode"><img src="https://img.shields.io/github/stars/xh20010913-svg/DeepSeekCode.svg?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="GitHub stars"/></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/xh20010913-svg/DeepSeekCode.svg?style=flat-square&color=8b949e&labelColor=161b22" alt="license"/></a>
-  <a href="./package.json"><img src="https://img.shields.io/badge/version-v0.2.0-38bdf8.svg?style=flat-square&labelColor=161b22" alt="v0.2.0"/></a>
+  <a href="./package.json"><img src="https://img.shields.io/badge/version-v0.2.1-38bdf8.svg?style=flat-square&labelColor=161b22" alt="v0.2.1"/></a>
   <a href="./package.json"><img src="https://img.shields.io/badge/node-%3E%3D22-5fa04e.svg?style=flat-square&labelColor=161b22&logo=nodedotjs&logoColor=white" alt="Node >= 22"/></a>
 </p>
 
 # DeepSeekCode
 
-DeepSeekCode is a DeepSeek-first local coding agent runtime. It runs in the terminal, calls local tools through native DeepSeek function calling, stores durable run state in SQLite, and keeps long tasks recoverable across CLI restarts.
+DeepSeekCode is a DeepSeek-first local terminal agent runtime for project work, office artifacts, long-running tasks, and recoverable testing. It calls typed local tools through native DeepSeek function calling, persists run/task/action/artifact/usage state in SQLite, and can continue work after CLI restarts.
 
-The v0.2 line moves the backend to a ClaudeCode-style loop:
+v0.2.1 documents the current wired capability surface rather than treating partial work as finished. The main loop is:
 
 ```text
 stable runtime prompt + context
@@ -42,6 +42,22 @@ There is no model-facing ActionEnvelope JSON planner or JSON fallback. Internal 
 <p align="center">
   <img src="assets/readme-runtime-terminal.png" alt="DeepSeekCode running in Windows Terminal" width="880"/>
 </p>
+
+## Runtime Screenshots
+
+These assets are captured from real terminal windows running against `D:\code\DeepSeekTest`. The repository stores only the screenshots under `assets/`, not secrets, prompt audit files, or raw test artifacts.
+
+| Chinese TUI overview | `/doctor` |
+| --- | --- |
+| ![Chinese TUI overview](assets/screenshots/tui-main.png) | ![/doctor](assets/screenshots/doctor.png) |
+
+| `/tools` | `/memory search 中文默认` |
+| --- | --- |
+| ![/tools](assets/screenshots/tools.png) | ![/memory search 中文默认](assets/screenshots/memory-search.png) |
+
+| `/runs report` | Office/Web artifact summary |
+| --- | --- |
+| ![/runs report](assets/screenshots/runs-report.png) | ![Office/Web artifact summary](assets/screenshots/artifacts.png) |
 
 ## Quickstart
 
@@ -105,7 +121,7 @@ The TUI model picker is available from `/model`. The footer shows the active mod
 | Command | Purpose |
 | --- | --- |
 | `/doctor` | Check provider readiness, native tool calling, paths, skills/plugins, cache, and permissions. |
-| `/tools` | List the real local tool registry with supported/partial/experimental/reserved status. |
+| `/tools` | List the real local tool registry with verified, permission-required, partial, experimental, or reserved status. |
 | `/skills` | List, search, install, update, validate, uninstall, and run skills. |
 | `/plugins` | List, install, update, validate, enable/disable, and uninstall plugins. |
 | `/model` | Open the model picker or switch with `/model flash` and `/model pro`. |
@@ -127,20 +143,20 @@ See [CLI Reference](./CLI_REFERENCE.md) for the full command surface.
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Native DeepSeek tool calls | supported | Required for local work. Unsupported models or gateways fail explicitly. |
-| TencentDB-Agent-Memory | supported | Vendored MIT runtime from TencentDB-Agent-Memory 0.3.6. Provides L0 conversation capture, L1 structured memories, L2 scenes, L3 persona, recall injection, and `tdai_memory_search`/`tdai_conversation_search`. Local SQLite is default; TCVDB and embeddings require explicit configuration. |
-| File tools | supported | `read_file`, `write_file`, `apply_patch`, `list_files`, `grep_files`; scoped to `--project`. |
-| Shell tools | supported with permission | Disabled unless the session allows shell. Dangerous Windows commands go through gates. |
-| Browser CDP tools | partial | Browser actions are integrated and permission-gated; real UI validation is supported when the bridge is available. |
+| Native DeepSeek tool calls | verified | Required for local work. Unsupported models or gateways fail explicitly. |
+| TencentDB-Agent-Memory | verified | Vendored MIT runtime from TencentDB-Agent-Memory. Provides L0 conversation capture, L1 structured memories, L2 scenes, L3 persona, recall injection, and `tdai_memory_search`/`tdai_conversation_search`. Local SQLite is default; TCVDB and embeddings require explicit configuration. |
+| File tools | verified | `read_file`, `write_file`, `apply_patch`, `list_files`, `grep_files`; scoped to `--project`. |
+| Shell tools | permission-required | Disabled unless the session allows shell. Dangerous Windows commands go through gates. |
+| Browser CDP tools | partial | Browser actions are integrated and permission-gated; real UI acceptance still needs more work. |
 | MCP tools | partial | Exposed through `mcp_call`; native per-tool schema expansion is planned. |
-| Hooks | supported | PreToolUse and PostToolUse run around local tools; hook errors are recorded without taking over the main task. |
-| Skills | supported | Built-in/project/user/plugin skills are discoverable and invokable. `.claude` skills are compatible; installs target `.deepseekcode`. |
-| Plugins | supported | Local path, GitHub URL, Git URL, and `file://` Git installs; command, skill, and hook discovery. |
-| DOCX/PPTX | supported | Low-level `create_docx`/`create_pptx` plus documents/presentations skills for structure and layout. |
+| Hooks | verified | PreToolUse and PostToolUse run around local tools; hook errors are recorded without taking over the main task. |
+| Skills | verified | Built-in/project/user/plugin skills are discoverable and invokable. `.claude` skills are compatible; installs target `.deepseekcode`. |
+| Plugins | verified | Local path, GitHub URL, Git URL, and `file://` Git installs; command, skill, and hook discovery. |
+| DOCX/PPTX | partial | Low-level `create_docx`/`create_pptx` are wired; stronger Office/PPT templates, charts, images, and render checks are still being improved. |
 | PDF | experimental | `create_pdf` is reserved/experimental and is not documented as full PDF authoring. |
 | Long-running jobs | partial | Runs, tasks, checkpoints, pause/resume/cancel, and multi-agent state are durable; a full background worker pool is still evolving. |
 | `computer_use` | reserved | The tool surface is reserved until a real GUI bridge is wired. |
-| Prompt audit | supported in debug | Off by default; set `DEEPSEEKCODE_PROMPT_AUDIT_DIR` to record provider request bodies. |
+| Prompt audit | debug mode | Off by default; set `DEEPSEEKCODE_PROMPT_AUDIT_DIR` to record provider request bodies. |
 
 ## Skills And Plugins
 
@@ -235,6 +251,17 @@ Export a report:
 
 Reports include model, token usage, cache hit/miss, tool counts, artifacts, failures, and recommendations.
 
+## Still In Progress
+
+v0.2.1 is a CI and public documentation quality hotfix. It does not claim the entire 24-item backend plan is finished. Work that remains active:
+
+- Full realistic scenario evaluation and self-repair coverage.
+- Background worker pool details for long tasks, queue recovery, cancel, retry, and resume.
+- Office/PPT quality: templates, charts, images, and render validation.
+- TUI keyboard/mouse acceptance: transcript scroll, history input, pickers, and permission dialogs.
+- Browser CDP and GUI automation boundaries.
+- Model selection, token, cost, and cache telemetry polish in the UI.
+
 ## Architecture
 
 Read [Architecture](./ARCHITECTURE.md) for the native tool loop, provider behavior, context/cache model, long-running state, multi-agent flow, MCP/hooks, and release boundaries.
@@ -246,7 +273,7 @@ npm run typecheck
 npm run build
 ```
 
-The repository also includes GitHub Actions CI for typecheck and build, plus GitHub Pages deployment for `website/`.
+The repository also includes GitHub Actions CI for typecheck and build, plus GitHub Pages deployment for `website/`. v0.2.1 fixes the remote CI failure caused by the missing `scripts/copy-vendor.mjs` build script.
 
 ## Release Boundary
 

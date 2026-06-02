@@ -1,18 +1,18 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>DeepSeekCode v0.2</title>
+    <title>DeepSeekCode v0.2.1</title>
     <meta
       name="description"
-      content="DeepSeekCode is a DeepSeek-first terminal agent runtime with native tool calling, durable state, skills/plugins, cache telemetry, and realistic scenario testing."
+      content="DeepSeekCode 是 DeepSeek 优先的本地终端 Agent 运行时，提供 native tool calling、本地工具、持久状态、长期记忆、skills/plugins 和真实场景测试报告。"
     />
     <meta name="theme-color" content="#101313" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="DeepSeekCode v0.2" />
-    <meta property="og:description" content="DeepSeek native tool calling and durable local agent runtime." />
-    <meta property="og:image" content="https://raw.githubusercontent.com/xh20010913-svg/DeepSeekCode/main/assets/deepseekcode-tui-preview.svg" />
+    <meta property="og:title" content="DeepSeekCode v0.2.1" />
+    <meta property="og:description" content="DeepSeek-first local terminal agent runtime." />
+    <meta property="og:image" content="https://raw.githubusercontent.com/xh20010913-svg/DeepSeekCode/main/assets/readme-runtime-terminal.png" />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="stylesheet" href="src/styles.css" />
   </head>
@@ -21,7 +21,7 @@
       <a class="brand" href="#top">
         <span class="brand-mark">DS</span>
         <span>DeepSeekCode</span>
-        <small>v0.2.0</small>
+        <small>v0.2.1</small>
       </a>
       <nav aria-label="Primary">
         <a href="#quickstart" data-i18n="navQuickstart">快速开始</a>
@@ -41,33 +41,33 @@
     <main id="top">
       <section class="hero">
         <div class="hero-copy">
-          <p class="eyebrow" data-i18n="heroEyebrow">DeepSeek-first local agent runtime</p>
+          <p class="eyebrow" data-i18n="heroEyebrow">DeepSeek 优先的本地 Agent 运行时</p>
           <h1 data-i18n="heroTitle">DeepSeekCode</h1>
           <p class="lede" data-i18n="heroLede">
-            一个运行在终端里的本地 Agent：native tool calling、本地 typed tools、SQLite 持久状态、TencentDB-Agent-Memory 长期记忆、skills/plugins、缓存费用 telemetry、真实用户场景测试。
+            面向本地项目开发、办公文档生成和长任务协作的终端 Agent。v0.2.1 公开说明以真实接入能力为准：native tool calling、本地 typed tools、SQLite 持久状态、TencentDB-Agent-Memory 长期记忆、skills/plugins、权限 gate、缓存与费用遥测。
           </p>
           <div class="hero-actions">
-            <a class="button primary" href="#quickstart" data-i18n="heroPrimary">开始使用</a>
-            <a class="button ghost" href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/README.zh-CN.md" data-i18n="heroSecondary">阅读说明书</a>
+            <a class="button primary" href="#quickstart" data-i18n="heroPrimary">快速开始</a>
+            <a class="button ghost" href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/README.zh-CN.md" data-i18n="heroSecondary">阅读中文说明书</a>
           </div>
           <div class="status-line">
-            <span data-i18n="statusNative">native tool calls required</span>
-            <span data-i18n="statusJson">no JSON planner fallback</span>
-            <span data-i18n="statusMemory">TencentDB-Agent-Memory 内置</span>
+            <span data-i18n="statusNative">要求 native tool calls</span>
+            <span data-i18n="statusJson">无 JSON planner fallback</span>
+            <span data-i18n="statusMemory">内置 TencentDB-Agent-Memory</span>
             <span data-i18n="statusChinese">中文默认</span>
           </div>
         </div>
         <figure class="hero-media">
           <img src="https://raw.githubusercontent.com/xh20010913-svg/DeepSeekCode/main/assets/readme-runtime-terminal.png" alt="DeepSeekCode terminal screenshot" />
-          <figcaption data-i18n="heroCaption">DeepSeekCode running in Windows Terminal</figcaption>
+          <figcaption data-i18n="heroCaption">DeepSeekCode 在 Windows Terminal 中运行</figcaption>
         </figure>
       </section>
 
       <section id="quickstart" class="section split">
         <div>
           <p class="eyebrow">Quickstart</p>
-          <h2 data-i18n="quickTitle">在独立项目目录启动。</h2>
-          <p data-i18n="quickText">先构建源码，再把 Agent 指向你要测试或开发的项目目录。</p>
+          <h2 data-i18n="quickTitle">在独立项目目录中运行。</h2>
+          <p data-i18n="quickText">源码仓库只用于构建和发布；真实任务、测试产物和运行数据应放在单独的项目目录。</p>
         </div>
         <div class="codebox">
           <button type="button" data-copy="#quick-code" data-i18n="copy">复制</button>
@@ -81,7 +81,7 @@ npm run start -- --project "D:\work\agent-test"</code></pre>
 
       <section class="section">
         <p class="eyebrow">Runtime Loop</p>
-        <h2 data-i18n="loopTitle">v0.2 使用 native tools 驱动本地工作。</h2>
+        <h2 data-i18n="loopTitle">主链路使用 native tools 驱动本地执行。</h2>
         <div class="flow">
           <div><b>1</b><span>messages + tools schema</span></div>
           <div><b>2</b><span>TDAI memory recall</span></div>
@@ -93,21 +93,54 @@ npm run start -- --project "D:\work\agent-test"</code></pre>
 
       <section id="capabilities" class="section">
         <p class="eyebrow">Capability Matrix</p>
-        <h2 data-i18n="capTitle">只展示真实接入的能力。</h2>
+        <h2 data-i18n="capTitle">能力矩阵只描述已经接入或明确保留的功能。</h2>
         <div class="matrix">
-          <article><strong>supported</strong><span>native tool calls, file tools, hooks, skills/plugins, DOCX/PPTX, TencentDB-Agent-Memory</span></article>
-          <article><strong>permission</strong><span>shell, SSH, browser actions</span></article>
-          <article><strong>partial</strong><span>MCP via mcp_call, browser CDP, long-running worker</span></article>
-          <article><strong>experimental</strong><span>PDF generation</span></article>
-          <article><strong>reserved</strong><span>computer_use without GUI bridge</span></article>
+          <article><strong>已验证</strong><span>native tool calls, file tools, hooks, skills/plugins, DOCX/PPTX, TencentDB-Agent-Memory</span></article>
+          <article><strong>需权限</strong><span>shell, SSH, browser actions</span></article>
+          <article><strong>部分可用</strong><span>MCP via mcp_call, Browser CDP, long-running worker</span></article>
+          <article><strong>实验中</strong><span>PDF generation, cost estimates where provider usage is incomplete</span></article>
+          <article><strong>保留</strong><span>computer_use without a real GUI bridge</span></article>
+        </div>
+      </section>
+
+      <section id="screenshots" class="section">
+        <p class="eyebrow">Runtime Screenshots</p>
+        <h2>核心运行界面和真实命令输出。</h2>
+        <div class="screenshot-grid">
+          <figure>
+            <img src="https://raw.githubusercontent.com/xh20010913-svg/DeepSeekCode/main/assets/screenshots/tui-main.png" alt="DeepSeekCode TUI Chinese overview" />
+            <figcaption>TUI 中文主界面</figcaption>
+          </figure>
+          <figure>
+            <img src="https://raw.githubusercontent.com/xh20010913-svg/DeepSeekCode/main/assets/screenshots/doctor.png" alt="DeepSeekCode doctor output" />
+            <figcaption><code>/doctor</code> 环境检查</figcaption>
+          </figure>
+          <figure>
+            <img src="https://raw.githubusercontent.com/xh20010913-svg/DeepSeekCode/main/assets/screenshots/tools.png" alt="DeepSeekCode tools output" />
+            <figcaption><code>/tools</code> 已接入工具</figcaption>
+          </figure>
+          <figure>
+            <img src="https://raw.githubusercontent.com/xh20010913-svg/DeepSeekCode/main/assets/screenshots/memory-search.png" alt="DeepSeekCode memory search output" />
+            <figcaption><code>/memory search 中文默认</code></figcaption>
+          </figure>
+          <figure>
+            <img src="https://raw.githubusercontent.com/xh20010913-svg/DeepSeekCode/main/assets/screenshots/runs-report.png" alt="DeepSeekCode runs report output" />
+            <figcaption><code>/runs report</code> 场景报告</figcaption>
+          </figure>
+          <figure>
+            <img src="https://raw.githubusercontent.com/xh20010913-svg/DeepSeekCode/main/assets/screenshots/artifacts.png" alt="DeepSeekCode generated artifacts output" />
+            <figcaption>Office/Web 产物记录</figcaption>
+          </figure>
         </div>
       </section>
 
       <section id="memory" class="section split">
         <div>
           <p class="eyebrow">Long-Term Memory</p>
-          <h2 data-i18n="memoryTitle">长期记忆接入真实运行链路。</h2>
-          <p data-i18n="memoryText">DeepSeekCode 内置 TencentDB-Agent-Memory 的 MIT runtime。每轮调用前召回相关偏好、决策和项目事实，成功回合结束后捕获对话并提取结构化记忆。默认本地 SQLite；embedding 和 Tencent Cloud VectorDB 需要显式配置。</p>
+          <h2 data-i18n="memoryTitle">长期记忆进入实际运行链路。</h2>
+          <p data-i18n="memoryText">
+            DeepSeekCode 内置 TencentDB-Agent-Memory 的 MIT runtime。模型调用前召回相关偏好、项目事实和历史决策；成功回合结束后捕获对话并提取结构化记忆。默认使用本地 SQLite，embedding 和 Tencent Cloud VectorDB 需要显式配置。
+          </p>
         </div>
         <div class="codebox">
           <button type="button" data-copy="#memory-code" data-i18n="copy">复制</button>
@@ -122,8 +155,8 @@ set DEEPSEEKCODE_TDAI_MEMORY=off</code></pre>
       <section id="extensions" class="section split">
         <div>
           <p class="eyebrow">Skills / Plugins</p>
-          <h2 data-i18n="extTitle">扩展体系写入 .deepseekcode。</h2>
-          <p data-i18n="extText">支持本地路径、GitHub URL、Git URL、file:// Git 源；兼容读取 .claude skill/plugin，但安装目标是 DeepSeekCode 自己的目录。</p>
+          <h2 data-i18n="extTitle">Skills 和 plugins 写入 .deepseekcode。</h2>
+          <p data-i18n="extText">支持本地路径、GitHub URL、Git URL 和 file:// Git 源。可以兼容读取 .claude skill/plugin，但安装目标是 DeepSeekCode 自己的运行目录。</p>
         </div>
         <div class="codebox">
           <button type="button" data-copy="#ext-code" data-i18n="copy">复制</button>
@@ -136,12 +169,12 @@ set DEEPSEEKCODE_TDAI_MEMORY=off</code></pre>
 
       <section id="testing" class="section">
         <p class="eyebrow">Real Scenario Tests</p>
-        <h2 data-i18n="testTitle">测试要像真实用户一样发任务。</h2>
+        <h2 data-i18n="testTitle">真实测试要按用户自然任务执行。</h2>
         <div class="checks">
           <span data-i18n="testWeb">大型网站，多轮继续完善，browser 验证</span>
           <span data-i18n="testPpt">答辩 PPT、课程 PPT、OFDR 原理 PPT</span>
           <span data-i18n="testDocx">DOCX 项目报告</span>
-          <span data-i18n="testRepair">失败后自修复</span>
+          <span data-i18n="testRepair">失败后诊断与自修复</span>
           <span data-i18n="testAgent">Planner/Builder/Tester/Reviewer 多 Agent</span>
           <span data-i18n="testResume">CLI 重启后 --continue / --resume</span>
         </div>
@@ -150,7 +183,7 @@ set DEEPSEEKCODE_TDAI_MEMORY=off</code></pre>
       <section class="section split">
         <div>
           <p class="eyebrow">Reports</p>
-          <h2 data-i18n="reportTitle">每个真实场景可导出报告。</h2>
+          <h2 data-i18n="reportTitle">场景报告用于判断能力和成本。</h2>
           <p data-i18n="reportText">报告包含模型、token、cache hit/miss、工具次数、产物、失败点和修复建议。</p>
         </div>
         <div class="codebox">
@@ -159,10 +192,24 @@ set DEEPSEEKCODE_TDAI_MEMORY=off</code></pre>
 /runs report latest "D:\work\agent-test"</code></pre>
         </div>
       </section>
+
+      <section class="section">
+        <p class="eyebrow">Roadmap</p>
+        <h2>下一步仍在完善。</h2>
+        <div class="checks">
+          <span>全量真实场景评测</span>
+          <span>长任务后台 worker pool</span>
+          <span>Office/PPT 质量增强</span>
+          <span>TUI 键鼠真实交互验收</span>
+          <span>Browser CDP / GUI 自动化</span>
+          <span>模型切换和费用 UI 打磨</span>
+        </div>
+      </section>
     </main>
 
     <footer>
-      <span>DeepSeekCode v0.2.0</span>
+      <span>DeepSeekCode v0.2.1</span>
+      <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/README.zh-CN.md">中文 README</a>
       <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/README.md">README</a>
       <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/ARCHITECTURE.md">Architecture</a>
       <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/CLI_REFERENCE.md">CLI</a>
@@ -171,4 +218,3 @@ set DEEPSEEKCODE_TDAI_MEMORY=off</code></pre>
     <script src="src/site.js"></script>
   </body>
 </html>
-
