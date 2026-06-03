@@ -1,35 +1,35 @@
 const copy = {
   zh: {
     navInstall: "安装",
-    navCache: "缓存",
+    navCache: "上下文",
     navFeatures: "能力",
     navStart: "开始使用",
-    heroTitle: "围绕 <em>DeepSeek</em> 缓存稳定性构建的 Code Agent。",
+    heroTitle: "围绕 <em>DeepSeek</em> 本地工具链路构建的 Code Agent。",
     heroLede:
-      "DeepSeekCode 不是聊天壳。它把稳定 prompt 前缀、DeepSeek native tool calls、会话恢复、工具结果压缩、权限 gate 和 Windows 终端体验放进同一个 TypeScript runtime。",
-    heroPrimary: "立即开始",
+      "DeepSeekCode 不是聊天壳。它把 DeepSeek native tool calls、稳定 prompt 前缀、会话恢复、工具结果压缩、权限 gate、长期记忆和 Windows 终端体验放进同一个 TypeScript runtime。",
+    heroPrimary: "开始使用",
     heroSecondary: "查看 Guide",
-    metricCache: "live cache check",
-    metricTests: "release checks",
-    metricGates: "open gates",
-    installTitle: "三步启动本地 Agent。",
+    metricCache: "缓存检查",
+    metricTests: "发布检查",
+    metricGates: "待处理 gate",
+    installTitle: "安装后在任意项目目录启动。",
     installText:
-      "先在独立测试目录里使用 deepseek-v4-flash 验证工具执行、会话恢复、缓存命中和产物生成。",
+      "通过 npm 全局安装后，进入项目目录输入 deepseekcode 即可启动。默认项目是当前目录，运行数据写入当前项目的 .deepseekcode；启动时会询问是否开启本会话 shell 权限。",
     copy: "复制",
-    cacheTitle: "不要靠全量历史硬撑长任务。",
+    cacheTitle: "长任务不应该反复回放全部历史。",
     cacheText:
-      "DeepSeekCode 会把旧历史压成 conversation summary、tool_result_summary 和 runtime_run_state，并把稳定前缀保持在 prompt 前段。",
-    featuresTitle: "这次发布重点修正本地工具链路和 TUI 交互。",
+      "DeepSeekCode 将旧对话压缩为 conversation summary、tool_result_summary 和 runtime_run_state，并把稳定前缀保持在 prompt 前段以提高缓存复用。",
+    featuresTitle: "当前版本聚焦本地工具链路和 TUI 交互。",
     featureAction:
-      "模型通过 DeepSeek native tool calls 发起本地工具，本地 runtime 负责权限、校验、执行、tool result 回放和失败反馈。",
+      "模型通过 DeepSeek native tool calls 请求本地工具，runtime 负责权限、校验、执行、tool result 回放和失败反馈。",
     featureTui:
-      "TUI 默认中文，支持模型选择、输入历史、滚动 transcript、权限选择框和 shell/plan/question gate。",
+      "TUI 默认中文，支持模型选择、输入历史、滚动 transcript、启动 shell 权限询问，以及 shell/plan/question gate。",
     featureAgents:
-      "Planner、Builder、Tester、Reviewer 的角色反馈使用 compact tool summary，并写入 agent progress checkpoint。",
+      "Planner、Builder、Tester、Reviewer 使用 compact tool summary，并写入 agent progress checkpoint。",
     featureApproval:
-      "文件、shell、browser、MCP、plan 都可以进入审批或验证门，状态写入 SQLite。",
+      "文件、shell、browser、MCP、plan 都可以进入审批或验证闸，状态写入 SQLite。",
     featureMcp:
-      "保留 skills、plugins、MCP、Office 产物和 browser action 的扩展边界。",
+      "Skills、plugins、MCP、Office 产物和 browser action 保持明确扩展边界。",
     featureTelemetry:
       "记录 provider cache hit/miss、prompt shape、run progress 和真实测试审计结果。",
     archTitle: "DeepSeekCode 的后端工作流。",
@@ -47,35 +47,35 @@ const copy = {
     faqTwoQ: "怎么降低历史对话的 token 消耗？",
     faqTwoA:
       "不全量塞历史。稳定规则和工具 schema 放前面吃缓存；最近几轮保留；旧对话压成结构化摘要；工具输出只保留失败原因、路径、产物和关键结果。",
-    faqThreeQ: "怎么验证不是只跑了基础检查？",
+    faqThreeQ: "怎么验证不是只跑基础检查？",
     faqThreeA:
-      "公开版本只写已接通能力；真实任务、prompt audit、产物验证和失败点会继续放在独立测试目录中，不作为完成度宣传。",
+      "公开版本只写已接通能力；真实任务、prompt audit、产物验证和失败点继续放在独立测试目录，不作为完成度宣传。",
   },
   en: {
     navInstall: "Install",
     navCache: "Context",
     navFeatures: "Features",
     navStart: "Start",
-    heroTitle: "A Code Agent built around <em>DeepSeek</em> cache stability.",
+    heroTitle: "A Code Agent built around <em>DeepSeek</em> local tool execution.",
     heroLede:
-      "DeepSeekCode is not a chat wrapper. It combines stable prompt prefixes, DeepSeek native tool calls, session restore, compact tool feedback, permission gates, and a Windows terminal runtime in TypeScript.",
+      "DeepSeekCode is not a chat wrapper. It combines DeepSeek native tool calls, stable prompt prefixes, session restore, compact tool feedback, permission gates, long-term memory, and a Windows terminal runtime in TypeScript.",
     heroPrimary: "Start now",
     heroSecondary: "Read Guide",
-    metricCache: "live cache check",
+    metricCache: "cache checks",
     metricTests: "release checks",
     metricGates: "open gates",
-    installTitle: "Start the local agent in three steps.",
+    installTitle: "Install once, then start in any project directory.",
     installText:
-      "Use deepseek-v4-flash against a separate test project before trusting tool execution, session restore, cache behavior, and generated artifacts.",
+      "After global npm install, run deepseekcode inside a project. The current directory becomes the project, runtime data goes to .deepseekcode, and the TUI asks whether to enable shell for the session.",
     copy: "Copy",
     cacheTitle: "Long tasks should not replay raw history forever.",
     cacheText:
       "DeepSeekCode compacts old history into conversation summaries, tool_result_summary records, and runtime_run_state while keeping stable prefix blocks early.",
-    featuresTitle: "This release fixes the local tool loop and TUI interaction.",
+    featuresTitle: "This release focuses on the local tool loop and TUI interaction.",
     featureAction:
       "The model requests local tools through DeepSeek native tool calls; the runtime handles permissions, validation, execution, tool-result replay, and failure feedback.",
     featureTui:
-      "The TUI defaults to Chinese and supports model selection, input history, transcript scrolling, and shell/plan/question approval gates.",
+      "The TUI defaults to Chinese and supports model selection, input history, transcript scrolling, startup shell permission prompts, and shell/plan/question gates.",
     featureAgents:
       "Planner, Builder, Tester, and Reviewer pass compact tool summaries and write agent progress checkpoints.",
     featureApproval:

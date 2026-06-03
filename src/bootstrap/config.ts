@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import dotenv from "dotenv";
 import type { ProviderConfig } from "../protocol/provider.js";
@@ -53,7 +52,7 @@ export function bootstrapConfig(options: BootstrapOptions): RuntimeConfig {
   const dataDir = path.resolve(
     options.dataDir ??
       process.env.DEEPSEEKCODE_HOME ??
-      path.join(os.homedir(), ".deepseekcode"),
+      path.join(projectPath, ".deepseekcode"),
   );
   const stateDir = path.join(dataDir, "state");
   fs.mkdirSync(stateDir, { recursive: true });

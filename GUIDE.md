@@ -5,6 +5,18 @@ This guide explains how to run DeepSeekCode v0.2 as a local agent workbench.
 ## 1. Install
 
 ```bash
+npm install -g deepseekcode
+cd D:\work\agent-test
+deepseekcode
+```
+
+`deepseekcode` is the primary installed command. `deepseek` is kept as a shorter alias. When no `--project` is passed, the current directory is the project. When no `--data-dir` is passed, runtime data is written to `<project>\.deepseekcode`.
+
+On Windows PowerShell, if the execution policy blocks npm's generated `deepseekcode.ps1` shim, run `deepseekcode.cmd`. In cmd, keep using `deepseekcode`.
+
+Source checkout for development:
+
+```bash
 git clone https://github.com/xh20010913-svg/DeepSeekCode.git
 cd DeepSeekCode
 npm install
@@ -40,6 +52,7 @@ Useful optional settings:
 | --- | --- |
 | `DEEPSEEK_TIMEOUT_SECS` | Provider request timeout. |
 | `DEEPSEEKCODE_HOME` | Runtime data directory. |
+| `DEEPSEEKCODE_STARTUP_SHELL_PROMPT` | Set `0` to skip the startup shell permission prompt. |
 | `DEEPSEEKCODE_PROVIDER_CONFIG` | Provider profile JSON path. |
 | `DEEPSEEKCODE_PERMISSION_PROFILE` | `safe`, `dev`, `browser`, or `open`. |
 | `DEEPSEEKCODE_PROMPT_AUDIT_DIR` | Enable debug prompt audit output. |
@@ -66,12 +79,14 @@ Useful optional settings:
 Examples:
 
 ```bash
-npm run start -- --project . --permission-profile dev
-npm run start -- --project . --allow-shell
-npm run start -- --project . --allow-browser
+deepseekcode --permission-profile dev
+deepseekcode --allow-shell
+deepseekcode --allow-browser
 ```
 
 Inside the TUI, use `/permissions`, `/shell on|off`, and `/browser on|off`.
+
+When the TUI starts with shell disabled, it asks whether to enable shell for the current session. Use Up/Down to choose, Enter to confirm, and Esc/N to keep it off. This does not rely on task keywords; actual `run_command` tool calls still pass through the runtime permission gate.
 
 ## 4. Native Tool Workflow
 
@@ -150,8 +165,8 @@ Compatibility rules:
 For long-running work, use sessions, runs, checkpoints, and reports:
 
 ```bash
-npm run start -- --project "D:\work\agent-test" --continue -p "Continue the last task"
-npm run start -- --project "D:\work\agent-test" --resume session_xxx -p "Continue the paused work"
+deepseekcode --project "D:\work\agent-test" --continue -p "Continue the last task"
+deepseekcode --project "D:\work\agent-test" --resume session_xxx -p "Continue the paused work"
 ```
 
 Useful commands:
@@ -206,7 +221,7 @@ set DEEPSEEKCODE_PROMPT_AUDIT_DIR=D:\work\agent-test\prompt-audit
 Run realistic tests in a separate project directory:
 
 ```bash
-npm run start -- --project "D:\work\agent-test" --permission-profile dev
+deepseekcode --project "D:\work\agent-test" --permission-profile dev
 ```
 
 Recommended scenario set:

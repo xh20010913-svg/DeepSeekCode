@@ -4,13 +4,18 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>DeepSeekCode 使用指南</title>
-    <meta name="description" content="DeepSeekCode 安装、配置、工具权限、Skills/Plugins、上下文缓存、长任务与发布说明。" />
+    <meta
+      name="description"
+      content="DeepSeekCode 安装、配置、权限、工具、skills/plugins、上下文缓存、真实测试和发布说明。"
+    />
     <meta name="theme-color" content="#050605" />
+    <meta name="color-scheme" content="dark" />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="stylesheet" href="src/styles.css" />
   </head>
   <body>
     <div class="ambient ambient-a"></div>
+    <div class="ambient ambient-b"></div>
     <div class="grain"></div>
     <header class="site-header">
       <a class="brand" href="index.html">
@@ -22,9 +27,9 @@
       <nav class="nav-links" aria-label="指南导航">
         <a href="index.html">首页</a>
         <a href="#setup">安装</a>
-        <a href="#tools">工具</a>
         <a href="#permissions">权限</a>
-        <a href="#context">上下文</a>
+        <a href="#tools">工具</a>
+        <a href="#testing">测试</a>
         <a href="#release">发布</a>
       </nav>
       <div class="header-actions">
@@ -38,94 +43,123 @@
         <div class="reveal">
           <span class="eyebrow">GUIDE</span>
           <h1>DeepSeekCode 使用指南</h1>
-          <p>面向真实本地开发：启动、模型切换、native tool calling、权限选择、Skills/Plugins、上下文缓存和发布边界。</p>
+          <p>面向真实本地开发：全局安装、当前目录启动、native tool calling、启动 shell 权限询问、上下文缓存、skills/plugins 和发布验收。</p>
         </div>
       </section>
 
       <section id="setup" class="guide-grid section-shell">
         <aside class="toc reveal">
           <a href="#setup">01 安装启动</a>
-          <a href="#tools">02 工具链路</a>
+          <a href="#configure">02 配置模型</a>
           <a href="#permissions">03 权限交互</a>
-          <a href="#context">04 上下文与缓存</a>
-          <a href="#skills">05 Skills / Plugins</a>
-          <a href="#release">06 发布规则</a>
+          <a href="#tools">04 工具链路</a>
+          <a href="#context">05 上下文缓存</a>
+          <a href="#skills">06 Skills / Plugins</a>
+          <a href="#testing">07 真实测试</a>
+          <a href="#release">08 发布边界</a>
         </aside>
         <div class="guide-content">
           <article class="guide-block reveal">
             <span class="eyebrow">01</span>
-            <h2>安装启动</h2>
-            <p>建议先在独立测试目录运行，不把测试产物写进项目源码目录。</p>
-            <pre><code>git clone https://github.com/xh20010913-svg/DeepSeekCode.git
-cd DeepSeekCode
-npm install
-npm run build
-npm run start -- --project "D:\code\DeepSeekTest"</code></pre>
-            <p>如需切换模型，可在 TUI 中使用 <code>/model</code> 选择，或直接输入：</p>
-            <pre><code>/model flash
-/model pro</code></pre>
+            <h2>安装后在任意项目目录启动</h2>
+            <p>推荐的用户安装方式是 npm 全局安装。进入任意项目目录后输入 <code>deepseekcode</code>，当前目录就是项目目录，运行数据写入当前目录的 <code>.deepseekcode</code>。</p>
+            <pre><code>npm install -g deepseekcode
+cd D:\code\DeepSeekTest
+deepseekcode</code></pre>
+            <p><code>deepseek</code> 也保留为短别名，但文档以 <code>deepseekcode</code> 为主命令。</p>
+            <pre><code>deepseekcode --project "D:\code\DeepSeekTest"
+deepseekcode --doctor</code></pre>
+            <p>Windows PowerShell 如果因为执行策略拦截 npm 生成的 <code>deepseekcode.ps1</code>，可以在同一目录直接运行 <code>deepseekcode.cmd</code>；cmd 里仍然输入 <code>deepseekcode</code>。</p>
           </article>
 
-          <article id="tools" class="guide-block reveal">
+          <article id="configure" class="guide-block reveal">
             <span class="eyebrow">02</span>
-            <h2>Native Tool Calling</h2>
-            <p>v0.2 之后主链路是 DeepSeek <code>tools → tool_calls → 本地工具 → tool result → 下一轮</code>。本地仍使用 Zod schema 和 tool registry 做参数校验、路径安全、权限和结果压缩。</p>
+            <h2>模型和运行目录</h2>
+            <p>最小配置是 DeepSeek 兼容端点、API key 和模型名。测试密钥建议只放在测试目录的 <code>.env</code>。</p>
+            <pre><code>DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_API_KEY=your_deepseek_api_key
+DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEKCODE_LANGUAGE=zh-CN</code></pre>
             <div class="command-table">
-              <div><b>已验证</b><span>文件读写、patch、glob/grep/list、todo、DOCX/PPTX runtime、skills/plugins 基础路径、TencentDB-Agent-Memory。</span></div>
-              <div><b>部分可用</b><span>Browser CDP、MCP stdio、Office 质量增强、多 agent 调度。</span></div>
-              <div><b>实验中</b><span>PDF 生成、长任务 worker pool、真实场景自动评测。</span></div>
-              <div><b>保留</b><span>computer_use 还没有完整 GUI 桥接，不宣传成可用能力。</span></div>
+              <div><b>默认项目</b><span>未传 <code>--project</code> 时使用当前目录。</span></div>
+              <div><b>默认数据</b><span>未传 <code>--data-dir</code> 时写入 <code>&lt;project&gt;/.deepseekcode</code>。</span></div>
+              <div><b>模型切换</b><span>TUI 内使用 <code>/model</code>、<code>/model flash</code> 或 <code>/model pro</code>。</span></div>
             </div>
           </article>
 
           <article id="permissions" class="guide-block reveal">
             <span class="eyebrow">03</span>
             <h2>权限交互</h2>
-            <p>模型可以请求 <code>run_command</code>，但 shell 关闭时不会直接失败。runtime 会在执行前拦截，TUI 弹出可选择的权限 gate：允许一次、本会话允许、拒绝或取消。</p>
-            <pre><code>/shell on
-/shell off
-/permissions</code></pre>
-            <p>Plan gate 和 AskUserQuestion 也使用同一套选择控件；方向键移动，Enter 确认，Esc 取消。</p>
+            <p>默认 <code>safe</code> 模式关闭 shell 和 browser。TUI 启动时如果 shell 未开启，会先询问是否为本会话开启 shell 权限；方向键选择，Enter 确认，Esc/N 保持关闭。</p>
+            <pre><code>deepseekcode --permission-profile safe
+deepseekcode --permission-profile dev
+deepseekcode --allow-shell</code></pre>
+            <p>模型真正请求 <code>run_command</code> 时仍然由 runtime permission gate 拦截。用户看到工具名、命令、cwd、风险等级和允许/拒绝选项；这不是通过关键词判断用户任务。</p>
+          </article>
+
+          <article id="tools" class="guide-block reveal">
+            <span class="eyebrow">04</span>
+            <h2>Native Tool Calling</h2>
+            <p>主链路是 DeepSeek <code>tools -> tool_calls -> local tools -> tool result -> next turn</code>。不支持 native tool calls 的模型或网关会明确失败，不静默回退旧 JSON planner。</p>
+            <div class="command-table">
+              <div><b>已验证</b><span>文件读写、patch、glob/grep/list、todo、DOCX/PPTX runtime、skills/plugins 基础路径、TencentDB-Agent-Memory。</span></div>
+              <div><b>部分可用</b><span>Browser CDP、MCP stdio、Office 质量增强、多 agent 调度。</span></div>
+              <div><b>实验中</b><span>PDF 生成、长任务 worker pool、真实场景自动评测。</span></div>
+              <div><b>保留</b><span><code>computer_use</code> 还没有完整 GUI 桥接，不宣传成可用能力。</span></div>
+            </div>
           </article>
 
           <article id="context" class="guide-block reveal">
-            <span class="eyebrow">04</span>
-            <h2>上下文与缓存</h2>
-            <p>DeepSeekCode 不依赖无脑回放全量聊天历史。它把上下文分成稳定前缀、最近对话、rolling summary、runtime_run_state 和 tool_result micro summary，以提高缓存复用并降低长任务成本。</p>
-            <pre><code>/cache plan "做一个大型网页项目"
+            <span class="eyebrow">05</span>
+            <h2>上下文、缓存和记忆</h2>
+            <p>DeepSeekCode 不把所有历史原文无限塞回 prompt。稳定规则和工具 schema 放前面以提高缓存复用；旧对话压成 rolling summary；长工具结果压成摘要和 artifact manifest。</p>
+            <pre><code>/cache
+/cache guard &lt;goal&gt;
 /usage
-/cost</code></pre>
+/cost
+/memory status
+/memory search 中文默认</code></pre>
           </article>
 
           <article id="skills" class="guide-block reveal">
-            <span class="eyebrow">05</span>
+            <span class="eyebrow">06</span>
             <h2>Skills / Plugins</h2>
-            <p>DeepSeekCode 支持把本地或 Git 来源的 skill/plugin 安装到 <code>.deepseekcode</code> 目录，并兼容部分 <code>.claude</code> skill 结构。plugin 内的 skill 可被发现和调用。</p>
+            <p>Skills 是 <code>SKILL.md</code> instruction pack；Plugins 可以贡献 commands、skills 和 hooks。兼容读取 <code>.claude</code> 来源，安装目标写入 <code>.deepseekcode</code>。</p>
             <pre><code>/skills
-/skills install &lt;path-or-git-url&gt;
+/skills install "D:\skills\office-report"
+/skills install https://github.com/example/agent-skills/tree/main/office/report
 /plugins
-/plugins install &lt;path-or-git-url&gt;</code></pre>
+/plugins install "D:\plugins\review-kit"
+/plugins validate</code></pre>
+          </article>
+
+          <article id="testing" class="guide-block reveal">
+            <span class="eyebrow">07</span>
+            <h2>真实测试</h2>
+            <p>真实测试产物只放在独立目录，例如 <code>D:\code\DeepSeekTest</code>。推荐任务包括大型网页、答辩 PPT、课程 PPT、OFDR 原理 PPT、DOCX 报告、失败后自修复、多 agent 协作和浏览器验证。</p>
+            <pre><code>cd /d D:\code\DeepSeekTest
+deepseekcode --model deepseek-v4-flash
+/runs report latest "D:\code\DeepSeekTest"</code></pre>
           </article>
 
           <article id="release" class="guide-block reveal">
-            <span class="eyebrow">06</span>
+            <span class="eyebrow">08</span>
             <h2>发布边界</h2>
-            <p>GitHub 发布只从 <code>D:\code\DeepSeekCode\.release</code> 提交。测试目录、prompt audit、场景报告、<code>.env</code>、<code>node_modules</code> 和开发草稿都不属于发布内容。</p>
-            <pre><code>npm run typecheck
-npm run build
-git status --short
-git push origin main</code></pre>
-            <p>公开 README 和网站只写真实接通能力；未完成项会标成部分可用、实验中或保留。</p>
+            <p>发布只从 <code>D:\code\DeepSeekCode\.release</code> 提交。不提交测试目录、prompt audit、测试报告、<code>.env</code>、runtime 数据库、<code>node_modules</code> 或开发草稿。</p>
+            <pre><code>npm.cmd run typecheck
+npm.cmd run build
+npm.cmd pack --dry-run
+git status --short</code></pre>
           </article>
         </div>
       </section>
     </main>
 
     <footer class="site-footer">
-      <span>DeepSeekCode</span>
-      <a href="index.html">首页</a>
-      <a href="https://github.com/xh20010913-svg/DeepSeekCode#readme">README</a>
-      <a href="https://github.com/xh20010913-svg/DeepSeekCode">GitHub</a>
+      <span>DeepSeekCode v0.2.3</span>
+      <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/README.zh-CN.md">中文 README</a>
+      <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/README.md">README</a>
+      <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/CLI_REFERENCE.md">CLI</a>
     </footer>
   </body>
 </html>

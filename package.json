@@ -1,15 +1,32 @@
 {
   "name": "deepseekcode",
-  "version": "0.2.2",
-  "private": true,
+  "version": "0.2.3",
+  "private": false,
   "description": "DeepSeek-first local agent workbench, TypeScript runtime.",
   "type": "module",
+  "main": "./dist/main.js",
   "bin": {
+    "deepseek": "./dist/cli/main.js",
     "deepseekcode": "./dist/cli/main.js"
+  },
+  "files": [
+    "dist",
+    "assets",
+    "website",
+    "README.md",
+    "README.zh-CN.md",
+    "GUIDE.md",
+    "ARCHITECTURE.md",
+    "CLI_REFERENCE.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-vendor.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test:keys": "node --test scripts/test-input-keys.mjs",
     "dev": "tsx src/cli/main.tsx",
     "start": "node dist/cli/main.js",
     "doctor": "node dist/cli/main.js --doctor"

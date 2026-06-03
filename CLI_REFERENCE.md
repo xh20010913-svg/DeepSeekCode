@@ -16,6 +16,15 @@
 deepseekcode [options]
 ```
 
+Installed commands:
+
+- `deepseekcode`: primary command, similar to running Claude Code from a project directory.
+- `deepseek`: short alias for the same CLI.
+
+If `--project` is omitted, DeepSeekCode uses the current directory. If `--data-dir` is omitted, runtime state is written to `<project>/.deepseekcode`.
+
+Windows note: npm creates both PowerShell and cmd shims. If PowerShell blocks `deepseekcode.ps1` because script execution is disabled, use `deepseekcode.cmd`; cmd can run `deepseekcode` directly.
+
 | Flag | Description |
 | --- | --- |
 | `--project <path>` | Workspace root for local tools. |
@@ -34,11 +43,16 @@ deepseekcode [options]
 Examples:
 
 ```bash
+npm install -g deepseekcode
+cd D:\work\agent-test
+deepseekcode
+deepseekcode --permission-profile dev
+deepseekcode --continue -p "Continue the previous task"
+deepseekcode --resume session_xxx -p "Continue"
+deepseekcode --prompt "Summarize this repository" --json
+
+# Source checkout only:
 npm run start -- --project "D:\work\agent-test"
-npm run start -- --project . --permission-profile dev
-npm run start -- --project . --continue -p "Continue the previous task"
-npm run start -- --project . --resume session_xxx -p "Continue"
-npm run start -- --project . --prompt "Summarize this repository" --json
 ```
 
 ## Environment
@@ -51,6 +65,7 @@ npm run start -- --project . --prompt "Summarize this repository" --json
 | `DEEPSEEK_TIMEOUT_SECS` | Provider timeout. |
 | `DEEPSEEKCODE_LANGUAGE` / `DEEPSEEKCODE_LANG` | `zh-CN` or `en`. |
 | `DEEPSEEKCODE_HOME` | Runtime data directory. |
+| `DEEPSEEKCODE_STARTUP_SHELL_PROMPT` | Set `0` to skip the startup shell permission prompt. |
 | `DEEPSEEKCODE_PROVIDER_CONFIG` | Provider profile JSON. |
 | `DEEPSEEKCODE_PERMISSION_PROFILE` | Default permission profile. |
 | `DEEPSEEKCODE_PROMPT_AUDIT_DIR` | Enable debug prompt audit output. |
@@ -128,6 +143,8 @@ Use `/help` in the TUI for the exact command catalog.
 | `browser` | off | on |
 | `open` | on | on |
 
+When the TUI starts with shell disabled, it asks whether to enable shell for the current session. Use Up/Down to select, Enter to confirm, and Esc/N to keep shell off. This is a runtime permission choice, not a keyword classifier on the user's task. Later `run_command` tool calls still pass through permission gates.
+
 ## Tool Status
 
 Use `/tools` for the exact runtime registry. Status meanings:
@@ -149,7 +166,7 @@ The memory runtime stores data under `<data-dir>/tdai/`. With local SQLite only,
 ```bash
 npm run typecheck
 npm run build
-npm run start -- --project . --doctor
+deepseekcode --doctor
 ```
 
 ```text

@@ -55,6 +55,7 @@ import { PromptNoticePanel } from "./PromptNoticePanel.js";
 import { QuickOpenPanel } from "./QuickOpenPanel.js";
 import { QueuedPromptPanel } from "./QueuedPromptPanel.js";
 import { SidePanel } from "./SidePanel.js";
+import { StartupShellPromptPanel, startupShellChoices } from "./StartupShellPromptPanel.js";
 import { groupTranscriptItems, Transcript, type TranscriptItem } from "./Transcript.js";
 import { setActiveTerminalTheme } from "./design/terminalTheme.js";
 
@@ -98,9 +99,13 @@ export function Workbench(props: {
   const [gateSelectedIndex, setGateSelectedIndex] = useState(0);
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const [modelSelectedIndex, setModelSelectedIndex] = useState(0);
+  const [startupShellPromptOpen, setStartupShellPromptOpen] = useState(
+    () => !props.config.shellEnabled && process.env.DEEPSEEKCODE_STARTUP_SHELL_PROMPT !== "0",
+  );
+  const [startupShellSelectedIndex, setStartupShellSelectedIndex] = useState(0);
   const editor = usePromptEditor();
   const history = useInputHistory();
-  const { permissions } = useRuntimePermissions({
+  const { permissions, setShell } = useRuntimePermissions({
     allowShell: activeConfig.shellEnabled,
     allowBrowser: activeConfig.browserEnabled,
     profile: activeConfig.permissionProfile,
@@ -293,6 +298,9 @@ export function Workbench(props: {
       return;
     }
     if (handleModelSelectorInput(character, key)) {
+      return;
+    }
+    if (handleStartupShellPromptInput(character, key)) {
       return;
     }
     if (handleGatePromptInput(character, key)) {
@@ -638,6 +646,73 @@ export function Workbench(props: {
       return false;
     }
     return false;
+  }
+
+  function handleStartupShellPromptInput(
+    character: string,
+    key: {
+      upArrow?: boolean;
+      downArrow?: boolean;
+      return?: boolean;
+      tab?: boolean;
+      shift?: boolean;
+      escape?: boolean;
+      ctrl?: boolean;
+      meta?: boolean;
+    },
+  ): boolean {
+    if (!startupShellPromptOpen) return false;
+    if (key.upArrow) {
+      setStartupShellSelectedIndex((previous) => (
+        (previous - 1 + startupShellChoices.length) % startupShellChoices.length
+      ));
+      return true;
+    }
+    if (key.downArrow || key.tab) {
+      setStartupShellSelectedIndex((previous) => (
+        (previous + (key.shift ? -1 : 1) + startupShellChoices.length) % startupShellChoices.length
+      ));
+      return true;
+    }
+    const lower = character.toLowerCase();
+    if (key.return || lower === "y" || lower === "a") {
+      applyStartupShellChoice(startupShellChoices[startupShellSelectedIndex] ?? "enable");
+      return true;
+    }
+    if (key.escape || lower === "n") {
+      applyStartupShellChoice("ask");
+      return true;
+    }
+    if (/^[12]$/.test(character)) {
+      applyStartupShellChoice(startupShellChoices[Number(character) - 1] ?? "ask");
+      return true;
+    }
+    return true;
+  }
+
+  function applyStartupShellChoice(choice: "enable" | "ask"): void {
+    setStartupShellPromptOpen(false);
+    setStartupShellSelectedIndex(0);
+    const zh = isChineseUi(activeConfig.language);
+    if (choice === "enable") {
+      setShell(true);
+      setActiveConfig((previous) => ({
+        ...previous,
+        shellEnabled: true,
+        permissionProfile: previous.permissionProfile === "safe" ? "dev" : previous.permissionProfile,
+      }));
+      const text = zh
+        ? "本次 TUI 会话已开启 shell 权限。"
+        : "Shell permission is enabled for this TUI session.";
+      sessionStorage.append({ role: "system", text });
+      setItems((previous) => [...previous, { role: "system", text, timestamp: Date.now() }]);
+      return;
+    }
+    const text = zh
+      ? "shell 保持关闭；需要执行命令时会再弹出权限选择。"
+      : "Shell stays off; command execution will ask again when needed.";
+    sessionStorage.append({ role: "system", text });
+    setItems((previous) => [...previous, { role: "system", text, timestamp: Date.now() }]);
   }
 
   async function applyGateDecision(option: GateDecisionOption | undefined): Promise<void> {
@@ -1013,6 +1088,14 @@ export function Workbench(props: {
         gates={pendingGates}
         selectedDecisionIndex={gateSelectedIndex}
       />
+      {startupShellPromptOpen && (
+        <StartupShellPromptPanel
+          selectedIndex={startupShellSelectedIndex}
+          projectPath={activeConfig.projectPath}
+          language={activeConfig.language}
+          width={columns}
+        />
+      )}
       {helpOpen && (
         <PromptHelpPanel
           width={columns}
@@ -1071,7 +1154,11 @@ export function Workbench(props: {
         width={columns}
         suggestions={suggestions}
         selectedSuggestion={selectedSuggestion}
-        activePromptHint={activeGate ? gateComposerHint(activeGate.subjectType, activeConfig.language) : undefined}
+        activePromptHint={startupShellPromptOpen
+          ? startupShellComposerHint(activeConfig.language)
+          : activeGate
+            ? gateComposerHint(activeGate.subjectType, activeConfig.language)
+            : undefined}
         language={activeConfig.language}
         activity={runActivity}
         activityNowMs={activityNowMs}
@@ -1112,6 +1199,14 @@ function gateComposerHint(subjectType: string, language = "zh-CN"): string {
     ? "权限等待确认：Up/Down 选择，Enter/Y 允许一次，S 本会话允许 shell，N 拒绝，Esc 取消。"
     : "Permission prompt active: use Up/Down, Enter/Y to allow once, S to allow shell for this session, N to reject, Esc to cancel.";
 }
+
+function startupShellComposerHint(language = "zh-CN"): string {
+  const zh = isChineseUi(language === "en" ? "en" : "zh-CN");
+  return zh
+    ? "启动权限等待选择：Up/Down 选择，Enter/Y 开启 shell，N/Esc 保持关闭。"
+    : "Startup permission prompt: Up/Down to choose, Enter/Y to enable shell, N/Esc to keep it off.";
+}
+
 function appendUserIfMissing(items: TranscriptItem[], text: string, timestamp: number): TranscriptItem[] {
   const last = items[items.length - 1];
   if (last?.role === "user" && last.text === text) return items;

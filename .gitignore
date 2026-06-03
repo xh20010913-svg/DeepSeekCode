@@ -4,6 +4,7 @@ target/
 docs/
 scripts/*
 !scripts/copy-vendor.mjs
+!scripts/test-input-keys.mjs
 src/**/*.test.ts
 src/**/*.test.tsx
 src/**/*.test.js

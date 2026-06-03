@@ -19,7 +19,7 @@
 <p align="center">
   <a href="https://github.com/xh20010913-svg/DeepSeekCode"><img src="https://img.shields.io/github/stars/xh20010913-svg/DeepSeekCode.svg?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="GitHub stars"/></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/xh20010913-svg/DeepSeekCode.svg?style=flat-square&color=8b949e&labelColor=161b22" alt="license"/></a>
-  <a href="./package.json"><img src="https://img.shields.io/badge/version-v0.2.2-38bdf8.svg?style=flat-square&labelColor=161b22" alt="v0.2.2"/></a>
+  <a href="./package.json"><img src="https://img.shields.io/badge/version-v0.2.3-38bdf8.svg?style=flat-square&labelColor=161b22" alt="v0.2.3"/></a>
   <a href="./package.json"><img src="https://img.shields.io/badge/node-%3E%3D22-5fa04e.svg?style=flat-square&labelColor=161b22&logo=nodedotjs&logoColor=white" alt="Node >= 22"/></a>
 </p>
 
@@ -27,7 +27,7 @@
 
 DeepSeekCode is a DeepSeek-first local terminal agent runtime for project work, office artifacts, long-running tasks, and recoverable testing. It calls typed local tools through native DeepSeek function calling, persists run/task/action/artifact/usage state in SQLite, and can continue work after CLI restarts.
 
-v0.2.2 documents the current wired capability surface rather than treating partial work as finished. The main loop is:
+v0.2.3 documents the current wired capability surface rather than treating partial work as finished. The main loop is:
 
 ```text
 stable runtime prompt + context
@@ -59,7 +59,27 @@ Requirements:
 - A DeepSeek chat/completions endpoint that supports native tool calls.
 - A project directory for DeepSeekCode to inspect and edit.
 
-Install:
+Install globally, then run `deepseekcode` inside any project directory. The current directory becomes the project, and runtime state is written to that directory's `.deepseekcode` folder:
+
+```bash
+npm install -g deepseekcode
+cd D:\work\agent-test
+deepseekcode
+```
+
+You can still pass an explicit project path:
+
+```bash
+deepseekcode --project "D:\work\agent-test"
+```
+
+`deepseek` remains available as a short alias, but the manual uses `deepseekcode` as the primary command.
+
+On Windows PowerShell, if the execution policy blocks npm's generated `deepseekcode.ps1` shim, run `deepseekcode.cmd` from the same PATH entry instead. In cmd, `deepseekcode` works directly.
+
+When the TUI starts and shell is not already enabled, DeepSeekCode asks whether to enable shell execution for this session. Use Up/Down to choose, Enter to confirm, and Esc/N to keep shell off. If enabled, build, test, and validation commands can run in the current project. If kept off, real `run_command` requests still show a permission picker later.
+
+Source checkout:
 
 ```bash
 git clone https://github.com/xh20010913-svg/DeepSeekCode.git
@@ -77,7 +97,7 @@ DEEPSEEK_MODEL=deepseek-v4-flash
 DEEPSEEKCODE_LANGUAGE=zh-CN
 ```
 
-Start against a separate working directory:
+Start from source against a separate working directory:
 
 ```bash
 npm run start -- --project "D:\work\agent-test"
@@ -92,8 +112,8 @@ npm run dev -- --project "D:\work\agent-test"
 Continue after restarting the CLI:
 
 ```bash
-npm run start -- --project "D:\work\agent-test" --continue -p "Continue the last task"
-npm run start -- --project "D:\work\agent-test" --resume session_xxx -p "Continue the paused work"
+deepseekcode --project "D:\work\agent-test" --continue -p "Continue the last task"
+deepseekcode --project "D:\work\agent-test" --resume session_xxx -p "Continue the paused work"
 ```
 
 ## Model Selection
@@ -232,7 +252,7 @@ Enable prompt audit only for testing:
 
 ```bash
 set DEEPSEEKCODE_PROMPT_AUDIT_DIR=D:\work\agent-test\prompt-audit
-npm run start -- --project "D:\work\agent-test" --permission-profile dev
+deepseekcode --project "D:\work\agent-test" --permission-profile dev
 ```
 
 Export a report:
@@ -245,7 +265,7 @@ Reports include model, token usage, cache hit/miss, tool counts, artifacts, fail
 
 ## Still In Progress
 
-v0.2.2 is a TUI permission, Backspace, website, and screenshot-reference quality hotfix. It does not claim the entire 24-item backend plan is finished. Work that remains active:
+v0.2.3 is an install-command, default project/data directory, and startup shell-permission prompt quality hotfix. It does not claim the entire 24-item backend plan is finished. Work that remains active:
 
 - Full realistic scenario evaluation and self-repair coverage.
 - Background worker pool details for long tasks, queue recovery, cancel, retry, and resume.
@@ -265,7 +285,7 @@ npm run typecheck
 npm run build
 ```
 
-The repository also includes GitHub Actions CI for typecheck and build, plus GitHub Pages deployment for `website/`. v0.2.2 keeps the build helper present in the published repository.
+The repository also includes GitHub Actions CI for typecheck and build, plus GitHub Pages deployment for `website/`. v0.2.3 keeps the build helper present in the published repository.
 
 ## Release Boundary
 
