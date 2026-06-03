@@ -52,14 +52,14 @@ v0.2.4 公开说明以真实接入能力为准。当前主链路如下：
 - 支持 native tool calls 的 DeepSeek chat/completions 端点。
 - 一个给 DeepSeekCode 检查和修改的项目目录。
 
-全局安装后，在任意项目目录输入 `deepseekcode` 即可启动。默认项目目录是当前目录，运行数据写入当前目录的 `.deepseekcode`。
+全局安装后，在任意项目目录输入 `deepseekcli` 即可启动。默认项目目录是当前目录，运行数据写入当前目录的 `.deepseekcode`。
 
 官方 npm registry 安装：
 
 ```bash
-npm install -g deepseekcode
+npm install -g deepseekcli
 cd D:\work\agent-test
-deepseekcode
+deepseekcli
 ```
 
 也可以用 GitHub 网络安装测试当前 `main` 分支：
@@ -71,12 +71,12 @@ npm install -g github:xh20010913-svg/DeepSeekCode
 也可以显式指定目录：
 
 ```bash
-deepseekcode --project "D:\work\agent-test"
+deepseekcli --project "D:\work\agent-test"
 ```
 
-`deepseek` 也保留为短别名，但说明书以 `deepseekcode` 为主命令。
+`deepseekcli` 是主命令。`deepseekcode` 作为旧版本本地安装的兼容别名保留；不安装 `deepseek` 别名，避免和已有生态混淆。
 
-Windows PowerShell 如果因为执行策略拦截 npm 生成的 `deepseekcode.ps1`，可以运行同目录的 `deepseekcode.cmd`；cmd 里仍然直接输入 `deepseekcode`。
+Windows PowerShell 如果因为执行策略拦截 npm 生成的 `deepseekcli.ps1`，可以运行同目录的 `deepseekcli.cmd`；cmd 里直接输入 `deepseekcli`。
 
 启动 TUI 时，如果 shell 还没开启，会先询问是否为本会话开启 shell 权限。方向键选择，Enter 确认，Esc/N 保持关闭。选择开启后，构建、测试、验证命令可直接在当前项目目录执行；选择保持关闭后，模型真正请求 `run_command` 时仍会弹出权限选择。
 
@@ -113,8 +113,8 @@ npm run dev -- --project "D:\work\agent-test"
 重启 CLI 后继续：
 
 ```bash
-deepseekcode --project "D:\work\agent-test" --continue -p "继续上一个任务"
-deepseekcode --project "D:\work\agent-test" --resume session_xxx -p "继续暂停的任务"
+deepseekcli --project "D:\work\agent-test" --continue -p "继续上一个任务"
+deepseekcli --project "D:\work\agent-test" --resume session_xxx -p "继续暂停的任务"
 ```
 
 ## 模型切换
@@ -253,7 +253,7 @@ DEEPSEEKCODE_TDAI_STORE=sqlite
 
 ```bash
 set DEEPSEEKCODE_PROMPT_AUDIT_DIR=D:\work\agent-test\prompt-audit
-deepseekcode --project "D:\work\agent-test" --permission-profile dev
+deepseekcli --project "D:\work\agent-test" --permission-profile dev
 ```
 
 导出报告：

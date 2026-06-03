@@ -62,16 +62,16 @@
           <article class="guide-block reveal">
             <span class="eyebrow">01</span>
             <h2>安装后在任意项目目录启动</h2>
-            <p>推荐的用户安装方式是 npm 全局安装。进入任意项目目录后输入 <code>deepseekcode</code>，当前目录就是项目目录，运行数据写入当前目录的 <code>.deepseekcode</code>。</p>
-            <pre><code>npm install -g deepseekcode
+            <p>推荐的用户安装方式是 npm 全局安装。进入任意项目目录后输入 <code>deepseekcli</code>，当前目录就是项目目录，运行数据写入当前目录的 <code>.deepseekcode</code>。</p>
+            <pre><code>npm install -g deepseekcli
 cd D:\code\DeepSeekTest
-deepseekcode</code></pre>
+deepseekcli</code></pre>
             <p>也可以用 GitHub 网络安装测试当前 <code>main</code> 分支：</p>
             <pre><code>npm install -g github:xh20010913-svg/DeepSeekCode</code></pre>
-            <p><code>deepseek</code> 也保留为短别名，但文档以 <code>deepseekcode</code> 为主命令。</p>
-            <pre><code>deepseekcode --project "D:\code\DeepSeekTest"
-deepseekcode --doctor</code></pre>
-            <p>Windows PowerShell 如果因为执行策略拦截 npm 生成的 <code>deepseekcode.ps1</code>，可以在同一目录直接运行 <code>deepseekcode.cmd</code>；cmd 里仍然输入 <code>deepseekcode</code>。</p>
+            <p><code>deepseekcli</code> 是主命令；<code>deepseekcode</code> 仅作为旧版本本地安装的兼容别名保留，不安装 <code>deepseek</code> 别名。</p>
+            <pre><code>deepseekcli --project "D:\code\DeepSeekTest"
+deepseekcli --doctor</code></pre>
+            <p>Windows PowerShell 如果因为执行策略拦截 npm 生成的 <code>deepseekcli.ps1</code>，可以在同一目录直接运行 <code>deepseekcli.cmd</code>；cmd 里输入 <code>deepseekcli</code>。</p>
           </article>
 
           <article id="configure" class="guide-block reveal">
@@ -93,9 +93,9 @@ DEEPSEEKCODE_LANGUAGE=zh-CN</code></pre>
             <span class="eyebrow">03</span>
             <h2>权限交互</h2>
             <p>默认 <code>safe</code> 模式关闭 shell 和 browser。TUI 启动时如果 shell 未开启，会先询问是否为本会话开启 shell 权限；方向键选择，Enter 确认，Esc/N 保持关闭。</p>
-            <pre><code>deepseekcode --permission-profile safe
-deepseekcode --permission-profile dev
-deepseekcode --allow-shell</code></pre>
+            <pre><code>deepseekcli --permission-profile safe
+deepseekcli --permission-profile dev
+deepseekcli --allow-shell</code></pre>
             <p>模型真正请求 <code>run_command</code> 时仍然由 runtime permission gate 拦截。用户看到工具名、命令、cwd、风险等级和允许/拒绝选项；这不是通过关键词判断用户任务。</p>
           </article>
 
@@ -140,7 +140,7 @@ deepseekcode --allow-shell</code></pre>
             <h2>真实测试</h2>
             <p>真实测试产物只放在独立目录，例如 <code>D:\code\DeepSeekTest</code>。推荐任务包括大型网页、答辩 PPT、课程 PPT、OFDR 原理 PPT、DOCX 报告、失败后自修复、多 agent 协作和浏览器验证。</p>
             <pre><code>cd /d D:\code\DeepSeekTest
-deepseekcode --model deepseek-v4-flash
+deepseekcli --model deepseek-v4-flash
 /runs report latest "D:\code\DeepSeekTest"</code></pre>
           </article>
 

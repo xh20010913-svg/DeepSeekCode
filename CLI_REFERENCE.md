@@ -13,17 +13,17 @@
 ## CLI Flags
 
 ```text
-deepseekcode [options]
+deepseekcli [options]
 ```
 
 Installed commands:
 
-- `deepseekcode`: primary command, similar to running Claude Code from a project directory.
-- `deepseek`: short alias for the same CLI.
+- `deepseekcli`: primary command, similar to running Claude Code from a project directory.
+- `deepseekcode`: compatibility alias for earlier local installs.
 
 If `--project` is omitted, DeepSeekCode uses the current directory. If `--data-dir` is omitted, runtime state is written to `<project>/.deepseekcode`.
 
-Windows note: npm creates both PowerShell and cmd shims. If PowerShell blocks `deepseekcode.ps1` because script execution is disabled, use `deepseekcode.cmd`; cmd can run `deepseekcode` directly.
+Windows note: npm creates both PowerShell and cmd shims. If PowerShell blocks `deepseekcli.ps1` because script execution is disabled, use `deepseekcli.cmd`; cmd can run `deepseekcli` directly.
 
 | Flag | Description |
 | --- | --- |
@@ -43,13 +43,13 @@ Windows note: npm creates both PowerShell and cmd shims. If PowerShell blocks `d
 Examples:
 
 ```bash
-npm install -g deepseekcode
+npm install -g deepseekcli
 cd D:\work\agent-test
-deepseekcode
-deepseekcode --permission-profile dev
-deepseekcode --continue -p "Continue the previous task"
-deepseekcode --resume session_xxx -p "Continue"
-deepseekcode --prompt "Summarize this repository" --json
+deepseekcli
+deepseekcli --permission-profile dev
+deepseekcli --continue -p "Continue the previous task"
+deepseekcli --resume session_xxx -p "Continue"
+deepseekcli --prompt "Summarize this repository" --json
 
 # Source checkout only:
 npm run start -- --project "D:\work\agent-test"
@@ -172,7 +172,7 @@ The memory runtime stores data under `<data-dir>/tdai/`. With local SQLite only,
 ```bash
 npm run typecheck
 npm run build
-deepseekcode --doctor
+deepseekcli --doctor
 ```
 
 ```text

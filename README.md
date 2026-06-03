@@ -59,14 +59,14 @@ Requirements:
 - A DeepSeek chat/completions endpoint that supports native tool calls.
 - A project directory for DeepSeekCode to inspect and edit.
 
-Install globally, then run `deepseekcode` inside any project directory. The current directory becomes the project, and runtime state is written to that directory's `.deepseekcode` folder.
+Install globally, then run `deepseekcli` inside any project directory. The current directory becomes the project, and runtime state is written to that directory's `.deepseekcode` folder.
 
 Official npm registry install:
 
 ```bash
-npm install -g deepseekcode
+npm install -g deepseekcli
 cd D:\work\agent-test
-deepseekcode
+deepseekcli
 ```
 
 GitHub network install is also supported for testing the current `main` branch:
@@ -78,12 +78,12 @@ npm install -g github:xh20010913-svg/DeepSeekCode
 You can still pass an explicit project path:
 
 ```bash
-deepseekcode --project "D:\work\agent-test"
+deepseekcli --project "D:\work\agent-test"
 ```
 
-`deepseek` remains available as a short alias, but the manual uses `deepseekcode` as the primary command.
+`deepseekcli` is the primary command. `deepseekcode` remains as a compatibility alias for earlier local installs; no `deepseek` alias is installed.
 
-On Windows PowerShell, if the execution policy blocks npm's generated `deepseekcode.ps1` shim, run `deepseekcode.cmd` from the same PATH entry instead. In cmd, `deepseekcode` works directly.
+On Windows PowerShell, if the execution policy blocks npm's generated `deepseekcli.ps1` shim, run `deepseekcli.cmd` from the same PATH entry instead. In cmd, `deepseekcli` works directly.
 
 When the TUI starts and shell is not already enabled, DeepSeekCode asks whether to enable shell execution for this session. Use Up/Down to choose, Enter to confirm, and Esc/N to keep shell off. If enabled, build, test, and validation commands can run in the current project. If kept off, real `run_command` requests still show a permission picker later.
 
@@ -120,8 +120,8 @@ npm run dev -- --project "D:\work\agent-test"
 Continue after restarting the CLI:
 
 ```bash
-deepseekcode --project "D:\work\agent-test" --continue -p "Continue the last task"
-deepseekcode --project "D:\work\agent-test" --resume session_xxx -p "Continue the paused work"
+deepseekcli --project "D:\work\agent-test" --continue -p "Continue the last task"
+deepseekcli --project "D:\work\agent-test" --resume session_xxx -p "Continue the paused work"
 ```
 
 ## Model Selection
@@ -260,7 +260,7 @@ Enable prompt audit only for testing:
 
 ```bash
 set DEEPSEEKCODE_PROMPT_AUDIT_DIR=D:\work\agent-test\prompt-audit
-deepseekcode --project "D:\work\agent-test" --permission-profile dev
+deepseekcli --project "D:\work\agent-test" --permission-profile dev
 ```
 
 Export a report:
