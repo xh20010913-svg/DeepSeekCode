@@ -5,9 +5,9 @@ This guide explains how to run DeepSeekCode v0.2 as a local agent workbench.
 ## 1. Install
 
 ```bash
-npm install -g deepseekcli
+npm install -g @xh12312/deepseekcode
 cd D:\work\agent-test
-deepseekcli
+deepseekcode
 ```
 
 GitHub network install is also supported for testing the current `main` branch:
@@ -16,9 +16,9 @@ GitHub network install is also supported for testing the current `main` branch:
 npm install -g github:xh20010913-svg/DeepSeekCode
 ```
 
-`deepseekcli` is the primary installed command. `deepseekcode` remains as a compatibility alias for earlier local installs. The package does not install a `deepseek` alias. When no `--project` is passed, the current directory is the project. When no `--data-dir` is passed, runtime data is written to `<project>\.deepseekcode`.
+The installed command is `deepseekcode`. The package does not install a `deepseek` alias. When no `--project` is passed, the current directory is the project. When no `--data-dir` is passed, runtime data is written to `<project>\.deepseekcode`.
 
-On Windows PowerShell, if the execution policy blocks npm's generated `deepseekcli.ps1` shim, run `deepseekcli.cmd`. In cmd, keep using `deepseekcli`.
+On Windows PowerShell, if the execution policy blocks npm's generated `deepseekcode.ps1` shim, run `deepseekcode.cmd`. In cmd, keep using `deepseekcode`.
 
 Source checkout for development:
 
@@ -85,9 +85,9 @@ Useful optional settings:
 Examples:
 
 ```bash
-deepseekcli --permission-profile dev
-deepseekcli --allow-shell
-deepseekcli --allow-browser
+deepseekcode --permission-profile dev
+deepseekcode --allow-shell
+deepseekcode --allow-browser
 ```
 
 Inside the TUI, use `/permissions`, `/shell on|off`, and `/browser on|off`.
@@ -171,8 +171,8 @@ Compatibility rules:
 For long-running work, use sessions, runs, checkpoints, and reports:
 
 ```bash
-deepseekcli --project "D:\work\agent-test" --continue -p "Continue the last task"
-deepseekcli --project "D:\work\agent-test" --resume session_xxx -p "Continue the paused work"
+deepseekcode --project "D:\work\agent-test" --continue -p "Continue the last task"
+deepseekcode --project "D:\work\agent-test" --resume session_xxx -p "Continue the paused work"
 ```
 
 Useful commands:
@@ -227,7 +227,7 @@ set DEEPSEEKCODE_PROMPT_AUDIT_DIR=D:\work\agent-test\prompt-audit
 Run realistic tests in a separate project directory:
 
 ```bash
-deepseekcli --project "D:\work\agent-test" --permission-profile dev
+deepseekcode --project "D:\work\agent-test" --permission-profile dev
 ```
 
 Recommended scenario set:

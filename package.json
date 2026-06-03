@@ -1,12 +1,11 @@
 {
-  "name": "deepseekcli",
+  "name": "@xh12312/deepseekcode",
   "version": "0.2.4",
   "private": false,
   "description": "DeepSeek-first local agent workbench, TypeScript runtime.",
   "type": "module",
   "main": "./dist/main.js",
   "bin": {
-    "deepseekcli": "dist/cli/main.js",
     "deepseekcode": "dist/cli/main.js"
   },
   "files": [

@@ -14,7 +14,7 @@ const copy = {
     metricGates: "待处理 gate",
     installTitle: "安装后在任意项目目录启动。",
     installText:
-      "通过 npm 全局安装后，进入项目目录输入 deepseekcli 即可启动；默认项目是当前目录，运行数据写入当前项目的 .deepseekcode；启动时会询问是否开启本会话 shell 权限。",
+      "通过 npm 全局安装后，进入项目目录输入 deepseekcode 即可启动；默认项目是当前目录，运行数据写入当前项目的 .deepseekcode；启动时会询问是否开启本会话 shell 权限。",
     copy: "复制",
     cacheTitle: "长任务不应该反复回放全部历史。",
     cacheText:
@@ -66,7 +66,7 @@ const copy = {
     metricGates: "open gates",
     installTitle: "Install once, then start in any project directory.",
     installText:
-      "Install globally from npm, then run deepseekcli inside a project. The current directory becomes the project, runtime data goes to .deepseekcode, and the TUI asks whether to enable shell for the session.",
+      "Install globally from npm, then run deepseekcode inside a project. The current directory becomes the project, runtime data goes to .deepseekcode, and the TUI asks whether to enable shell for the session.",
     copy: "Copy",
     cacheTitle: "Long tasks should not replay raw history forever.",
     cacheText:
