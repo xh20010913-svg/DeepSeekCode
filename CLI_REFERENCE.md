@@ -50,6 +50,9 @@ deepseekcode --continue -p "Continue the previous task"
 deepseekcode --resume session_xxx -p "Continue"
 deepseekcode --prompt "Summarize this repository" --json
 
+# If a mirror has not synced the scoped package yet:
+npm install -g @xh12312/deepseekcode --registry https://registry.npmjs.org/
+
 # Source checkout only:
 npm run start -- --project "D:\work\agent-test"
 ```

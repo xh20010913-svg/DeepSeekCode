@@ -69,6 +69,12 @@ cd D:\work\agent-test
 deepseekcode
 ```
 
+If a regional npm mirror returns `404 Not Found` for a fresh release, install from the official registry:
+
+```bash
+npm install -g @xh12312/deepseekcode --registry https://registry.npmjs.org/
+```
+
 GitHub network install is also supported for testing the current `main` branch:
 
 ```bash

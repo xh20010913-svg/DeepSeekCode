@@ -62,6 +62,12 @@ cd D:\work\agent-test
 deepseekcode
 ```
 
+如果本机 npm 镜像站对新版本返回 `404 Not Found`，可以指定官方 registry 安装：
+
+```bash
+npm install -g @xh12312/deepseekcode --registry https://registry.npmjs.org/
+```
+
 也可以用 GitHub 网络安装测试当前 `main` 分支：
 
 ```bash
