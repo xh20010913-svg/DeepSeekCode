@@ -20,7 +20,7 @@
 
 DeepSeekCode 是一个 DeepSeek 优先的本地终端 Agent 运行时，用于本地项目开发、办公文档生成、长任务协作和可恢复测试。它通过 DeepSeek native function calling 调用本地 typed tools，把 run、task、action、artifact、usage 写入 SQLite，并支持 CLI 重启后的继续执行。
 
-v0.2.3 公开说明以真实接入能力为准。当前主链路如下：
+v0.2.4 公开说明以真实接入能力为准。当前主链路如下：
 
 ```text
 稳定 runtime prompt + 上下文
@@ -52,12 +52,20 @@ v0.2.3 公开说明以真实接入能力为准。当前主链路如下：
 - 支持 native tool calls 的 DeepSeek chat/completions 端点。
 - 一个给 DeepSeekCode 检查和修改的项目目录。
 
-全局安装后，在任意项目目录输入 `deepseekcode` 即可启动。默认项目目录是当前目录，运行数据写入当前目录的 `.deepseekcode`：
+全局安装后，在任意项目目录输入 `deepseekcode` 即可启动。默认项目目录是当前目录，运行数据写入当前目录的 `.deepseekcode`。
+
+官方 npm registry 安装：
 
 ```bash
 npm install -g deepseekcode
 cd D:\work\agent-test
 deepseekcode
+```
+
+也可以用 GitHub 网络安装测试当前 `main` 分支：
+
+```bash
+npm install -g github:xh20010913-svg/DeepSeekCode
 ```
 
 也可以显式指定目录：
@@ -258,7 +266,7 @@ deepseekcode --project "D:\work\agent-test" --permission-profile dev
 
 ## 下一步仍在完善
 
-v0.2.3 是安装命令、默认项目目录、本地 `.deepseekcode` 数据目录和启动 shell 权限询问的体验修复，不宣称 24 项全量优化已经完成。后续仍会继续推进：
+v0.2.4 是安装命令、默认项目目录、本地 `.deepseekcode` 数据目录、GitHub 网络安装和启动 shell 权限询问的体验修复，不宣称 24 项全量优化已经完成。后续仍会继续推进：
 
 - 全量真实场景评测和失败后自修复覆盖。
 - 长任务后台 worker pool、队列恢复、cancel/retry/resume 细节。
@@ -276,7 +284,7 @@ npm run typecheck
 npm run build
 ```
 
-仓库包含 typecheck/build CI 和 website GitHub Pages 部署；v0.2.3 继续保持 CI 构建脚本在发布仓库内可用。
+仓库包含 typecheck/build CI 和 website GitHub Pages 部署；v0.2.4 继续保持 CI 构建脚本在发布仓库内可用。
 
 ## 发布边界
 

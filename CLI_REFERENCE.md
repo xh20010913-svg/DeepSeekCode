@@ -55,6 +55,12 @@ deepseekcode --prompt "Summarize this repository" --json
 npm run start -- --project "D:\work\agent-test"
 ```
 
+GitHub network install is also supported for testing the current `main` branch:
+
+```bash
+npm install -g github:xh20010913-svg/DeepSeekCode
+```
+
 ## Environment
 
 | Variable | Purpose |

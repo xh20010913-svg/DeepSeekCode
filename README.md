@@ -19,7 +19,7 @@
 <p align="center">
   <a href="https://github.com/xh20010913-svg/DeepSeekCode"><img src="https://img.shields.io/github/stars/xh20010913-svg/DeepSeekCode.svg?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="GitHub stars"/></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/xh20010913-svg/DeepSeekCode.svg?style=flat-square&color=8b949e&labelColor=161b22" alt="license"/></a>
-  <a href="./package.json"><img src="https://img.shields.io/badge/version-v0.2.3-38bdf8.svg?style=flat-square&labelColor=161b22" alt="v0.2.3"/></a>
+  <a href="./package.json"><img src="https://img.shields.io/badge/version-v0.2.4-38bdf8.svg?style=flat-square&labelColor=161b22" alt="v0.2.4"/></a>
   <a href="./package.json"><img src="https://img.shields.io/badge/node-%3E%3D22-5fa04e.svg?style=flat-square&labelColor=161b22&logo=nodedotjs&logoColor=white" alt="Node >= 22"/></a>
 </p>
 
@@ -27,7 +27,7 @@
 
 DeepSeekCode is a DeepSeek-first local terminal agent runtime for project work, office artifacts, long-running tasks, and recoverable testing. It calls typed local tools through native DeepSeek function calling, persists run/task/action/artifact/usage state in SQLite, and can continue work after CLI restarts.
 
-v0.2.3 documents the current wired capability surface rather than treating partial work as finished. The main loop is:
+v0.2.4 documents the current wired capability surface rather than treating partial work as finished. The main loop is:
 
 ```text
 stable runtime prompt + context
@@ -59,12 +59,20 @@ Requirements:
 - A DeepSeek chat/completions endpoint that supports native tool calls.
 - A project directory for DeepSeekCode to inspect and edit.
 
-Install globally, then run `deepseekcode` inside any project directory. The current directory becomes the project, and runtime state is written to that directory's `.deepseekcode` folder:
+Install globally, then run `deepseekcode` inside any project directory. The current directory becomes the project, and runtime state is written to that directory's `.deepseekcode` folder.
+
+Official npm registry install:
 
 ```bash
 npm install -g deepseekcode
 cd D:\work\agent-test
 deepseekcode
+```
+
+GitHub network install is also supported for testing the current `main` branch:
+
+```bash
+npm install -g github:xh20010913-svg/DeepSeekCode
 ```
 
 You can still pass an explicit project path:
@@ -265,7 +273,7 @@ Reports include model, token usage, cache hit/miss, tool counts, artifacts, fail
 
 ## Still In Progress
 
-v0.2.3 is an install-command, default project/data directory, and startup shell-permission prompt quality hotfix. It does not claim the entire 24-item backend plan is finished. Work that remains active:
+v0.2.4 is an install-command, default project/data directory, GitHub network install, and startup shell-permission prompt quality hotfix. It does not claim the entire 24-item backend plan is finished. Work that remains active:
 
 - Full realistic scenario evaluation and self-repair coverage.
 - Background worker pool details for long tasks, queue recovery, cancel, retry, and resume.
@@ -285,7 +293,7 @@ npm run typecheck
 npm run build
 ```
 
-The repository also includes GitHub Actions CI for typecheck and build, plus GitHub Pages deployment for `website/`. v0.2.3 keeps the build helper present in the published repository.
+The repository also includes GitHub Actions CI for typecheck and build, plus GitHub Pages deployment for `website/`. v0.2.4 keeps the build helper present in the published repository.
 
 ## Release Boundary
 

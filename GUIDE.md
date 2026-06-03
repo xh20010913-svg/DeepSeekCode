@@ -10,6 +10,12 @@ cd D:\work\agent-test
 deepseekcode
 ```
 
+GitHub network install is also supported for testing the current `main` branch:
+
+```bash
+npm install -g github:xh20010913-svg/DeepSeekCode
+```
+
 `deepseekcode` is the primary installed command. `deepseek` is kept as a shorter alias. When no `--project` is passed, the current directory is the project. When no `--data-dir` is passed, runtime data is written to `<project>\.deepseekcode`.
 
 On Windows PowerShell, if the execution policy blocks npm's generated `deepseekcode.ps1` shim, run `deepseekcode.cmd`. In cmd, keep using `deepseekcode`.
