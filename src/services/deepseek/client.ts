@@ -200,12 +200,14 @@ export class DeepSeekClient implements DeepSeekProviderClient {
     contextSummary: string;
     feedback?: ActionExecutionReport;
     trajectory?: ActionPlanTurn[];
+    availableToolNames?: string[];
   }, options: ActionPlanOptions = {}): Promise<ActionEnvelope> {
     const messages = buildNativeToolPlanningMessages(input);
+    const planningTools = toolsForRequest(input.availableToolNames);
     const json = await this.requestJson({
       model: this.config.model,
       messages,
-      tools: toNativeFunctionTools(baseTools),
+      tools: toNativeFunctionTools(planningTools),
       tool_choice: "auto",
       temperature: 0.2,
       max_tokens: Math.max(this.config.maxOutputTokens ?? 1200, 2200),
@@ -337,6 +339,12 @@ export class DeepSeekClient implements DeepSeekProviderClient {
   }
 }
 
+function toolsForRequest(availableToolNames: string[] | undefined): typeof baseTools {
+  if (!availableToolNames || availableToolNames.length === 0) return baseTools;
+  const allowed = new Set(availableToolNames);
+  return baseTools.filter((tool) => allowed.has(tool.name));
+}
+
 function isInitialLocalToolPlan(input: {
   feedback?: ActionExecutionReport;
   trajectory?: ActionPlanTurn[];
@@ -361,6 +369,8 @@ export function buildNativeToolPlanningMessages(input: {
         "Use function tool calls for local work, exactly like ClaudeCode emits tool_use blocks.",
         "After tool results, continue with the next useful tool call or provide the final answer.",
         "Use at most 3 tool calls in one assistant turn; split large work into additional turns.",
+        "For large generated files, use a compact write_file first section followed by append_file chunks. Do not put a whole large artifact into one JSON tool argument.",
+        "When chunking files, preserve the target language or document syntax in the final assembled file.",
         "For ordinary chat or a completed task, answer normally without tool calls.",
       ].join("\n"),
     },

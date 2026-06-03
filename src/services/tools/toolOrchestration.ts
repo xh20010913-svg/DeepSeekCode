@@ -122,6 +122,9 @@ async function runOneTool(
         message: `${tool.name} is disabled`,
       }, options, startedAtMs);
     }
+    const beforeTool = await options.onBeforeTool?.(tool, input, context);
+    throwIfAborted(context.abortSignal);
+    if (beforeTool) return finish(input, beforeTool, options, startedAtMs);
     const permission = tool.checkPermissions(input, context);
     if (permission.behavior === "deny") {
       return finish(input, {
@@ -131,9 +134,6 @@ async function runOneTool(
       }, options, startedAtMs);
     }
     throwIfAborted(context.abortSignal);
-    const beforeTool = await options.onBeforeTool?.(tool, input, context);
-    throwIfAborted(context.abortSignal);
-    if (beforeTool) return finish(input, beforeTool, options, startedAtMs);
     const output = await tool.run(input, context);
     throwIfAborted(context.abortSignal);
     return finish(input, output.result, options, startedAtMs);

@@ -19,7 +19,7 @@
 <p align="center">
   <a href="https://github.com/xh20010913-svg/DeepSeekCode"><img src="https://img.shields.io/github/stars/xh20010913-svg/DeepSeekCode.svg?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="GitHub stars"/></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/xh20010913-svg/DeepSeekCode.svg?style=flat-square&color=8b949e&labelColor=161b22" alt="license"/></a>
-  <a href="./package.json"><img src="https://img.shields.io/badge/version-v0.2.1-38bdf8.svg?style=flat-square&labelColor=161b22" alt="v0.2.1"/></a>
+  <a href="./package.json"><img src="https://img.shields.io/badge/version-v0.2.2-38bdf8.svg?style=flat-square&labelColor=161b22" alt="v0.2.2"/></a>
   <a href="./package.json"><img src="https://img.shields.io/badge/node-%3E%3D22-5fa04e.svg?style=flat-square&labelColor=161b22&logo=nodedotjs&logoColor=white" alt="Node >= 22"/></a>
 </p>
 
@@ -27,7 +27,7 @@
 
 DeepSeekCode is a DeepSeek-first local terminal agent runtime for project work, office artifacts, long-running tasks, and recoverable testing. It calls typed local tools through native DeepSeek function calling, persists run/task/action/artifact/usage state in SQLite, and can continue work after CLI restarts.
 
-v0.2.1 documents the current wired capability surface rather than treating partial work as finished. The main loop is:
+v0.2.2 documents the current wired capability surface rather than treating partial work as finished. The main loop is:
 
 ```text
 stable runtime prompt + context
@@ -39,25 +39,17 @@ stable runtime prompt + context
 
 There is no model-facing ActionEnvelope JSON planner or JSON fallback. Internal schemas still validate tool arguments, state records, configuration, and reports.
 
-<p align="center">
-  <img src="assets/readme-runtime-terminal.png" alt="DeepSeekCode running in Windows Terminal" width="880"/>
-</p>
-
 ## Runtime Screenshots
 
-These assets are captured from real terminal windows running against `D:\code\DeepSeekTest`. The repository stores only the screenshots under `assets/`, not secrets, prompt audit files, or raw test artifacts.
+These screenshots come from real test windows in `D:\code\DeepSeekTest`: the agent startup screen, a real agent dialogue while it reviews generated artifacts, and the generated web artifact running in a browser. They do not include secrets, prompt audit files, or raw test artifacts.
 
-| Chinese TUI overview | `/doctor` |
+| Agent startup | Real agent work |
 | --- | --- |
-| ![Chinese TUI overview](assets/screenshots/tui-main.png) | ![/doctor](assets/screenshots/doctor.png) |
+| ![Agent startup](assets/screenshots/agent-start.png) | ![Real agent work](assets/screenshots/agent-working.png) |
 
-| `/tools` | `/memory search 中文默认` |
-| --- | --- |
-| ![/tools](assets/screenshots/tools.png) | ![/memory search 中文默认](assets/screenshots/memory-search.png) |
+Generated artifact running in the browser:
 
-| `/runs report` | Office/Web artifact summary |
-| --- | --- |
-| ![/runs report](assets/screenshots/runs-report.png) | ![Office/Web artifact summary](assets/screenshots/artifacts.png) |
+![Generated artifact running in the browser](assets/screenshots/artifact-running.png)
 
 ## Quickstart
 
@@ -253,7 +245,7 @@ Reports include model, token usage, cache hit/miss, tool counts, artifacts, fail
 
 ## Still In Progress
 
-v0.2.1 is a CI and public documentation quality hotfix. It does not claim the entire 24-item backend plan is finished. Work that remains active:
+v0.2.2 is a TUI permission, Backspace, website, and screenshot-reference quality hotfix. It does not claim the entire 24-item backend plan is finished. Work that remains active:
 
 - Full realistic scenario evaluation and self-repair coverage.
 - Background worker pool details for long tasks, queue recovery, cancel, retry, and resume.
@@ -273,7 +265,7 @@ npm run typecheck
 npm run build
 ```
 
-The repository also includes GitHub Actions CI for typecheck and build, plus GitHub Pages deployment for `website/`. v0.2.1 fixes the remote CI failure caused by the missing `scripts/copy-vendor.mjs` build script.
+The repository also includes GitHub Actions CI for typecheck and build, plus GitHub Pages deployment for `website/`. v0.2.2 keeps the build helper present in the published repository.
 
 ## Release Boundary
 

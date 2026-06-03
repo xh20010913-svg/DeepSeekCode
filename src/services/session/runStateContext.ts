@@ -115,10 +115,7 @@ export function buildRunStateContext(
 function selectRuns(state: StateStore, projectPath: string, maxRuns: number, nowMs: number): RunRecord[] {
   const selected: RunRecord[] = [];
   const seen = new Set<string>();
-  for (const run of [
-    ...state.listUnfinishedRuns(projectPath, maxRuns),
-    ...state.listRuns(maxRuns * 2),
-  ]) {
+  for (const run of state.listUnfinishedRuns(projectPath, maxRuns)) {
     if (seen.has(run.id)) continue;
     if (isFreshEmptyCurrentRun(run, nowMs)) continue;
     seen.add(run.id);

@@ -6,11 +6,12 @@ export interface ToolResultSummaryOptions {
   note?: string;
   maxResults?: number;
   maxMessageChars?: number;
+  maxContextChars?: number;
 }
 
 export function compactActionReport(
   report: ActionExecutionReport,
-  options: Pick<ToolResultSummaryOptions, "maxResults" | "maxMessageChars"> = {},
+  options: Pick<ToolResultSummaryOptions, "maxResults" | "maxMessageChars" | "maxContextChars"> = {},
 ): ActionExecutionReport {
   const maxResults = options.maxResults ?? 16;
   const maxMessageChars = options.maxMessageChars ?? 700;
@@ -21,7 +22,8 @@ export function compactActionReport(
     .sort((a, b) => a.index - b.index);
 
   const omitted = Math.max(0, report.results.length - important.length);
-  const compactResults = important.map(({ result }) => compactActionResult(result, maxMessageChars));
+  const maxContextChars = options.maxContextChars ?? 4000;
+  const compactResults = important.map(({ result }) => compactActionResult(result, maxMessageChars, maxContextChars));
   if (omitted > 0) {
     compactResults.push({
       action_type: "tool_result_summary",
@@ -71,13 +73,14 @@ export function scoreActionResult(result: ActionResult, index = 0, total = 1): n
   return score;
 }
 
-function compactActionResult(result: ActionResult, maxMessageChars: number): ActionResult {
+function compactActionResult(result: ActionResult, maxMessageChars: number, maxContextChars: number): ActionResult {
   return {
     action_type: result.action_type,
     status: result.status,
     path: result.path,
     artifact_kind: result.artifact_kind,
     message: result.message ? compactText(sanitizeToolMessage(result.message), maxMessageChars) : result.message,
+    context: result.context ? compactPreserveLines(result.context, maxContextChars) : undefined,
   };
 }
 
@@ -85,7 +88,8 @@ function formatActionResult(result: ActionResult, index: number): string {
   const target = result.path ? ` path=${result.path}` : "";
   const kind = result.artifact_kind ? ` kind=${result.artifact_kind}` : "";
   const message = result.message ? ` message=${compactText(result.message, 360)}` : "";
-  return `${index}. ${result.action_type} ${result.status}${target}${kind}${message}`;
+  const context = result.context ? ` context=${compactText(result.context, 360)}` : "";
+  return `${index}. ${result.action_type} ${result.status}${target}${kind}${message}${context}`;
 }
 
 function compactText(value: string | undefined, max: number): string {
@@ -93,6 +97,18 @@ function compactText(value: string | undefined, max: number): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (normalized.length <= max) return normalized;
   return `${normalized.slice(0, Math.max(0, max - 32)).trimEnd()} ... [truncated ${normalized.length - max} chars]`;
+}
+
+function compactPreserveLines(value: string, max: number): string {
+  const normalized = value.replace(/\r\n?/g, "\n").trim();
+  if (normalized.length <= max) return normalized;
+  const headChars = Math.floor(max * 0.7);
+  const tailChars = Math.max(0, max - headChars - 80);
+  return [
+    normalized.slice(0, headChars).trimEnd(),
+    `\n... [tool context truncated ${normalized.length - max} chars] ...\n`,
+    normalized.slice(-tailChars).trimStart(),
+  ].join("");
 }
 
 function sanitizeToolMessage(message: string): string {

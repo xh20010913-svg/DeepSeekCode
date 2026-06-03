@@ -3,6 +3,7 @@ import { ApprovalPanel } from "../../components/ApprovalPanel.js";
 import type { ApprovalStatus } from "../../state/sqlite.js";
 import type { Command } from "../../types/command.js";
 import { ApprovalService } from "../../services/approval/approvalService.js";
+import { markCustomPermissions } from "../../services/permissions/permissionProfiles.js";
 
 const APPROVAL_STATUSES = new Set<ApprovalStatus>(["pending", "approved", "rejected", "cancelled"]);
 
@@ -74,7 +75,11 @@ export const approvalCommand: Command = {
         return { message: "No pending tool approval found. Use /approval list pending to inspect older gates." };
       }
       const status = verb === "approve" ? "approved" : verb === "reject" ? "rejected" : "cancelled";
+      const rationale = rationaleParts.join(" ");
       const gate = service.decide(gateId, status, rationaleParts.join(" "));
+      if (status === "approved" && /\bshell-session\b/i.test(rationale) && isShellApprovalSummary(gate.summary)) {
+        markCustomPermissions(context.permissions).allowShell = true;
+      }
       return {
         message: `approval ${gate.status}`,
         display: React.createElement(ApprovalPanel, {
@@ -95,6 +100,10 @@ function resolveLatestApprovalGateId(service: ApprovalService, gateId: string): 
     .list("pending")
     .find((gate) => gate.subjectType !== "question" && gate.subjectType !== "plan")
     ?.id;
+}
+
+function isShellApprovalSummary(summary: string): boolean {
+  return /^(run_command|ssh_run|ssh_read_file|ssh_write_file|mcp_call)\b/.test(summary.trim());
 }
 
 export function formatApprovalGateList(gates: Array<{

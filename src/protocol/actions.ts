@@ -22,6 +22,15 @@ export const WriteFileActionSchema = z.object({
   overwrite: z.boolean().default(false),
 });
 
+export const AppendFileActionSchema = z.object({
+  type: z.literal("append_file"),
+  path: z.string().min(1),
+  content: z.string().optional(),
+  content_lines: z.array(z.string()).optional(),
+  encoding: z.string().default("utf-8"),
+  create: z.boolean().default(false),
+});
+
 export const ReadFileActionSchema = z.object({
   type: z.literal("read_file"),
   path: z.string().min(1),
@@ -247,6 +256,7 @@ export const InvokeAgentActionSchema = z.object({
 
 export const ActionRequestSchema = z.discriminatedUnion("type", [
   WriteFileActionSchema,
+  AppendFileActionSchema,
   ReadFileActionSchema,
   ListFilesActionSchema,
   GlobFilesActionSchema,
@@ -299,13 +309,13 @@ export const ActionEnvelopeSchema = z
     }
     value.actions.forEach((action, index) => {
       if (
-        (action.type === "write_file" || action.type === "ssh_write_file") &&
+        (action.type === "write_file" || action.type === "append_file" || action.type === "ssh_write_file") &&
         typeof action.content !== "string" &&
         !Array.isArray(action.content_lines)
       ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "write action requires content or content_lines",
+          message: `${action.type} requires content or content_lines`,
           path: ["actions", index, "content"],
         });
       }
@@ -330,6 +340,7 @@ export interface ActionResult {
   status: "succeeded" | "failed";
   path?: string;
   message?: string;
+  context?: string;
   artifact_kind?: ArtifactKind;
 }
 

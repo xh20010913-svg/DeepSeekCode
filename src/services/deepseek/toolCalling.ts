@@ -129,7 +129,7 @@ function parseToolArguments(call: NativeToolCall): Record<string, unknown> {
     return parsed as Record<string, unknown>;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Invalid arguments for tool ${call.function.name}: ${message}; raw=${compact(raw, 400)}`);
+    throw new Error(`Invalid arguments for tool ${call.function.name}: ${message}; ${malformedArgumentGuidance(call.function.name)} raw=${compact(raw, 400)}`);
   }
 }
 
@@ -149,6 +149,7 @@ function compactToolResult(result: ActionResult, report: ActionExecutionReport, 
     result.path ? `path=${result.path}` : "",
     result.artifact_kind ? `artifact_kind=${result.artifact_kind}` : "",
     result.message ? `message=${compact(result.message, 4000)}` : "",
+    result.context ? `context:\n${compactPreserveLines(result.context, 12000)}` : "",
     note ? `note=${compact(note, 1000)}` : "",
     report.final_message ? `batch=${compact(report.final_message, 1000)}` : "",
   ].filter(Boolean).join("\n");
@@ -156,6 +157,18 @@ function compactToolResult(result: ActionResult, report: ActionExecutionReport, 
 
 function compact(text: string, max: number): string {
   return text.replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function compactPreserveLines(text: string, max: number): string {
+  const normalized = text.replace(/\r\n?/g, "\n").trim();
+  if (normalized.length <= max) return normalized;
+  const headChars = Math.floor(max * 0.7);
+  const tailChars = Math.max(0, max - headChars - 80);
+  return [
+    normalized.slice(0, headChars).trimEnd(),
+    `\n... [tool context truncated ${normalized.length - max} chars] ...\n`,
+    normalized.slice(-tailChars).trimStart(),
+  ].join("");
 }
 
 function objectSchema(
@@ -200,10 +213,17 @@ const TOOL_PARAMETER_SCHEMAS: Record<string, JsonSchemaObject> = {
   }),
   write_file: objectSchema({
     path: string("Project-relative file path to write."),
-    content: string("Complete file content. Prefer content_lines for multiline text."),
-    content_lines: array(string("One line of file content."), "Lines joined by the runtime with newline characters."),
+    content: string("Complete compact file content. For large artifacts, write a compact first section and continue with append_file chunks. Keep the final assembled file valid for its target language or document format."),
+    content_lines: array(string("One line of file content."), "Lines joined by the runtime with newline characters. Keep this compact; use append_file for large artifacts.", undefined, 80),
     encoding: string("Text encoding; normally utf-8."),
     overwrite: bool("Overwrite an existing file. Requires a fresh read for stale-write safety.", false),
+  }, ["path"]),
+  append_file: objectSchema({
+    path: string("Project-relative file path to append to."),
+    content: string("Compact text chunk to append. Keep each chunk small enough for valid JSON tool arguments and preserve final file syntax."),
+    content_lines: array(string("One appended line."), "Lines joined by the runtime with newline characters. Keep each chunk compact.", undefined, 80),
+    encoding: string("Text encoding; normally utf-8."),
+    create: bool("Create the file if it does not exist. Prefer write_file for the initial skeleton.", false),
   }, ["path"]),
   glob_files: objectSchema({
     path: string("Project-relative search root."),
@@ -356,3 +376,13 @@ const TOOL_PARAMETER_SCHEMAS: Record<string, JsonSchemaObject> = {
     task: string("Task for the sub-agent."),
   }, ["name", "task"]),
 };
+
+function malformedArgumentGuidance(toolName: string): string {
+  if (toolName === "write_file" || toolName === "append_file" || toolName === "ssh_write_file") {
+    return [
+      "Large or multiline text was not valid JSON.",
+      "Retry with smaller native tool calls: write a compact skeleton first, then use append_file chunks under about 1200 characters, then validate_artifact.",
+    ].join(" ");
+  }
+  return "Retry with valid JSON arguments for the native function schema.";
+}

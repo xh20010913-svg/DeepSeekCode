@@ -8,6 +8,7 @@ export interface ToolPermissionContext {
   root: string;
   allowShell: boolean;
   allowBrowser: boolean;
+  shellApprovalOverride?: boolean;
   dataDir?: string;
   state?: StateStore;
   runId?: string;

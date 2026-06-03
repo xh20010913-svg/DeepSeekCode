@@ -40,6 +40,21 @@ export function writeFile(
   return target;
 }
 
+export function appendFile(
+  root: string,
+  relativePath: string,
+  content: string,
+  create: boolean,
+): string {
+  const target = safeJoin(root, relativePath);
+  if (!fs.existsSync(target)) {
+    if (!create) throw new Error(`file does not exist: ${relativePath}; create it with write_file first`);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+  }
+  fs.appendFileSync(target, content, "utf8");
+  return target;
+}
+
 export function readFile(root: string, relativePath: string): string {
   return fs.readFileSync(safeJoin(root, relativePath), "utf8");
 }

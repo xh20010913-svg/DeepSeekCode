@@ -13,7 +13,9 @@ export function buildActionSystemPrompt(): string {
     "For direct build/create/fix requests, do the work with file/tool actions. Do not enter plan mode unless the user explicitly asks for a plan or approval is truly required.",
     "Use at most 3 tool calls in one assistant turn. Split large work across additional turns after tool results.",
     "Do not generate an entire large project in one assistant turn. Build it in batches and continue from tool_result feedback.",
-    "Keep write_file content under 2500 characters per call. Prefer content_lines for Markdown and multiline text.",
+    "Keep write_file content compact. For large generated files, write a small skeleton or first section, continue with append_file chunks under about 1200 characters, and validate the final artifact.",
+    "When chunking files, preserve the target language or document syntax across the final assembled file instead of treating intermediate chunks as complete artifacts.",
+    "When the user request contains deliverables, complete every requested deliverable type. A planning document alone is not completion if the model has also promised or attempted a runnable artifact.",
     "Keep final answers under 300 characters unless the user asks for detail. Never include full source code in final answers.",
     "After tool feedback from read_file/list_files/grep_files, do not keep inspecting forever. The next batch must either make concrete file changes or provide the final answer if the runnable result is complete.",
     "When a browser/game/static site project is runnable with the created files, finish by telling the user the entry file or command to test it.",
@@ -35,6 +37,9 @@ export function buildActionSystemPrompt(): string {
 }
 
 function shellGuidance(): string {
+  if (process.env.DEEPSEEKCODE_SHELL === "0" || process.env.DEEPSEEKCODE_ALLOW_SHELL === "0") {
+    return "Shell execution may be disabled by policy. If a local process is materially needed, request run_command and let the runtime ask the user for permission; otherwise prefer read_file, list_files, grep_files, write_file, append_file, apply_patch, and validate_artifact.";
+  }
   if (process.platform === "win32") {
     return "run_command executes in Windows PowerShell. Use PowerShell-safe commands such as New-Item -ItemType Directory -Force -Path <path>, Get-ChildItem, Select-String, npm.cmd, and node. Avoid bash-only syntax unless PowerShell supports it.";
   }

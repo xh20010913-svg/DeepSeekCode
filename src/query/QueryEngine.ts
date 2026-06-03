@@ -1,4 +1,4 @@
-import type { RuntimeConfig } from "../bootstrap/config.js";
+﻿import type { RuntimeConfig } from "../bootstrap/config.js";
 import path from "node:path";
 import React, { type ReactNode } from "react";
 import { runSlashCommand } from "../commands/index.js";
@@ -6,10 +6,10 @@ import { CacheGuardPanel, buildCacheGuardPanelModel } from "../components/CacheG
 import { recordUsageSnapshot } from "../cost-tracker.js";
 import { buildContextBundle, contextBundlePrompt, type ContextBundle } from "../context/contextBundle.js";
 import { readProjectMemory } from "../memdir/projectMemory.js";
-import type { ActionPlanTurn, ChatMessage, DeepSeekProviderClient, UsageSnapshot } from "../protocol/provider.js";
-import type { ActionEnvelope, ActionExecutionReport, ActionRequest, ActionResult } from "../protocol/actions.js";
+import type { ActionPlanTurn, ChatMessage, DeepSeekProviderClient, TurnClassification, UsageSnapshot } from "../protocol/provider.js";
+import { artifactKindFromPath, type ActionEnvelope, type ActionExecutionReport, type ActionRequest, type ActionResult } from "../protocol/actions.js";
 import { ApprovalService } from "../services/approval/approvalService.js";
-import { resultRequiresApproval } from "../services/approval/approvalPolicy.js";
+import { resultRequiresApproval, toolApprovalSubjectId } from "../services/approval/approvalPolicy.js";
 import { RollingSummary } from "../services/compact/rollingSummary.js";
 import { auditCachePins } from "../services/cache/cachePinAudit.js";
 import { CachePinService } from "../services/cache/cachePins.js";
@@ -185,7 +185,7 @@ export class QueryEngine {
     if (!this.provider) {
       yield {
         type: "error",
-        text: "没有配置 DEEPSEEK_API_KEY。可以在项目 .env 里设置 DEEPSEEK_API_KEY，或先用 /doctor 检查配置。",
+        text: "DEEPSEEK_API_KEY is not configured. Set it in the project .env or run /doctor to inspect configuration.",
       };
       return;
     }
@@ -283,7 +283,7 @@ export class QueryEngine {
       let completed = false;
       let final = "";
       let actionError: unknown;
-      const actionLoop = this.runActionLoop(runId, trimmed, memoryRecall, (event) => {
+      const actionLoop = this.runActionLoop(runId, trimmed, classification, memoryRecall, (event) => {
         pendingEvents.push(event);
         wake?.();
       }, signal)
@@ -379,6 +379,7 @@ export class QueryEngine {
   private async runActionLoop(
     runId: string,
     userMessage: string,
+    classification: TurnClassification,
     memoryRecall?: TencentMemoryRecall,
     onEvent?: (event: QueryEvent) => void,
     signal?: AbortSignal,
@@ -386,7 +387,7 @@ export class QueryEngine {
     throwIfAborted(signal);
     const inference = new InferenceSettingsService(this.config.projectPath).effective();
     if (this.config.provider) this.config.provider.maxOutputTokens = inference.maxOutputTokens;
-    const actionBudget = contextBudgetFor(userMessage, inference);
+    const actionBudget = contextBudgetFor(userMessage, inference, classification);
     const projectMemory = readProjectMemory(this.config.projectPath);
     const initialContextBundle = buildContextBundle(this.config.projectPath, actionBudget.contextChars, userMessage);
     this.state.saveContextSnapshot(runId, "context_bundle_v1", {
@@ -422,8 +423,11 @@ export class QueryEngine {
     });
     let feedback: ActionExecutionReport | undefined = undefined;
     let finalMessage = "";
-    const maxActionTurns = 10;
+    const maxActionTurns = maxActionTurnsFor(inference, classification);
+    let consecutiveNoProgressTurns = 0;
     const trajectory: ActionPlanTurn[] = [];
+    const artifactContract = new Map<string, ArtifactExpectation>();
+    const deliveredArtifacts = new Set<string>();
 
     for (let attempt = 0; attempt < maxActionTurns; attempt += 1) {
       throwIfAborted(signal);
@@ -484,6 +488,7 @@ export class QueryEngine {
           contextSummary: "",
           feedback,
           trajectory,
+          availableToolNames: availableToolNamesForPermissions(this.permissions),
         }, {
           onReasoningDelta: (text) => {
             streamedPlanningReasoning = true;
@@ -515,6 +520,10 @@ export class QueryEngine {
           message,
         });
         const failureFeedback = actionPlanFailureFeedback(message);
+        recordArtifactExpectations(
+          artifactContract,
+          artifactExpectationsFromNativePlanFailure(message, this.config.projectPath),
+        );
         if (attempt + 1 >= maxActionTurns) {
           this.state.updateRunStatus(runId, "failed", failureFeedback.final_message);
           return withLatestRunDetails(failureFeedback.final_message);
@@ -547,17 +556,35 @@ export class QueryEngine {
         continue_work: envelope.continue_work ?? false,
         remaining_work: envelope.remaining_work ?? "",
       });
+      recordArtifactExpectations(
+        artifactContract,
+        artifactExpectationsFromEnvelope(envelope, this.config.projectPath),
+      );
 
       if (!envelope.needs_local_tools) {
+        const missingArtifacts = missingArtifactExpectations(artifactContract, deliveredArtifacts);
+        if (missingArtifacts.length > 0 && attempt + 1 < maxActionTurns) {
+          feedback = missingArtifactFeedback(missingArtifacts);
+          finalMessage = feedback.final_message;
+          this.state.appendEvent(runId, "artifact_contract_missing_before_final", {
+            attempt: attempt + 1,
+            missing: missingArtifacts,
+          });
+          continue;
+        }
         onEvent?.({ type: "status", phase: "finishing", text: "Preparing final response", detail: envelope.task_kind });
         this.state.updateRunStatus(runId, "succeeded", envelope.final_message);
-        return envelope.final_message || "已完成。";
+        return envelope.final_message || "Done.";
       }
 
       const hookService = new HookService(this.config.projectPath, this.config.dataDir);
-      const approvalPolicy = new ApprovalService(this.state).policy().manualToolApproval
-        ? { state: this.state, runId, mode: "manual" as const }
-        : undefined;
+      const approvalService = new ApprovalService(this.state);
+      const approvalPolicy = {
+        state: this.state,
+        runId,
+        mode: "manual" as const,
+        manualToolApproval: approvalService.policy().manualToolApproval,
+      };
       const executionOptions: ExecutionOptions = {
         shellPolicy: { ...defaultShellPolicy, allowShell: this.permissions.allowShell },
         browserPolicy: { allowBrowser: this.permissions.allowBrowser },
@@ -681,6 +708,7 @@ export class QueryEngine {
       this.persistToolResultSummary(runId, attempt + 1, compactCombinedReport);
       this.saveRunProgressCheckpoint(runId, attempt + 1, envelope, compactCombinedReport);
       this.state.recordActionResults(runId, combinedReport);
+      markDeliveredArtifacts(deliveredArtifacts, compactCombinedReport, this.config.projectPath);
       finalMessage = envelope.final_message || combinedReport.final_message;
       let trajectoryNote: string | undefined;
 
@@ -722,7 +750,28 @@ export class QueryEngine {
           });
           if (decidedGate?.status === "approved") {
             this.state.updateRunStatus(runId, "running", "user decision approved");
-            feedback = userDecisionFeedback(compactCombinedReport, decidedGate);
+            const approvedAction = actionForApprovalGate(envelope, decidedGate);
+            if (approvedAction) {
+              onEvent?.({
+                type: "status",
+                phase: "tool",
+                text: "Running approved tool",
+                detail: approvedAction.type,
+              });
+              const approvedReport = await executeEnvelope(this.config.projectPath, {
+                ...envelope,
+                final_message: "",
+                actions: [approvedAction],
+                continue_work: true,
+              }, executionOptions);
+              const compactApprovedReport = compactActionReport(approvedReport);
+              this.persistToolResultSummary(runId, attempt + 1, compactApprovedReport);
+              this.state.recordActionResults(runId, approvedReport);
+              markDeliveredArtifacts(deliveredArtifacts, compactApprovedReport, this.config.projectPath);
+              feedback = approvedReport;
+            } else {
+              feedback = userDecisionFeedback(compactCombinedReport, decidedGate);
+            }
             continue;
           }
           const status = decidedGate?.status ?? "cancelled";
@@ -736,7 +785,24 @@ export class QueryEngine {
 
       if (combinedReport.status === "succeeded") {
         const changedSomething = hasImplementationProgress(combinedReport);
+        consecutiveNoProgressTurns = changedSomething ? 0 : consecutiveNoProgressTurns + 1;
         const implementationExpected = expectsImplementation(envelope);
+        const missingArtifacts = missingArtifactExpectations(artifactContract, deliveredArtifacts);
+        if (!envelope.continue_work && missingArtifacts.length > 0) {
+          const message = `The model stopped before all promised artifacts were created: ${formatMissingArtifacts(missingArtifacts)}.`;
+          trajectoryNote = message;
+          pushTrajectory(trajectoryNote);
+          this.state.appendEvent(runId, "artifact_contract_missing_after_batch", {
+            attempt: attempt + 1,
+            missing: missingArtifacts,
+          });
+          if (attempt + 1 >= maxActionTurns) {
+            this.state.updateRunStatus(runId, "failed", message);
+            return withLatestRunDetails(message);
+          }
+          feedback = missingArtifactFeedback(missingArtifacts, compactCombinedReport.results);
+          continue;
+        }
         if (!envelope.continue_work && implementationExpected && !changedSomething) {
           const message = "The model claimed a file-change task was complete without changing or validating any files.";
           trajectoryNote = message;
@@ -767,9 +833,20 @@ export class QueryEngine {
             attempt: attempt + 1,
             remaining_work: remainingWork,
             implementation_progress: changedSomething,
+            consecutive_no_progress_turns: consecutiveNoProgressTurns,
           });
           pushTrajectory(implementationExpected && !changedSomething ? "Previous batch had no implementation progress." : undefined);
+          if (implementationExpected && consecutiveNoProgressTurns >= 3) {
+            const message = [
+              summarizeReport(finalMessage, runId, this.state.getRun(runId)?.actionCount ?? combinedReport.results.length),
+              "Paused because the last three tool batches made no implementation progress.",
+              `remaining=${remainingWork}`,
+            ].join("\n");
+            this.state.updateRunStatus(runId, "paused", message);
+            return message;
+          }
           if (attempt + 1 >= maxActionTurns) {
+            const missingArtifacts = missingArtifactExpectations(artifactContract, deliveredArtifacts);
             if (hasCompletionSignal(finalMessage, combinedReport)) {
               this.state.appendEvent(runId, "action_batch_limit_completed", {
                 attempt: attempt + 1,
@@ -783,6 +860,15 @@ export class QueryEngine {
                 this.state.getRun(runId)?.actionCount ?? combinedReport.results.length,
                 combinedReport,
               );
+            }
+            if (missingArtifacts.length > 0) {
+              const message = [
+                summarizeReport(finalMessage, runId, this.state.getRun(runId)?.actionCount ?? combinedReport.results.length),
+                "Stopped after reaching the automatic batch limit with promised artifacts still missing.",
+                `missing=${formatMissingArtifacts(missingArtifacts)}`,
+              ].join("\n");
+              this.state.updateRunStatus(runId, "failed", message);
+              return withLatestRunDetails(message);
             }
             const message = [
               summarizeReport(finalMessage, runId, this.state.getRun(runId)?.actionCount ?? combinedReport.results.length),
@@ -821,7 +907,7 @@ export class QueryEngine {
     }
 
     this.state.updateRunStatus(runId, "failed", finalMessage || "action loop failed");
-    return withLatestRunDetails("执行失败。");
+    return withLatestRunDetails("Execution failed.");
   }
 
   private buildChatMessages(userMessage: string, memoryRecall?: TencentMemoryRecall): ChatMessage[] {
@@ -1166,8 +1252,10 @@ export class QueryEngine {
       `profile=${this.permissions.profile ?? this.config.permissionProfile}`,
       `shell=${this.permissions.allowShell ? "enabled" : "disabled"}`,
       `browser=${this.permissions.allowBrowser ? "enabled" : "disabled"}`,
-      "When shell=disabled, do not plan run_command, ssh_run, or mcp_call actions that require shell.",
-      "Prefer write_file/apply_patch/validate_artifact for local file work that does not require a process.",
+      "When shell=disabled, run_command/ssh/MCP stdio actions are still available but require an interactive permission gate before execution.",
+      "Request shell tools only when a local process is materially needed, such as running tests, builds, servers, package managers, or structured command inspection.",
+      "Prefer read_file/list_files/grep_files/write_file/append_file/apply_patch/validate_artifact for local file work that does not require a process.",
+      "For large generated HTML/CSS/JS, write a compact skeleton and use append_file chunks; use run_command only after permission if process execution is needed.",
     ].join("\n");
   }
 
@@ -1210,10 +1298,10 @@ function summarizeReport(
 
 function completionMessage(finalMessage: string, report?: ActionExecutionReport): string {
   const text = finalMessage.trim();
-  if (!report || report.status !== "succeeded") return text || "已完成。";
+  if (!report || report.status !== "succeeded") return text || "Done.";
   if (text && !looksOngoingClean(text)) return text;
   const changed = uniquePaths(report.results
-    .filter((result) => ["write_file", "apply_patch", "create_docx", "create_pptx"].includes(result.action_type))
+    .filter((result) => ["write_file", "append_file", "apply_patch", "create_docx", "create_pptx"].includes(result.action_type))
     .map((result) => result.path)
     .filter((value): value is string => Boolean(value)));
   const validated = uniquePaths(report.results
@@ -1221,9 +1309,9 @@ function completionMessage(finalMessage: string, report?: ActionExecutionReport)
     .map((result) => result.path)
     .filter((value): value is string => Boolean(value)));
   return [
-    "已完成请求。",
-    changed.length ? `产物：${changed.slice(0, 6).join(", ")}` : "",
-    validated.length ? `验证通过：${validated.slice(0, 6).join(", ")}` : "",
+    "Request completed.",
+    changed.length ? `Artifacts: ${changed.slice(0, 6).join(", ")}` : "",
+    validated.length ? `Validated: ${validated.slice(0, 6).join(", ")}` : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -1233,7 +1321,7 @@ function legacyMojibakeCompletionMessage(finalMessage: string, report?: ActionEx
   if (!report || report.status !== "succeeded") return text || "已完成。";
   if (text && !looksOngoing(text)) return text;
   const changed = uniquePaths(report.results
-    .filter((result) => ["write_file", "apply_patch", "create_docx", "create_pptx"].includes(result.action_type))
+    .filter((result) => ["write_file", "append_file", "apply_patch", "create_docx", "create_pptx"].includes(result.action_type))
     .map((result) => result.path)
     .filter((value): value is string => Boolean(value)));
   const validated = uniquePaths(report.results
@@ -1253,7 +1341,7 @@ function looksOngoing(text: string): boolean {
 
 */
 function looksOngoingClean(text: string): boolean {
-  return /正在|准备|将要|接下来|需要继续|尝试|验证中|creating|validating|will\s+/i.test(text);
+  return /姝ｅ湪|鍑嗗|灏嗚|鎺ヤ笅鏉闇€瑕佺户缁瓅灏濊瘯|楠岃瘉涓瓅creating|validating|will\s+/i.test(text);
 }
 
 function withLatestRunDetails(message: string): string {
@@ -1273,13 +1361,33 @@ function hasUsageTokens(usage: UsageSnapshot): boolean {
   ].some((value) => typeof value === "number" && value > 0);
 }
 
-function contextBudgetFor(userMessage: string, inference: InferenceBudget): {
+function maxActionTurnsFor(inference: InferenceBudget, classification: TurnClassification): number {
+  const override = Number.parseInt(process.env.DEEPSEEKCODE_MAX_ACTION_TURNS ?? "", 10);
+  if (Number.isFinite(override) && override >= 1) return Math.min(Math.max(override, 1), 120);
+
+  if (classification.task_kind === "multi_agent") return effortMaxTurns(inference, 40, 56, 80);
+  if (classification.task_kind === "document" || classification.task_kind === "browser" || classification.task_kind === "research") {
+    return effortMaxTurns(inference, 28, 40, 64);
+  }
+  if (classification.task_kind === "file_change" || classification.task_kind === "command") {
+    return effortMaxTurns(inference, 24, 36, 56);
+  }
+  return effortMaxTurns(inference, 14, 22, 32);
+}
+
+function effortMaxTurns(inference: InferenceBudget, low: number, normal: number, max: number): number {
+  if (inference.effort === "low") return low;
+  if (inference.effort === "max") return max;
+  if (inference.effort === "high") return Math.max(normal, Math.floor((normal + max) / 2));
+  return normal;
+}
+
+function contextBudgetFor(userMessage: string, inference: InferenceBudget, classification?: TurnClassification): {
   mode: "minimal" | "standard" | "deep";
   contextChars: number;
   dynamicChars: number;
   reason: string;
 } {
-  const lower = userMessage.toLowerCase();
   if (explicitlyRequestsReadOnlyLocalTool(userMessage)) {
     return {
       mode: "minimal",
@@ -1288,50 +1396,12 @@ function contextBudgetFor(userMessage: string, inference: InferenceBudget): {
       reason: "explicit read-only tool request",
     };
   }
-  const deepMarkers = [
-    "继续",
-    "大型",
-    "项目",
-    "多agent",
-    "多 agent",
-    "agent",
-    "ppt",
-    "pptx",
-    "docx",
-    "word",
-    "报告",
-    "答辩",
-    "课程",
-    "查资料",
-    "浏览器",
-    "browser",
-    "修复",
-    "bug",
-    "review",
-    "refactor",
-    "architecture",
-    "website",
-    "web app",
-  ];
-  if (deepMarkers.some((marker) => lower.includes(marker))) {
+  if (classification && deepContextTaskKinds.has(classification.task_kind)) {
     return {
       mode: "deep",
       contextChars: inference.actionContextChars,
       dynamicChars: inference.actionDynamicChars,
-      reason: "large or research-heavy task",
-    };
-  }
-
-  const createsSingleFile =
-    /(创建|生成|写入|create|write|generate)/i.test(userMessage) &&
-    /\.(md|markdown|html|json|txt|csv|docx|pptx)\b/i.test(userMessage);
-  const validationOnly = /(验证|validate|检查).*\.(md|markdown|html|json|txt|docx|pptx|pdf)\b/i.test(userMessage);
-  if (createsSingleFile || validationOnly) {
-    return {
-      mode: "minimal",
-      contextChars: Math.min(inference.actionContextChars, 4_000),
-      dynamicChars: Math.min(inference.actionDynamicChars, 8_000),
-      reason: createsSingleFile ? "single-file artifact request" : "artifact validation request",
+      reason: `model classified ${classification.task_kind}`,
     };
   }
 
@@ -1341,6 +1411,31 @@ function contextBudgetFor(userMessage: string, inference: InferenceBudget): {
     dynamicChars: Math.min(inference.actionDynamicChars, 16_000),
     reason: "default compact context",
   };
+}
+
+const deepContextTaskKinds = new Set([
+  "file_change",
+  "command",
+  "browser",
+  "document",
+  "research",
+  "multi_agent",
+  "computer_use",
+]);
+
+const shellToolNames = new Set(["run_command", "ssh_run", "ssh_read_file", "ssh_write_file"]);
+const browserToolNames = new Set([
+  "browser_session_start",
+  "browser_snapshot",
+  "browser_screenshot",
+  "browser_click",
+  "browser_type",
+]);
+
+function availableToolNamesForPermissions(permissions: RuntimePermissionState): string[] {
+  return baseTools
+    .map((tool) => tool.name)
+    .filter((name) => permissions.allowBrowser || !browserToolNames.has(name));
 }
 
 function workspaceContextPromptBlocks(
@@ -1372,6 +1467,7 @@ function hasImplementationProgress(report: ActionExecutionReport): boolean {
     result.status === "succeeded" && (
       [
         "write_file",
+        "append_file",
         "apply_patch",
         "run_command",
         "ssh_write_file",
@@ -1411,6 +1507,150 @@ function expectsImplementation(envelope: { task_kind?: string; acceptance_criter
   return /create|write|modify|update|patch|validate|implement|integrate|生成|创建|写入|修改|更新|补丁|验证|实现|集成/.test(criteria);
 }
 
+interface ArtifactExpectation {
+  path: string;
+  kind: string;
+  source: string;
+}
+
+const artifactProducingActionTypes = new Set([
+  "write_file",
+  "append_file",
+  "apply_patch",
+  "ssh_write_file",
+  "browser_screenshot",
+  "create_docx",
+  "create_pptx",
+  "create_pdf",
+]);
+
+const artifactProducingResultTypes = new Set([
+  "write_file",
+  "append_file",
+  "apply_patch",
+  "ssh_write_file",
+  "browser_screenshot",
+  "create_docx",
+  "create_pptx",
+  "create_pdf",
+]);
+
+function recordArtifactExpectations(
+  contract: Map<string, ArtifactExpectation>,
+  expectations: ArtifactExpectation[],
+): void {
+  for (const expectation of expectations) {
+    if (!shouldValidateArtifactKind(expectation.kind)) continue;
+    const key = artifactExpectationKey(expectation);
+    if (!contract.has(key)) contract.set(key, expectation);
+  }
+}
+
+function artifactExpectationsFromEnvelope(
+  envelope: ActionEnvelope,
+  projectPath: string,
+): ArtifactExpectation[] {
+  const expectations: ArtifactExpectation[] = [];
+  for (const action of envelope.actions) {
+    if (!artifactProducingActionTypes.has(action.type)) continue;
+    const target = actionPath(action);
+    if (!target) continue;
+    const normalized = normalizeProjectRelativePath(projectPath, target);
+    expectations.push({
+      path: normalized,
+      kind: artifactKindFromPath(normalized),
+      source: action.type,
+    });
+  }
+  return expectations;
+}
+
+function artifactExpectationsFromNativePlanFailure(
+  message: string,
+  projectPath: string,
+): ArtifactExpectation[] {
+  const toolMatch = message.match(/Invalid arguments for tool\s+([A-Za-z0-9_]+)/);
+  const toolName = toolMatch?.[1] ?? "native_tool_plan";
+  const pathMatch = message.match(/"path"\s*:\s*"((?:\\.|[^"\\])*)"/);
+  if (!pathMatch?.[1]) return [];
+  const decodedPath = decodeJsonStringLiteral(pathMatch[1]);
+  if (!decodedPath) return [];
+  const normalized = normalizeProjectRelativePath(projectPath, decodedPath);
+  return [{
+    path: normalized,
+    kind: artifactKindFromPath(normalized),
+    source: `${toolName}:invalid_arguments`,
+  }];
+}
+
+function markDeliveredArtifacts(
+  delivered: Set<string>,
+  report: ActionExecutionReport,
+  projectPath: string,
+): void {
+  for (const result of report.results) {
+    if (result.status !== "succeeded" || !result.path) continue;
+    if (!artifactProducingResultTypes.has(result.action_type) && result.action_type !== "validate_artifact") continue;
+    const normalized = normalizeProjectRelativePath(projectPath, result.path);
+    const kind = result.artifact_kind ?? artifactKindFromPath(normalized);
+    delivered.add(artifactExpectationKey({ path: normalized, kind }));
+  }
+}
+
+function missingArtifactExpectations(
+  contract: Map<string, ArtifactExpectation>,
+  delivered: Set<string>,
+): ArtifactExpectation[] {
+  return [...contract.values()].filter((expectation) => !delivered.has(artifactExpectationKey(expectation)));
+}
+
+function missingArtifactFeedback(
+  missingArtifacts: ArtifactExpectation[],
+  previousResults: ActionResult[] = [],
+): ActionExecutionReport {
+  return {
+    status: "failed",
+    final_message: [
+      `Promised artifact(s) are still missing: ${formatMissingArtifacts(missingArtifacts)}.`,
+      "Continue from tool_result feedback. Use native tools to create the missing artifact files, split large content into compact write_file/append_file chunks, then validate_artifact when applicable.",
+      "If the artifact cannot be produced, explain the exact blocker instead of claiming completion.",
+    ].join("\n"),
+    results: previousResults.length
+      ? previousResults
+      : missingArtifacts.map((artifact) => ({
+          action_type: "artifact_contract",
+          status: "failed" as const,
+          path: artifact.path,
+          artifact_kind: shouldValidateArtifactKind(artifact.kind) ? artifact.kind as ActionResult["artifact_kind"] : undefined,
+          message: `missing promised artifact from ${artifact.source}`,
+        })),
+  };
+}
+
+function formatMissingArtifacts(missingArtifacts: ArtifactExpectation[]): string {
+  return missingArtifacts
+    .slice(0, 6)
+    .map((artifact) => `${artifact.path} (${artifact.kind}, from ${artifact.source})`)
+    .join(", ");
+}
+
+function artifactExpectationKey(expectation: Pick<ArtifactExpectation, "path" | "kind">): string {
+  return `${expectation.kind}:${expectation.path.replaceAll("\\", "/")}`;
+}
+
+function actionPath(action: ActionRequest): string | undefined {
+  const candidate = action as Partial<Record<"path", unknown>>;
+  return typeof candidate.path === "string" ? candidate.path : undefined;
+}
+
+function decodeJsonStringLiteral(value: string): string | undefined {
+  try {
+    return JSON.parse(`"${value}"`) as string;
+  } catch {
+    return value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+}
+
 function resultRequiresUserDecision(result: ActionResult): boolean {
   return resultRequiresApproval(result)
     || Boolean(result.message?.startsWith("Question awaiting user answer."));
@@ -1422,7 +1662,8 @@ function actionPlanFailureFeedback(message: string): ActionExecutionReport {
     final_message: [
       `Provider native tool planning failed before local tool execution: ${message}`,
       "Continue like ClaudeCode after tool_result feedback: retry with valid native tool calls instead of ending the task.",
-      "Use content_lines for multiline files, keep the next batch compact, and split remaining files across later tool-call turns.",
+      "If a large write_file/append_file argument failed JSON validation, create the target with a tiny write_file skeleton, append compact chunks under about 1200 characters, then validate_artifact.",
+      "If a failed tool call named an artifact path, that path is part of the current artifact contract; produce that promised artifact or explain the exact blocker.",
     ].join("\n"),
     results: [{
       action_type: "native_tool_plan",
@@ -1500,6 +1741,11 @@ function userDecisionFeedback(
   };
 }
 
+function actionForApprovalGate(envelope: ActionEnvelope, gate: ApprovalGateRecord): ActionRequest | undefined {
+  if (gate.subjectType !== "tool_action") return undefined;
+  return envelope.actions.find((action) => toolApprovalSubjectId(action) === gate.subjectId);
+}
+
 function asksForArtifactValidation(userMessage: string): boolean {
   return /验证|验收|确认|检查|validate|verify|artifact|产物|Office|PPTX?|DOCX?|PDF|HTML|Markdown/i.test(userMessage);
 }
@@ -1574,7 +1820,7 @@ function formatTencentMemoryRecall(recall?: TencentMemoryRecall): string {
 
 function explicitlyRequestsLocalTool(userMessage: string): boolean {
   const lower = userMessage.toLowerCase();
-  if (!/(call|invoke|use|run|调用|使用|执行|必须调用|必须使用).{0,80}(tool|工具|tdai_|read_file|write_file|run_command)/i.test(userMessage)) {
+  if (!/(call|invoke|use|run|璋冪敤|浣跨敤|鎵ц|蹇呴』璋冪敤|蹇呴』浣跨敤).{0,80}(tool|宸ュ叿|tdai_|read_file|write_file|run_command)/i.test(userMessage)) {
     return false;
   }
   return baseTools.some((tool) => lower.includes(tool.name.toLowerCase()));

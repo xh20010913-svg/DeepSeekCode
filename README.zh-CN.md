@@ -20,7 +20,7 @@
 
 DeepSeekCode 是一个 DeepSeek 优先的本地终端 Agent 运行时，用于本地项目开发、办公文档生成、长任务协作和可恢复测试。它通过 DeepSeek native function calling 调用本地 typed tools，把 run、task、action、artifact、usage 写入 SQLite，并支持 CLI 重启后的继续执行。
 
-v0.2.1 公开说明以真实接入能力为准。当前主链路如下：
+v0.2.2 公开说明以真实接入能力为准。当前主链路如下：
 
 ```text
 稳定 runtime prompt + 上下文
@@ -32,25 +32,17 @@ v0.2.1 公开说明以真实接入能力为准。当前主链路如下：
 
 模型不再通过大块 ActionEnvelope JSON 来规划工具，也没有 JSON fallback。内部仍然保留 Zod/schema/JSON，用于工具参数校验、配置、状态和测试报告。
 
-<p align="center">
-  <img src="assets/readme-runtime-terminal.png" alt="DeepSeekCode running in Windows Terminal" width="880"/>
-</p>
-
 ## 运行截图
 
-这些截图来自在 `D:\code\DeepSeekTest` 上实际启动的终端窗口，截图文件只保存在仓库 `assets/` 下，不包含密钥、prompt audit 或测试产物原文。
+下面三张图来自 `D:\code\DeepSeekTest` 的真实测试窗口：启动界面、agent 真实对话干活过程、以及生成网页产物在浏览器中的运行画面。截图不包含密钥、prompt audit 或测试产物原文。
 
-| TUI 中文主界面 | `/doctor` |
+| Agent 启动界面 | Agent 真实对话干活 |
 | --- | --- |
-| ![TUI 中文主界面](assets/screenshots/tui-main.png) | ![/doctor](assets/screenshots/doctor.png) |
+| ![Agent 启动界面](assets/screenshots/agent-start.png) | ![Agent 真实对话干活](assets/screenshots/agent-working.png) |
 
-| `/tools` | `/memory search 中文默认` |
-| --- | --- |
-| ![/tools](assets/screenshots/tools.png) | ![/memory search 中文默认](assets/screenshots/memory-search.png) |
+产物运行截图：
 
-| `/runs report` | Office/Web 产物摘要 |
-| --- | --- |
-| ![/runs report](assets/screenshots/runs-report.png) | ![Office/Web 产物摘要](assets/screenshots/artifacts.png) |
+![生成网页产物运行截图](assets/screenshots/artifact-running.png)
 
 ## 快速开始
 
@@ -246,7 +238,7 @@ npm run start -- --project "D:\work\agent-test" --permission-profile dev
 
 ## 下一步仍在完善
 
-v0.2.1 是 CI 和公开说明质量热修，不宣称 24 项全量优化已经完成。后续仍会继续推进：
+v0.2.2 是 TUI 权限交互、Backspace、官网和截图引用的发布质量修复，不宣称 24 项全量优化已经完成。后续仍会继续推进：
 
 - 全量真实场景评测和失败后自修复覆盖。
 - 长任务后台 worker pool、队列恢复、cancel/retry/resume 细节。
@@ -264,7 +256,7 @@ npm run typecheck
 npm run build
 ```
 
-仓库包含 typecheck/build CI 和 website GitHub Pages 部署；v0.2.1 修复了远端 CI 缺少 `scripts/copy-vendor.mjs` 的问题。
+仓库包含 typecheck/build CI 和 website GitHub Pages 部署；v0.2.2 继续保持 CI 构建脚本在发布仓库内可用。
 
 ## 发布边界
 

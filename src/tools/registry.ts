@@ -21,6 +21,7 @@ import {
   ExitPlanModeActionSchema,
   GlobFilesActionSchema,
   GrepFilesActionSchema,
+  AppendFileActionSchema,
   InvokeAgentActionSchema,
   InvokeSkillActionSchema,
   ListFilesActionSchema,
@@ -42,6 +43,7 @@ import {
   type ActionRequest,
 } from "../protocol/actions.js";
 import { loadAgent } from "../agents/loader.js";
+import { hasApprovedToolAction } from "../services/approval/approvalPolicy.js";
 import { McpService } from "../services/mcp/mcpService.js";
 import { BrowserTrajectoryRecorder } from "../services/browser/browserTrajectory.js";
 import { PlanModeService } from "../services/plans/planModeService.js";
@@ -53,10 +55,10 @@ import { TodoService, formatTodoList } from "../services/todos/todoService.js";
 import { loadSkill } from "../skills/loader.js";
 import { summarizeValidation, validateArtifact } from "./artifact.js";
 import { startBrowserSession } from "./browser.js";
-import { applyTextPatch, globFiles, grepFiles, listFiles, readFileForTool, writeFile } from "./fs.js";
+import { appendFile, applyTextPatch, globFiles, grepFiles, listFiles, readFileForTool, writeFile } from "./fs.js";
 import { createDocxArtifact, createPptxArtifact } from "./officeArtifacts.js";
 import { safeJoin } from "./pathSafety.js";
-import { defaultShellPolicy, runCommand, summarizeCommand } from "./shell.js";
+import { defaultShellPolicy, runCommand, summarizeCommand, type CommandOutput } from "./shell.js";
 
 export const baseTools: Tools = [
   buildTool({
@@ -78,6 +80,7 @@ export const baseTools: Tools = [
           status: "succeeded",
           path: input.path,
           message: output.message,
+          context: output.content,
         },
       };
     },
@@ -100,6 +103,7 @@ export const baseTools: Tools = [
           status: "succeeded",
           path: relativePath,
           message: `${entries.length} entries`,
+          context: entries.map((entry) => `${entry.kind}\t${entry.path}`).join("\n"),
         },
       };
     },
@@ -133,6 +137,28 @@ export const baseTools: Tools = [
     },
   }),
   buildTool({
+    name: "append_file",
+    displayName: "Append",
+    description: "Append a compact UTF-8 text chunk to a project file. Use this after write_file for large HTML, CSS, JS, Markdown, or other generated artifacts.",
+    inputSchema: AppendFileActionSchema,
+    concurrencySafe: false,
+    destructive: true,
+    run(input, context) {
+      const content = actionContent(input);
+      const target = appendFile(context.root, input.path, content, Boolean(input.create));
+      context.fileStateCache?.rememberRead(context.root, input.path);
+      return {
+        result: {
+          action_type: input.type,
+          status: "succeeded",
+          path: target,
+          message: `${content.length} chars appended`,
+          artifact_kind: artifactKindFromPath(input.path),
+        },
+      };
+    },
+  }),
+  buildTool({
     name: "glob_files",
     displayName: "Glob",
     description: "Find project files by a wildcard pattern such as **/*.ts.",
@@ -148,6 +174,7 @@ export const baseTools: Tools = [
           status: "succeeded",
           path: input.path ?? "",
           message: matches.join("\n") || "no matches",
+          context: matches.join("\n") || "no matches",
         },
       };
     },
@@ -174,6 +201,7 @@ export const baseTools: Tools = [
           status: "succeeded",
           path: input.path ?? "",
           message: matches.map((match) => `${match.path}:${match.line}: ${match.text}`).join("\n") || "no matches",
+          context: matches.map((match) => `${match.path}:${match.line}: ${match.text}`).join("\n") || "no matches",
         },
       };
     },
@@ -211,7 +239,7 @@ export const baseTools: Tools = [
     concurrencySafe: false,
     destructive: true,
     permissions(_input, context) {
-      if (!context.allowShell) {
+      if (!context.allowShell && !hasApprovedParsedToolAction(context, _input)) {
         return {
           behavior: "deny",
           message: "Shell execution is disabled. Start with --allow-shell or run /shell on.",
@@ -222,7 +250,7 @@ export const baseTools: Tools = [
     async run(input, context) {
       const output = await runCommand(context.root, input.command, input.cwd ?? "", input.timeout_ms ?? 30_000, {
         ...defaultShellPolicy,
-        allowShell: context.allowShell,
+        allowShell: context.allowShell || hasApprovedParsedToolAction(context, input),
       }, {
         signal: context.abortSignal,
       });
@@ -233,6 +261,7 @@ export const baseTools: Tools = [
           status: output.exitCode === 0 && !output.timedOut ? "succeeded" : "failed",
           path: output.cwd,
           message: summarizeCommand(output),
+          context: commandContext(output),
         },
       };
     },
@@ -245,7 +274,7 @@ export const baseTools: Tools = [
     concurrencySafe: false,
     destructive: true,
     permissions(_input, context) {
-      if (!context.allowShell) {
+      if (!context.allowShell && !hasApprovedParsedToolAction(context, _input)) {
         return {
           behavior: "deny",
           message: "SSH execution is disabled. Start with --allow-shell, /shell on, or /permissions profile dev.",
@@ -267,7 +296,7 @@ export const baseTools: Tools = [
         };
       }
       const output = await runSshCommand(profile, input.command, {
-        allowShell: context.allowShell,
+        allowShell: context.allowShell || hasApprovedParsedToolAction(context, input),
         timeoutMs: input.timeout_ms,
         maxOutputChars: defaultShellPolicy.maxOutputChars,
         signal: context.abortSignal,
@@ -292,7 +321,7 @@ export const baseTools: Tools = [
     readOnly: true,
     concurrencySafe: false,
     permissions(_input, context) {
-      if (!context.allowShell) {
+      if (!context.allowShell && !hasApprovedParsedToolAction(context, _input)) {
         return {
           behavior: "deny",
           message: "SSH file access is disabled. Start with --allow-shell, /shell on, or /permissions profile dev.",
@@ -314,7 +343,7 @@ export const baseTools: Tools = [
         };
       }
       const result = await readRemoteTextFile(profile, input.path, {
-        allowShell: context.allowShell,
+        allowShell: context.allowShell || hasApprovedParsedToolAction(context, input),
         timeoutMs: input.timeout_ms,
         maxOutputChars: defaultShellPolicy.maxOutputChars,
         signal: context.abortSignal,
@@ -339,7 +368,7 @@ export const baseTools: Tools = [
     concurrencySafe: false,
     destructive: true,
     permissions(_input, context) {
-      if (!context.allowShell) {
+      if (!context.allowShell && !hasApprovedParsedToolAction(context, _input)) {
         return {
           behavior: "deny",
           message: "SSH file access is disabled. Start with --allow-shell, /shell on, or /permissions profile dev.",
@@ -361,7 +390,7 @@ export const baseTools: Tools = [
         };
       }
       const result = await writeRemoteTextFile(profile, input.path, actionContent(input), {
-        allowShell: context.allowShell,
+        allowShell: context.allowShell || hasApprovedParsedToolAction(context, input),
         timeoutMs: input.timeout_ms,
         maxOutputChars: defaultShellPolicy.maxOutputChars,
         overwrite: input.overwrite,
@@ -394,7 +423,7 @@ export const baseTools: Tools = [
       } catch {
         requiresShell = false;
       }
-      if (requiresShell && !context.allowShell) {
+      if (requiresShell && !context.allowShell && !hasApprovedParsedToolAction(context, input)) {
         return {
           behavior: "deny",
           message: "MCP stdio calls require shell execution. Start with --allow-shell or run /shell on.",
@@ -405,7 +434,7 @@ export const baseTools: Tools = [
     async run(input, context) {
       const service = new McpService(context.root);
       const output = await service.callTool(input.server, input.tool, input.arguments ?? {}, {
-        allowShell: context.allowShell,
+        allowShell: context.allowShell || hasApprovedParsedToolAction(context, input),
         timeoutMs: input.timeout_ms,
         signal: context.abortSignal,
       });
@@ -1039,10 +1068,28 @@ export const baseTools: Tools = [
   }),
 ];
 
+function commandContext(output: CommandOutput): string {
+  return [
+    `cwd=${output.cwd}`,
+    `exitCode=${output.exitCode ?? "unknown"}`,
+    output.timedOut ? "timedOut=true" : "",
+    output.stdout.trim() ? `<stdout>\n${output.stdout.trim()}\n</stdout>` : "",
+    output.stderr.trim() ? `<stderr>\n${output.stderr.trim()}\n</stderr>` : "",
+  ].filter(Boolean).join("\n");
+}
+
 function actionContent(input: { content?: string; content_lines?: string[] }): string {
   if (typeof input.content === "string") return input.content;
   if (Array.isArray(input.content_lines)) return input.content_lines.join("\n");
   throw new Error("write action requires content or content_lines");
+}
+
+function hasApprovedParsedToolAction(
+  context: { state?: Parameters<typeof hasApprovedToolAction>[0] },
+  input: unknown,
+): boolean {
+  const parsed = ActionRequestSchema.safeParse(input);
+  return parsed.success && hasApprovedToolAction(context.state, parsed.data);
 }
 
 function recordBrowserTool(

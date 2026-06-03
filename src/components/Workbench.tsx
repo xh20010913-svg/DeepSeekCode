@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, useApp, useInput, useStdout } from "ink";
 import type { RuntimeConfig } from "../bootstrap/config.js";
 import { getCommands, runSlashCommand } from "../commands/index.js";
@@ -7,6 +7,7 @@ import {
   isBackspaceInput,
   isDeleteInput,
   isPrintableInput,
+  keypressDeleteAction,
 } from "../keybindings/inputKeys.js";
 import type { DeepSeekProviderClient, UsageSnapshot } from "../protocol/provider.js";
 import type { QueryActivityPhase, RunActivityView } from "../types/activity.js";
@@ -281,7 +282,7 @@ export function Workbench(props: {
     if (key.ctrl && character === "c") {
       if (busy && engine.cancelActiveRun()) {
         setQueuedPrompts([]);
-        const text = isChineseUi(activeConfig.language) ? "正在取消当前任务..." : "Cancelling current run...";
+        const text = isChineseUi(activeConfig.language) ? "姝ｅ湪鍙栨秷褰撳墠浠诲姟..." : "Cancelling current run...";
         setItems((previous) => [
           ...previous,
           { role: "system", text, timestamp: Date.now() },
@@ -331,12 +332,7 @@ export function Workbench(props: {
         ));
         return;
       }
-      if (isBackspaceInput(character, key)) {
-        handleBackspaceInput();
-        return;
-      }
-      if (isDeleteInput(character, key)) {
-        handleDeleteInput();
+      if (handleDeleteKeyInput(character, key)) {
         return;
       }
       if (key.ctrl && character === "u") {
@@ -371,12 +367,7 @@ export function Workbench(props: {
         ));
         return;
       }
-      if (isBackspaceInput(character, key)) {
-        handleBackspaceInput();
-        return;
-      }
-      if (isDeleteInput(character, key)) {
-        handleDeleteInput();
+      if (handleDeleteKeyInput(character, key)) {
         return;
       }
       if (key.ctrl && character === "u") {
@@ -411,12 +402,7 @@ export function Workbench(props: {
         ));
         return;
       }
-      if (isBackspaceInput(character, key)) {
-        handleBackspaceInput();
-        return;
-      }
-      if (isDeleteInput(character, key)) {
-        handleDeleteInput();
+      if (handleDeleteKeyInput(character, key)) {
         return;
       }
       if (key.ctrl && character === "u") {
@@ -512,12 +498,7 @@ export function Workbench(props: {
       }
       return;
     }
-    if (isBackspaceInput(character, key)) {
-      handleBackspaceInput();
-      return;
-    }
-    if (isDeleteInput(character, key)) {
-      handleDeleteInput();
+    if (handleDeleteKeyInput(character, key)) {
       return;
     }
     if (key.leftArrow) {
@@ -646,6 +627,13 @@ export function Workbench(props: {
       if (reject) void applyGateDecision(reject);
       return true;
     }
+    if (lower === "s") {
+      const session = activeGateOptions.find((option) => option.command.includes("shell-session"));
+      if (session) {
+        void applyGateDecision(session);
+        return true;
+      }
+    }
     if (isPrintableInput(character, key)) {
       return false;
     }
@@ -717,6 +705,29 @@ export function Workbench(props: {
       return;
     }
     editor.dispatch({ type: "delete" });
+  }
+
+  function handleDeleteKeyInput(
+    character: string,
+    key: {
+      backspace?: boolean;
+      delete?: boolean;
+      ctrl?: boolean;
+      meta?: boolean;
+      name?: string;
+      sequence?: string;
+    },
+  ): boolean {
+    const action = keypressDeleteAction(character, key);
+    if (action === "backspace" || (!action && isBackspaceInput(character, key))) {
+      handleBackspaceInput();
+      return true;
+    }
+    if (action === "delete" || (!action && isDeleteInput(character, key))) {
+      handleDeleteInput();
+      return true;
+    }
+    return false;
   }
 
   function closePalette(): void {
@@ -845,6 +856,7 @@ export function Workbench(props: {
     if (options.resetEditor ?? true) editor.reset();
     setClearPromptPending(false);
     history.add(text);
+    setItems((previous) => appendUserIfMissing(previous, text, Date.now()));
     setBusy(true);
     updateRunActivity("starting", "Starting run", activeConfig.model);
     setLastTurnUsage({});
@@ -855,7 +867,7 @@ export function Workbench(props: {
       for await (const event of engine.submit(text)) {
         if (event.type === "user") {
           sessionStorage.append({ role: "user", text: event.text });
-          setItems((previous) => [...previous, { role: "user", text: event.text, timestamp: Date.now() }]);
+          setItems((previous) => appendUserIfMissing(previous, event.text, Date.now()));
         } else if (event.type === "assistant_delta") {
           touchRunActivity("chatting", "Streaming answer", activeConfig.model);
           streamingAssistant += event.text;
@@ -1088,7 +1100,7 @@ function gateComposerHint(subjectType: string, language = "zh-CN"): string {
   const zh = isChineseUi(language === "en" ? "en" : "zh-CN");
   if (subjectType === "question") {
     return zh
-      ? "问题等待回答：直接输入答案，或选数字，Esc 拒绝。"
+      ? "问题等待回答：直接输入答案，或用方向键/数字选择，Esc 拒绝。"
       : "Answer prompt active: type an answer, choose a number, or Esc to reject.";
   }
   if (subjectType === "plan") {
@@ -1097,8 +1109,13 @@ function gateComposerHint(subjectType: string, language = "zh-CN"): string {
       : "Plan approval active: use Up/Down, Enter/Y to approve, N to reject, Esc to cancel.";
   }
   return zh
-    ? "权限等待确认：Up/Down 选择，Enter/Y 允许一次，N 拒绝，Esc 取消。"
-    : "Permission prompt active: use Up/Down, Enter/Y to allow once, N to reject, Esc to cancel.";
+    ? "权限等待确认：Up/Down 选择，Enter/Y 允许一次，S 本会话允许 shell，N 拒绝，Esc 取消。"
+    : "Permission prompt active: use Up/Down, Enter/Y to allow once, S to allow shell for this session, N to reject, Esc to cancel.";
+}
+function appendUserIfMissing(items: TranscriptItem[], text: string, timestamp: number): TranscriptItem[] {
+  const last = items[items.length - 1];
+  if (last?.role === "user" && last.text === text) return items;
+  return [...items, { role: "user", text, timestamp }];
 }
 
 export function gateTypedQuestionAnswerCommand(subjectType: string, value: string): string | null {
@@ -1133,19 +1150,25 @@ function mouseWheelDeltaFromInput(input: string | undefined): number {
 }
 
 function isMouseInput(input: string | undefined): boolean {
-  return mouseButtonCodeFromInput(input) !== null;
+  return containsMouseInput(input);
 }
 
 function mouseButtonCodeFromInput(input: string | undefined): number | null {
   if (!input) return null;
-  const sgrMatch = /^(?:\x1b)?\[<(\d+);\d+;\d+([mM])$/.exec(input);
+  const sgrMatch = /(?:\x1b)?\[<(\d+);\d+;\d+([mM])/.exec(input);
   if (sgrMatch) {
     if (sgrMatch[2] === "m") return null;
     return Number.parseInt(sgrMatch[1] ?? "", 10);
   }
-  const x10Match = /^(?:\x1b)?\[M([\s\S])([\s\S])([\s\S])$/.exec(input);
+  const x10Match = /(?:\x1b)?\[M([\s\S])([\s\S])([\s\S])/.exec(input);
   if (!x10Match) return null;
   return x10Match[1]!.charCodeAt(0) - 32;
+}
+
+function containsMouseInput(input: string | undefined): boolean {
+  if (!input) return false;
+  return /(?:\x1b)?\[<\d+;\d+;\d+[mM]/.test(input)
+    || /(?:\x1b)?\[M[\s\S]{3}/.test(input);
 }
 
 export function gateDirectShortcutIntent(
@@ -1228,5 +1251,6 @@ function usageSummary(usage: UsageSnapshot): string {
   const cache = hit + miss > 0 ? `cache ${Math.round((hit / (hit + miss)) * 100)}%` : "";
   return [`tokens+${output}`, cache].filter(Boolean).join(" - ");
 }
+
 
 

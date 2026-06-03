@@ -46,11 +46,7 @@ export function updatePromptEditor(
       return { value, cursor: cursor - 1 };
     }
     case "delete": {
-      if (cursor >= state.value.length) {
-        if (cursor <= 0) return { ...state, cursor };
-        const value = state.value.slice(0, cursor - 1) + state.value.slice(cursor);
-        return { value, cursor: cursor - 1 };
-      }
+      if (cursor >= state.value.length) return { ...state, cursor };
       const value = state.value.slice(0, cursor) + state.value.slice(cursor + 1);
       return { value, cursor };
     }

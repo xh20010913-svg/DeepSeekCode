@@ -255,6 +255,19 @@ function validateHtml(content: string, checks: string[], errors: string[]): void
   else errors.push("missing html root");
   if (lower.includes("<body")) checks.push("body");
   else errors.push("missing body");
+  const htmlCloseCount = countMatches(lower, /<\/html\s*>/g);
+  const bodyCloseCount = countMatches(lower, /<\/body\s*>/g);
+  if (htmlCloseCount <= 1) checks.push(`html_close=${htmlCloseCount}`);
+  else errors.push(`found multiple closing html tags: ${htmlCloseCount}`);
+  if (bodyCloseCount <= 1) checks.push(`body_close=${bodyCloseCount}`);
+  else errors.push(`found multiple closing body tags: ${bodyCloseCount}`);
+  const htmlCloseIndex = lower.lastIndexOf("</html");
+  if (htmlCloseIndex >= 0) {
+    const htmlCloseEnd = lower.indexOf(">", htmlCloseIndex);
+    const trailing = htmlCloseEnd >= 0 ? content.slice(htmlCloseEnd + 1).trim() : "";
+    if (trailing.length === 0) checks.push("no_trailing_after_html");
+    else errors.push("content appears after the final closing html tag");
+  }
 }
 
 function readZipEntryText(bytes: Buffer, entry: ZipEntry): string | undefined {

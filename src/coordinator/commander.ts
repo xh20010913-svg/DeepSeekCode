@@ -102,6 +102,7 @@ export async function runProviderMultiAgent(input: ProviderMultiAgentInput): Pro
           userMessage,
           systemPrompt,
           contextSummary,
+          availableToolNames: availableToolNamesForPermissions(input.permissions),
         });
       } catch (error) {
         const usage = input.provider.takeLastUsage();
@@ -264,6 +265,46 @@ export async function runProviderMultiAgent(input: ProviderMultiAgentInput): Pro
 
   input.state.updateRunStatus(runId, "succeeded", "multi-agent flow completed");
   return "Multi-agent flow completed. Details are available in the latest run trace.";
+}
+
+const shellToolNames = new Set(["run_command", "ssh_run", "ssh_read_file", "ssh_write_file"]);
+const browserToolNames = new Set([
+  "browser_session_start",
+  "browser_snapshot",
+  "browser_screenshot",
+  "browser_click",
+  "browser_type",
+]);
+
+function availableToolNamesForPermissions(permissions: RuntimePermissionState): string[] {
+  const common = [
+    "read_file",
+    "list_files",
+    "write_file",
+    "append_file",
+    "glob_files",
+    "grep_files",
+    "apply_patch",
+    "mcp_call",
+    "tdai_memory_search",
+    "tdai_conversation_search",
+    "TodoWrite",
+    "EnterPlanMode",
+    "AskUserQuestion",
+    "ExitPlanMode",
+    "validate_artifact",
+    "create_docx",
+    "create_pptx",
+    "create_pdf",
+    "computer_use",
+    "invoke_skill",
+    "invoke_agent",
+  ];
+  const conditional = [
+    ...Array.from(shellToolNames).filter(() => permissions.allowShell),
+    ...Array.from(browserToolNames).filter(() => permissions.allowBrowser),
+  ];
+  return [...common, ...conditional];
 }
 
 function createRoleTasks(state: StateStore, runId: string): string[] {

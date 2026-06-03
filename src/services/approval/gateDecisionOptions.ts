@@ -26,11 +26,23 @@ export function gateDecisionOptions(input: {
       option("Cancel", "/plan cancel latest cancelled", "close this request", "Esc", "neutral"),
     ];
   }
+  if (isShellGate(input.gate.summary)) {
+    return [
+      option("Allow once", "/approval approve latest approved", "run this exact shell action once", "Enter / Y", "allow"),
+      option("Allow session", "/approval approve latest shell-session", "enable shell for this TUI session", "S", "allow"),
+      option("Reject", "/approval reject latest rejected", "block and send feedback", "N", "reject"),
+      option("Cancel", "/approval cancel latest cancelled", "close without approving", "Esc", "neutral"),
+    ];
+  }
   return [
     option("Allow once", "/approval approve latest approved", "continue this exact action", "Enter / Y", "allow"),
     option("Reject", "/approval reject latest rejected", "block and send feedback", "N", "reject"),
     option("Cancel", "/approval cancel latest cancelled", "close without approving", "Esc", "neutral"),
   ];
+}
+
+function isShellGate(summary: string): boolean {
+  return /^(run_command|ssh_run|ssh_read_file|ssh_write_file|mcp_call)\b/.test(summary.trim());
 }
 
 function questionDecisionOptions(

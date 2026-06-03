@@ -11,6 +11,7 @@ export interface ToolApprovalPolicy {
   state: StateStore;
   runId: string;
   mode: "manual";
+  manualToolApproval?: boolean;
 }
 
 const TOOL_APPROVAL_SUBJECT = "tool_action";
@@ -23,7 +24,9 @@ export function requireApprovalForToolAction(
   context: ToolExecutionContext,
 ): ActionResult | undefined {
   if (!policy) return undefined;
-  if (!tool.isDestructive(action)) return undefined;
+  const needsShellApproval = actionNeedsShellApproval(action, context);
+  if (!needsShellApproval && !policy.manualToolApproval) return undefined;
+  if (!needsShellApproval && !tool.isDestructive(action)) return undefined;
 
   const subjectId = toolApprovalSubjectId(action);
   const existing = policy.state.listApprovalGates({
@@ -50,6 +53,26 @@ export function requireApprovalForToolAction(
     status: "failed",
     message: `${APPROVAL_REQUIRED_PREFIX}: ${summarizeActionForApproval(action, context)}. Waiting for your choice in the permission panel.`,
   };
+}
+
+export function hasApprovedToolAction(
+  state: StateStore | undefined,
+  action: ActionRequest,
+): boolean {
+  if (!state) return false;
+  const subjectId = toolApprovalSubjectId(action);
+  return state
+    .listApprovalGates({ subjectType: TOOL_APPROVAL_SUBJECT, subjectId }, 20)
+    .some((gate) => gate.status === "approved");
+}
+
+function actionNeedsShellApproval(action: ActionRequest, context: ToolExecutionContext): boolean {
+  if (context.allowShell) return false;
+  return action.type === "run_command" ||
+    action.type === "ssh_run" ||
+    action.type === "ssh_read_file" ||
+    action.type === "ssh_write_file" ||
+    action.type === "mcp_call";
 }
 
 export function resultRequiresApproval(result: ActionResult): boolean {
@@ -148,6 +171,16 @@ function summarizeActionForApproval(action: ActionRequest, context?: ToolExecuti
         `chars=${content.length}`,
         `lines=${lineCount(content)}`,
         ...projection,
+        `sha=${shortHash(content)}`,
+      ].join(" ");
+    }
+    case "append_file": {
+      const content = actionContent(action);
+      return [
+        `append_file path=${action.path}`,
+        `create=${action.create}`,
+        `appendChars=${content.length}`,
+        `appendLines=${lineCount(content)}`,
         `sha=${shortHash(content)}`,
       ].join(" ");
     }

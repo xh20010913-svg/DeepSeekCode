@@ -73,6 +73,7 @@ export interface DeepSeekProviderClient {
     contextSummary: string;
     feedback?: ActionExecutionReport;
     trajectory?: ActionPlanTurn[];
+    availableToolNames?: string[];
   }, options?: ActionPlanOptions): Promise<ActionEnvelope>;
   takeLastReasoning?(): string | undefined;
   takeLastUsage(): UsageSnapshot | undefined;
