@@ -29,17 +29,17 @@ const copy = {
     featureApproval:
       "文件、shell、browser、MCP、plan 都可以进入审批或验证闸，状态写入 SQLite。",
     featureMcp:
-      "Skills、plugins、MCP、Office 产物和 browser action 保持明确扩展边界。",
+      "Skills、plugins、MCP、Office 产物、browser action 和企业微信远程控制保持明确扩展边界。",
     featureTelemetry:
       "记录 provider cache hit/miss、prompt shape、run progress 和真实测试审计结果。",
     archTitle: "DeepSeekCode 的后端工作流。",
     roadmapTitle: "下一步继续补真实 Agent 能力。",
     roadNow:
-      "已接通 native tool calls、本地工具 registry、tool_result 压缩、runtime_run_state、skills/plugins 基础路径和 TencentDB-Agent-Memory。",
+      "已接通 native tool calls、本地工具 registry、tool_result 压缩、runtime_run_state、skills/plugins 基础路径、TencentDB-Agent-Memory 和企业微信远程控制实验入口。",
     roadNext:
       "继续增强真实场景评测、后台 worker pool、Office/PPT 质量、浏览器验证、TUI 键鼠验收和大型项目稳定性。",
     roadLater:
-      "补更完整的插件生态、浏览器自动化、远程执行、长任务 worker 和更细的 token/cache 优化。",
+      "补更完整的插件生态、浏览器自动化、个人微信保留桥接、长任务 worker 和更细的 token/cache 优化。",
     faqTitle: "常见问题。",
     faqOneQ: "DeepSeekCode 现在的核心链路是什么？",
     faqOneA:
@@ -81,17 +81,17 @@ const copy = {
     featureApproval:
       "Files, shell, browser, MCP, and plan actions can pass through approval or validation gates stored in SQLite.",
     featureMcp:
-      "Skills, plugins, MCP, Office artifacts, and browser actions remain first-class extension boundaries.",
+      "Skills, plugins, MCP, Office artifacts, browser actions, and the WeCom remote bridge remain explicit extension boundaries.",
     featureTelemetry:
       "Provider cache hit/miss, prompt shape, run progress, and live test audit results are recorded.",
     archTitle: "The DeepSeekCode backend loop.",
     roadmapTitle: "Next: more real agent capability.",
     roadNow:
-      "Connected native tool calls, the local tool registry, compact tool results, runtime_run_state, skills/plugins paths, and TencentDB-Agent-Memory.",
+      "Connected native tool calls, the local tool registry, compact tool results, runtime_run_state, skills/plugins paths, TencentDB-Agent-Memory, and the experimental WeCom remote bridge.",
     roadNext:
       "Continue improving realistic scenario evaluation, worker pools, Office/PPT quality, browser validation, TUI keyboard/mouse acceptance, and large-project stability.",
     roadLater:
-      "Richer plugin ecosystem, browser automation, remote execution, long-running workers, and finer token/cache optimization.",
+      "Richer plugin ecosystem, browser automation, reserved personal-WeChat bridging, long-running workers, and finer token/cache optimization.",
     faqTitle: "FAQ.",
     faqOneQ: "What is the core DeepSeekCode loop?",
     faqOneA:

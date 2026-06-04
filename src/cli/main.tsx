@@ -11,6 +11,7 @@ import { DeepSeekClient } from "../services/deepseek/client.js";
 import { StateStore } from "../state/sqlite.js";
 import { resumeSession, setCurrentSessionId } from "../services/session/resumeService.js";
 import { SessionStorage } from "../services/session/sessionStorage.js";
+import { WeComRemoteControlService } from "../remote/wecom/service.js";
 
 interface CliOptions {
   project?: string;
@@ -21,6 +22,7 @@ interface CliOptions {
   continue?: boolean;
   doctor?: boolean;
   verifyModel?: boolean;
+  wecom?: boolean;
   allowShell?: boolean;
   allowBrowser?: boolean;
   permissionProfile?: string;
@@ -38,6 +40,7 @@ const program = new Command()
   .option("-c, --continue", "continue the most recent local transcript session before running")
   .option("--doctor", "print runtime diagnostics")
   .option("--verify-model", "verify DeepSeek model access")
+  .option("--wecom", "start WeCom remote-control bridge")
   .option("--allow-shell", "allow shell tool execution")
   .option("--allow-browser", "allow browser bridge actions")
   .option("--permission-profile <profile>", "permission profile: safe, dev, browser, open")
@@ -72,6 +75,8 @@ if (options.doctor) {
 } else if (options.verifyModel) {
   const result = await runSlashCommand("/model verify", commandContext());
   print(result.message ?? "");
+} else if (options.wecom) {
+  await runWeComRemote();
 } else if (options.prompt) {
   await runHeadless(options.prompt, Boolean(options.json));
 } else {
@@ -81,6 +86,28 @@ if (options.doctor) {
   } finally {
     restore();
   }
+}
+
+async function runWeComRemote(): Promise<void> {
+  const service = new WeComRemoteControlService({
+    baseConfig: config,
+    baseState: state,
+    baseProvider: provider,
+    permissions: {
+      allowShell: config.shellEnabled,
+      allowBrowser: config.browserEnabled,
+      profile: config.permissionProfile,
+    },
+    onStatus: print,
+  });
+  await service.start();
+  print(`WeCom remote control started for ${config.projectPath}`);
+  print("Press Ctrl+C to stop.");
+  await new Promise<void>((resolve) => {
+    process.once("SIGINT", resolve);
+    process.once("SIGTERM", resolve);
+  });
+  await service.stop();
 }
 
 function commandContext() {

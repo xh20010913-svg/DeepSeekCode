@@ -71,6 +71,7 @@ export interface QueryEngineOptions {
   state: StateStore;
   provider: DeepSeekProviderClient | null;
   permissions?: RuntimePermissionState;
+  sessionScopeProjectPath?: string;
   requestExit?: () => void;
   requestClear?: () => void;
   requestModelSelector?: () => void;
@@ -85,6 +86,7 @@ export class QueryEngine {
   private readonly state: StateStore;
   private readonly provider: DeepSeekProviderClient | null;
   private readonly permissions: RuntimePermissionState;
+  private readonly sessionScopeProjectPath: string;
   private readonly history: ChatMessage[] = [];
   private readonly requestExit?: () => void;
   private readonly requestClear?: () => void;
@@ -109,6 +111,7 @@ export class QueryEngine {
       allowBrowser: options.config.browserEnabled,
       profile: options.config.permissionProfile,
     };
+    this.sessionScopeProjectPath = options.sessionScopeProjectPath ?? options.config.projectPath;
     this.requestExit = options.requestExit;
     this.requestClear = options.requestClear;
     this.requestModelSelector = options.requestModelSelector;
@@ -993,10 +996,10 @@ export class QueryEngine {
 
   private ensureSessionContext(runId?: string): void {
     if (this.sessionPersistence === "off") return;
-    let sessionId = getCurrentSessionId(this.state, this.config.projectPath);
+    let sessionId = getCurrentSessionId(this.state, this.sessionScopeProjectPath);
     if (!sessionId && this.sessionPersistence === "managed") {
       sessionId = new SessionStorage(this.config.dataDir).sessionId;
-      setCurrentSessionId(this.state, this.config.projectPath, sessionId);
+      setCurrentSessionId(this.state, this.sessionScopeProjectPath, sessionId);
     }
     if (!sessionId || sessionId === this.loadedSessionId) return;
     const records = new SessionStorage(this.config.dataDir, sessionId).readAll(1000);
@@ -1016,10 +1019,10 @@ export class QueryEngine {
 
   private currentSessionStorage(): SessionStorage | undefined {
     if (this.sessionPersistence === "off") return undefined;
-    let sessionId = getCurrentSessionId(this.state, this.config.projectPath);
+    let sessionId = getCurrentSessionId(this.state, this.sessionScopeProjectPath);
     if (!sessionId && this.sessionPersistence === "managed") {
       sessionId = new SessionStorage(this.config.dataDir).sessionId;
-      setCurrentSessionId(this.state, this.config.projectPath, sessionId);
+      setCurrentSessionId(this.state, this.sessionScopeProjectPath, sessionId);
     }
     return sessionId ? new SessionStorage(this.config.dataDir, sessionId) : undefined;
   }

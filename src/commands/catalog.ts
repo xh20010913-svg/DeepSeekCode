@@ -40,6 +40,7 @@ import { questionCommand } from "./builtin/question.js";
 import { queueCommand } from "./builtin/queue.js";
 import { quitCommand } from "./builtin/quit.js";
 import { renameCommand } from "./builtin/rename.js";
+import { remoteControlCommand } from "./builtin/remoteControl.js";
 import { resumeCommand as resumeSessionCommand } from "./builtin/resume.js";
 import { rewindCommand } from "./builtin/rewind.js";
 import { reviewCommand, securityReviewCommand } from "./builtin/review.js";
@@ -82,6 +83,7 @@ export function buildCommandCatalog(context?: CommandContext): Command[] {
     attachCommand,
     runsCommand,
     queueCommand,
+    remoteControlCommand,
     pauseCommand,
     resumeRunCommand,
     cancelCommand,

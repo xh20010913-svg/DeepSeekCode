@@ -34,6 +34,7 @@ Windows note: npm creates both PowerShell and cmd shims. If PowerShell blocks `d
 | `--resume <session-id>` | Resume a specific transcript session. |
 | `--doctor` | Print diagnostics. |
 | `--verify-model` | Verify model access. |
+| `--wecom` | Start Enterprise WeChat / WeCom remote control without opening the TUI. |
 | `--allow-shell` | Enable shell tools. |
 | `--allow-browser` | Enable browser tools. |
 | `--permission-profile <profile>` | `safe`, `dev`, `browser`, or `open`. |
@@ -49,6 +50,7 @@ deepseekcode --permission-profile dev
 deepseekcode --continue -p "Continue the previous task"
 deepseekcode --resume session_xxx -p "Continue"
 deepseekcode --prompt "Summarize this repository" --json
+deepseekcode --wecom --project "D:\work\agent-test" --model deepseek-v4-flash
 
 # If a mirror has not synced the scoped package yet:
 npm install -g @xh12312/deepseekcode --registry https://registry.npmjs.org/
@@ -86,6 +88,13 @@ npm install -g github:xh20010913-svg/DeepSeekCode
 | `DEEPSEEKCODE_TDAI_EMBEDDING_PROVIDER` | Optional embedding provider. `none` keeps vector recall disabled. |
 | `DEEPSEEKCODE_TCVDB_URL` | Optional Tencent Cloud VectorDB endpoint. |
 | `DEEPSEEKCODE_TCVDB_API_KEY` | Optional Tencent Cloud VectorDB API key. |
+| `DEEPSEEKCODE_WECOM_BOT_ID` | Enterprise WeChat intelligent bot ID. |
+| `DEEPSEEKCODE_WECOM_BOT_SECRET` | Enterprise WeChat intelligent bot secret. |
+| `DEEPSEEKCODE_WECOM_WS_URL` | Optional WebSocket URL; defaults to WeCom's official openws endpoint. |
+| `DEEPSEEKCODE_WECOM_ALLOWED_USERS` | Optional WeCom userid allowlist. |
+| `DEEPSEEKCODE_WECOM_ALLOWED_GROUPS` | Optional WeCom group chatid allowlist. |
+| `DEEPSEEKCODE_WECOM_PROJECT_ROOTS` | Optional allowed project roots for remote `/project <path>`. |
+| `DEEPSEEKCODE_WECOM_MENTION_NAMES` | Optional bot mention aliases for group chats. |
 | `DEEPSEEKCODE_PRICE_INPUT_PER_M` | Input-token price override. |
 | `DEEPSEEKCODE_PRICE_OUTPUT_PER_M` | Output-token price override. |
 | `DEEPSEEKCODE_PRICE_CACHE_HIT_PER_M` | Cache-hit token price override. |
@@ -129,6 +138,7 @@ npm install -g github:xh20010913-svg/DeepSeekCode
 | `/multi provider <task>` | Planner/Builder/Tester/Reviewer workflow. |
 | `/todo` `/todos` | Structured todo state. |
 | `/approval` `/validation` | Gate status and decisions. |
+| `/remote-control` | Inspect, start, or stop WeCom remote control. |
 | `/review` `/security-review` | Review current diff or files. |
 | `/diff` | Show project diff. |
 | `/files` `/context` | Inspect selected context. |

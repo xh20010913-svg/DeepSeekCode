@@ -74,6 +74,11 @@ Useful optional settings:
 | `DEEPSEEKCODE_TDAI_EXTRACTION` | Extract structured L1/L2/L3 memories with the configured provider. |
 | `DEEPSEEKCODE_TDAI_STORE` | `sqlite` by default; `tcvdb` when Tencent Cloud VectorDB is configured. |
 | `DEEPSEEKCODE_TDAI_EMBEDDING_PROVIDER` | Optional embedding provider. `none` keeps semantic vector recall disabled. |
+| `DEEPSEEKCODE_WECOM_BOT_ID` | Enterprise WeChat intelligent bot ID for remote control. |
+| `DEEPSEEKCODE_WECOM_BOT_SECRET` | Enterprise WeChat intelligent bot secret. |
+| `DEEPSEEKCODE_WECOM_ALLOWED_USERS` | Optional comma/semicolon/newline separated WeCom userid allowlist. |
+| `DEEPSEEKCODE_WECOM_ALLOWED_GROUPS` | Optional WeCom group chatid allowlist. |
+| `DEEPSEEKCODE_WECOM_PROJECT_ROOTS` | Optional allowed project roots for `/project <path>` from WeCom. |
 | `DEEPSEEKCODE_PRICE_INPUT_PER_M` | Input-token price override. |
 | `DEEPSEEKCODE_PRICE_OUTPUT_PER_M` | Output-token price override. |
 | `DEEPSEEKCODE_PRICE_CACHE_HIT_PER_M` | Cache-hit input price override. |
@@ -114,7 +119,49 @@ provider messages + tools schema
 
 If a model or gateway does not support tool calling, the run fails with a clear provider error. It does not fall back to a JSON action planner.
 
-## 5. Long-Term Memory
+## 5. Enterprise WeChat Remote Control
+
+DeepSeekCode v0.2.5 can run an experimental Enterprise WeChat / WeCom intelligent bot bridge. It uses the official long-connection SDK and does not use personal WeChat hooks.
+
+Start it from any project directory:
+
+```bash
+deepseekcode --wecom --project "D:\work\agent-test" --model deepseek-v4-flash
+```
+
+Or start/stop it inside the TUI:
+
+```text
+/remote-control
+/remote-control start
+/remote-control stop
+```
+
+WeCom commands:
+
+```text
+/help
+/status
+/project
+/project D:\work\agent-test
+/run Continue the dashboard and send me the artifacts
+/continue
+/stop
+/artifacts
+/usage
+```
+
+Natural-language messages also work. In group chats, messages must mention the bot or use a slash command by default. The WeCom bridge reuses the normal QueryEngine, StateStore, and permission gate. When shell/browser/file-sensitive actions need approval, WeCom receives a template card with allow once, allow for session, reject, and stop.
+
+Attachments are saved under:
+
+```text
+<data-dir>\remote\inbox\<chat-id>\
+```
+
+Only the local path is passed to the agent. Secrets and long logs are redacted from remote replies.
+
+## 6. Long-Term Memory
 
 DeepSeekCode includes a vendored MIT runtime of TencentDB-Agent-Memory. It is enabled by default and stores memory under the runtime data directory:
 
@@ -144,7 +191,7 @@ Disable it for a run:
 set DEEPSEEKCODE_TDAI_MEMORY=off
 ```
 
-## 6. Skills And Plugins
+## 7. Skills And Plugins
 
 Skills are `SKILL.md` instruction packs. Plugins can contribute commands, skills, and hooks.
 
@@ -172,7 +219,7 @@ Compatibility rules:
 - Git subpaths are checked for path traversal.
 - `.env`, `.git`, `node_modules`, and OS metadata are filtered during installs.
 
-## 7. Long Tasks
+## 8. Long Tasks
 
 For long-running work, use sessions, runs, checkpoints, and reports:
 
@@ -201,7 +248,7 @@ Multi-agent mode:
 
 The durable multi-agent flow uses Planner -> Builder -> Tester -> Reviewer, task records, compact role feedback, and run checkpoints.
 
-## 8. Cache And Cost
+## 9. Cache And Cost
 
 DeepSeekCode keeps stable prompt blocks before dynamic context to improve provider prefix-cache reuse. Old history is compressed into:
 
@@ -228,7 +275,7 @@ Prompt audit is a testing feature:
 set DEEPSEEKCODE_PROMPT_AUDIT_DIR=D:\work\agent-test\prompt-audit
 ```
 
-## 9. Real Scenario Testing
+## 10. Real Scenario Testing
 
 Run realistic tests in a separate project directory:
 
@@ -256,7 +303,7 @@ Export a report:
 /runs report latest "D:\work\agent-test"
 ```
 
-## 10. Release Checks
+## 11. Release Checks
 
 ```bash
 npm run typecheck

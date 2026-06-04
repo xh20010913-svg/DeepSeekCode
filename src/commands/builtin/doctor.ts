@@ -5,6 +5,7 @@ import { baseTools } from "../../tools/registry.js";
 import { SkillService } from "../../services/skills/skillService.js";
 import { PluginService } from "../../services/plugins/pluginService.js";
 import { getTencentMemoryService } from "../../services/memory/tencentMemoryService.js";
+import { hasWeComRemoteConfig } from "../../remote/wecom/config.js";
 import type { JobRecord } from "../../state/sqlite.js";
 
 export const doctorCommand: Command = {
@@ -35,6 +36,7 @@ export const doctorCommand: Command = {
         `persistent jobs: ${jobs.length} recent (${summarizeJobs(jobs)})`,
         `skills: ${skills.length} discovered at .deepseekcode/.claude/user/cache paths`,
         `plugins: ${plugins.length} discovered at .deepseekcode/.claude/user/cache paths`,
+        `wecom remote: ${hasWeComRemoteConfig() ? "configured" : "not configured"} (use --wecom or /remote-control start)`,
         `prompt audit: ${promptAudit || "off"} (set DEEPSEEKCODE_PROMPT_AUDIT_DIR to enable)`,
         `usage snapshots: ${usage.snapshots} cache=${cacheRate} hit=${usage.cacheHitTokens} miss=${usage.cacheMissTokens}`,
         `permission profile: ${context.permissions.profile ?? context.config.permissionProfile}`,
