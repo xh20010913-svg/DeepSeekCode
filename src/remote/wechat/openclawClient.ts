@@ -135,12 +135,15 @@ export class OpenClawWeixinClient {
       verbose: false,
     });
     if (started.qrcodeUrl) {
+      this.options.onStatus?.(await formatLoginQrForStatus(started.qrcodeUrl));
       await login.displayQRCode(started.qrcodeUrl);
+    } else {
+      this.options.onStatus?.("OpenClaw login started, but no QR code was returned.");
     }
-    this.options.onStatus?.("scan the WeChat QR code to connect OpenClaw");
+    this.options.onStatus?.("Waiting for WeChat scan confirmation...");
     const waited = await login.waitForWeixinLogin({
       sessionKey: started.sessionKey,
-      timeoutMs: Math.max(60_000, this.options.config.qrPollIntervalMs * 60),
+      timeoutMs: Math.max(300_000, this.options.config.qrPollIntervalMs * 60),
       apiBaseUrl: this.options.config.apiBaseUrl,
       verbose: false,
     });
@@ -318,6 +321,35 @@ function saveAccount(root: string, account: StoredWeChatAccount): void {
   const dir = path.join(root, "accounts");
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, `${safeFilename(account.accountId)}.json`), JSON.stringify(account, null, 2), "utf-8");
+}
+
+async function formatLoginQrForStatus(qrcodeUrl: string): Promise<string> {
+  const lines = [
+    "OpenClaw 微信登录二维码",
+    "请用微信扫码确认登录。二维码 5 分钟内有效。",
+    "",
+  ];
+  const qr = await renderTerminalQr(qrcodeUrl).catch(() => "");
+  if (qr.trim()) lines.push(qr.trim(), "");
+  lines.push(`如果二维码没有显示，复制这个链接打开：${qrcodeUrl}`);
+  return lines.join("\n");
+}
+
+async function renderTerminalQr(qrcodeUrl: string): Promise<string> {
+  const imported = await import("qrcode-terminal") as unknown as {
+    default?: QrTerminalModule;
+    generate?: QrTerminalModule["generate"];
+  };
+  const qr = imported.default ?? imported;
+  const generate = qr.generate;
+  if (typeof generate !== "function") return "";
+  return await new Promise((resolve) => {
+    generate(qrcodeUrl, { small: true }, (output) => resolve(output));
+  });
+}
+
+interface QrTerminalModule {
+  generate(input: string, options: { small?: boolean }, callback: (output: string) => void): void;
 }
 
 function syncBufPath(dataDir: string, accountId: string): string {
