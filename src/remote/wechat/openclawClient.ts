@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import type { WeChatOpenClawConfig } from "./config.js";
 
 interface LoginQrModule {
@@ -134,11 +135,10 @@ export class OpenClawWeixinClient {
       verbose: false,
     });
     if (started.qrcodeUrl) {
-      if (this.options.onStatus) {
-        this.options.onStatus(await formatLoginQrForStatus(started.qrcodeUrl));
-      } else {
-        process.stdout.write(`${await formatLoginQrForStatus(started.qrcodeUrl)}\n`);
-      }
+      const opened = openUrlInBrowser(started.qrcodeUrl);
+      const message = formatBrowserLoginStatus(started.qrcodeUrl, opened);
+      if (this.options.onStatus) this.options.onStatus(message);
+      else process.stdout.write(`${message}\n`);
     } else {
       this.options.onStatus?.("OpenClaw login started, but no QR code was returned.");
     }
@@ -327,34 +327,38 @@ function saveAccount(root: string, account: StoredWeChatAccount): void {
   fs.writeFileSync(path.join(dir, `${safeFilename(account.accountId)}.json`), JSON.stringify(account, null, 2), "utf-8");
 }
 
-async function formatLoginQrForStatus(qrcodeUrl: string): Promise<string> {
+function formatBrowserLoginStatus(qrcodeUrl: string, opened: boolean): string {
   const lines = [
-    "OpenClaw WeChat login QR",
-    "OpenClaw 微信登录二维码",
-    "请用微信扫码确认登录。二维码 5 分钟内有效。",
-    "",
+    "OpenClaw WeChat browser login",
+    opened
+      ? "Opened the login page in your default browser. Scan or confirm there, then return to DeepSeekCode."
+      : "Could not open the browser automatically. Copy this URL into your browser.",
+    `URL: ${qrcodeUrl}`,
   ];
-  const qr = await renderTerminalQr(qrcodeUrl).catch(() => "");
-  if (qr.trim()) lines.push(qr.trim(), "");
-  lines.push(`如果二维码没有显示，复制这个链接打开：${qrcodeUrl}`);
   return lines.join("\n");
 }
 
-async function renderTerminalQr(qrcodeUrl: string): Promise<string> {
-  const imported = await import("qrcode-terminal") as unknown as {
-    default?: QrTerminalModule;
-    generate?: QrTerminalModule["generate"];
-  };
-  const qr = imported.default ?? imported;
-  const generate = qr.generate;
-  if (typeof generate !== "function") return "";
-  return await new Promise((resolve) => {
-    generate(qrcodeUrl, { small: true }, (output) => resolve(output));
-  });
-}
-
-interface QrTerminalModule {
-  generate(input: string, options: { small?: boolean }, callback: (output: string) => void): void;
+function openUrlInBrowser(url: string): boolean {
+  const platform = process.platform;
+  const command = platform === "win32"
+    ? "cmd.exe"
+    : platform === "darwin"
+      ? "open"
+      : "xdg-open";
+  const args = platform === "win32"
+    ? ["/d", "/s", "/c", "start", "", url]
+    : [url];
+  try {
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 interface LoginStatusResult {
