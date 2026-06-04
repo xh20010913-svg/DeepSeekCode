@@ -45,6 +45,22 @@ interface ApiModule {
   }): Promise<void>;
 }
 
+interface SendMediaModule {
+  sendWeixinMediaFile(input: {
+    filePath: string;
+    to: string;
+    text?: string;
+    opts: {
+      baseUrl: string;
+      token: string;
+      contextToken?: string;
+      runId?: string;
+      timeoutMs?: number;
+    };
+    cdnBaseUrl: string;
+  }): Promise<{ messageId?: string }>;
+}
+
 export interface StoredWeChatAccount {
   accountId: string;
   token: string;
@@ -199,6 +215,22 @@ export class OpenClawWeixinClient {
     });
   }
 
+  async sendMediaFile(toUserId: string, filePath: string, text?: string, contextToken?: string): Promise<void> {
+    const media = await loadSendMediaModule();
+    const account = this.requireAccount();
+    await media.sendWeixinMediaFile({
+      filePath,
+      to: toUserId,
+      text,
+      opts: {
+        baseUrl: account.baseUrl,
+        token: account.token,
+        contextToken,
+      },
+      cdnBaseUrl: this.options.config.cdnBaseUrl,
+    });
+  }
+
   async saveInboundMedia(item: OpenClawMessageItem, inboxDir: string, fallbackName: string): Promise<{ path: string; bytes: number }> {
     const url = item.file_item?.full_url || item.file_item?.url ||
       item.image_item?.full_url || item.image_item?.url ||
@@ -298,6 +330,10 @@ async function loadLoginQrModule(): Promise<LoginQrModule> {
 
 async function loadApiModule(): Promise<ApiModule> {
   return await import("@tencent-weixin/openclaw-weixin/dist/src/api/api.js") as ApiModule;
+}
+
+async function loadSendMediaModule(): Promise<SendMediaModule> {
+  return await import("@tencent-weixin/openclaw-weixin/dist/src/messaging/send-media.js") as SendMediaModule;
 }
 
 function buildTextMessage(toUserId: string, text: string, contextToken: string | undefined): unknown {

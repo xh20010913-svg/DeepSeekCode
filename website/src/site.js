@@ -1,107 +1,101 @@
 const copy = {
   zh: {
     navInstall: "安装",
-    navCache: "上下文",
     navFeatures: "能力",
+    navRemote: "远程",
     navStart: "开始使用",
-    heroTitle: "围绕 <em>DeepSeek</em> 本地工具链路构建的 Code Agent。",
+    heroTitle: "面向本地项目的 <em>DeepSeek</em> Code Agent runtime。",
     heroLede:
-      "DeepSeekCode 不是聊天壳。它把 DeepSeek native tool calls、稳定 prompt 前缀、会话恢复、工具结果压缩、权限 gate、长期记忆和 Windows 终端体验放进同一个 TypeScript runtime。",
-    heroPrimary: "开始使用",
-    heroSecondary: "查看 Guide",
-    metricCache: "缓存检查",
-    metricTests: "发布检查",
-    metricGates: "待处理 gate",
-    installTitle: "安装后在任意项目目录启动。",
+      "DeepSeekCode 把 DeepSeek native tool calls、本地文件和 shell 工具、权限 gate、长期记忆、会话恢复、远程微信控制和缓存感知上下文放在同一个 TypeScript runtime 里。它的目标是让模型真正能在项目目录里工作，而不是只给出建议。",
+    heroPrimary: "安装启动",
+    heroSecondary: "阅读 Guide",
+    installTitle: "全局安装后，在任意项目目录直接启动。",
     installText:
-      "通过 npm 全局安装后，进入项目目录输入 deepseekcode 即可启动；默认项目是当前目录，运行数据写入当前项目的 .deepseekcode；启动时会询问是否开启本会话 shell 权限。",
+      "进入项目目录运行 deepseekcode，当前目录就是项目根目录，状态写入该目录的 .deepseekcode。首次启动会询问是否开启本会话 shell 权限，真正执行命令时仍会走权限 gate。",
     copy: "复制",
-    cacheTitle: "长任务不应该反复回放全部历史。",
-    cacheText:
-      "DeepSeekCode 将旧对话压缩为 conversation summary、tool_result_summary 和 runtime_run_state，并把稳定前缀保持在 prompt 前段以提高缓存复用。",
-    featuresTitle: "当前版本聚焦本地工具链路和 TUI 交互。",
+    featuresTitle: "当前版本已经接通的核心能力。",
     featureAction:
-      "模型通过 DeepSeek native tool calls 请求本地工具，runtime 负责权限、校验、执行、tool result 回放和失败反馈。",
-    featureTui:
-      "TUI 默认中文，支持模型选择、输入历史、滚动 transcript、启动 shell 权限询问，以及 shell/plan/question gate。",
+      "模型通过 DeepSeek tools 数组请求本地工具；runtime 负责 Zod 校验、权限、执行、tool_result 回放和失败反馈，不再依赖模型输出大块 JSON 规划。",
+    featureState:
+      "每个项目目录有独立 .deepseekcode，保存 transcript、runs、events、artifacts、usage、approval gates 和 TencentDB-Agent-Memory。",
+    featureRemote:
+      "企业微信和个人微信 OpenClaw 都保留。远程端只显示简洁进度、权限审批、旁路问答和产物预览，不输出控制台日志。",
     featureAgents:
-      "Planner、Builder、Tester、Reviewer 使用 compact tool summary，并写入 agent progress checkpoint。",
-    featureApproval:
-      "文件、shell、browser、MCP、plan 都可以进入审批或验证闸，状态写入 SQLite。",
-    featureMcp:
-      "Skills、plugins、MCP、Office 产物、browser action、企业微信和个人微信 OpenClaw 远程控制保持明确扩展边界。",
-    featureTelemetry:
-      "记录 provider cache hit/miss、prompt shape、run progress 和真实测试审计结果。",
-    archTitle: "DeepSeekCode 的后端工作流。",
-    roadmapTitle: "下一步继续补真实 Agent 能力。",
+      "v0.2.7 新增 start_agent_workflow 等 native 工具，支持主 agent 设计角色、共享黑板、角色消息和验收角色。该能力仍标为实验中。",
+    featureAsk:
+      "长任务运行时可以用 /ask 做只读问答，查看进度、架构或阻塞点，不打断当前任务，也不写文件或执行 shell。",
+    featureArtifacts:
+      "远程产物回传由 runtime 根据真实文件类型规划。网页优先截图，Office/PDF 发可预览文件，源码项目发摘要、入口和 manifest。",
+    remoteTitle: "电脑继续运行，微信只负责控制和看结果。",
+    remoteText:
+      "推荐先在项目目录启动 TUI，再通过 /remote-control 绑定微信。纯远程模式也可以用 deepseekcode --wechat 或 --wecom 启动。所有通道共享同一个项目 runtime，不另造一套 agent。",
+    archTitle: "统一链路，而不是几个孤立功能。",
+    roadmapTitle: "诚实标注仍在完善的部分。",
     roadNow:
-      "已接通 native tool calls、本地工具 registry、tool_result 压缩、runtime_run_state、skills/plugins 基础路径、TencentDB-Agent-Memory、企业微信和个人微信 OpenClaw 远程控制实验入口。",
+      "native tool calling、本地文件工具、权限 gate、项目状态、TUI 基础、个人微信 OpenClaw 实验通道、TencentDB-Agent-Memory 和 npm 全局启动。",
     roadNext:
-      "继续增强真实场景评测、后台 worker pool、Office/PPT 质量、浏览器验证、TUI 键鼠验收和大型项目稳定性。",
+      "多 agent 编排、远程产物预览、browser 截图、MCP/skills 真实场景验收、长任务状态诊断和 worker pool。",
     roadLater:
-      "补更完整的插件生态、浏览器自动化、个人微信 hook 保留桥接、长任务 worker 和更细的 token/cache 优化。",
+      "个人微信 PC hook、完整 computer_use、完全后台化 worker pool 和更深的 GUI 自动化桥接。",
     faqTitle: "常见问题。",
-    faqOneQ: "DeepSeekCode 现在的核心链路是什么？",
+    faqOneQ: "为什么不靠关键词判断用户要做什么？",
     faqOneA:
-      "QueryEngine 负责分类和 action loop，Tools 执行本地能力，StateStore 持久化 run/task/action/event，SessionStorage 保存对话和 compact tool result。",
-    faqTwoQ: "怎么降低历史对话的 token 消耗？",
+      "任务判断交给模型和 native tool calls。runtime 只负责权限、项目范围、状态、工具执行、产物类型识别和远程展示。",
+    faqTwoQ: "长任务时怎么提问？",
     faqTwoA:
-      "不全量塞历史。稳定规则和工具 schema 放前面吃缓存；最近几轮保留；旧对话压成结构化摘要；工具输出只保留失败原因、路径、产物和关键结果。",
-    faqThreeQ: "怎么验证不是只跑基础检查？",
+      "使用 /ask。它只读取当前 run 状态、最近事件和必要文件上下文，不写文件、不执行 shell，也不会污染主任务历史。",
+    faqThreeQ: "微信端为什么不直接发所有文件？",
     faqThreeA:
-      "公开版本只写已接通能力；真实任务、prompt audit、产物验证和失败点继续放在独立测试目录，不作为完成度宣传。",
+      "微信更适合看简洁结果。HTML 优先发截图，Office/PDF 发可打开文件，多文件项目发摘要、入口和 manifest，避免刷屏。",
   },
   en: {
     navInstall: "Install",
-    navCache: "Context",
-    navFeatures: "Features",
+    navFeatures: "Capabilities",
+    navRemote: "Remote",
     navStart: "Start",
-    heroTitle: "A Code Agent built around <em>DeepSeek</em> local tool execution.",
+    heroTitle: "A <em>DeepSeek</em> Code Agent runtime for local projects.",
     heroLede:
-      "DeepSeekCode is not a chat wrapper. It combines DeepSeek native tool calls, stable prompt prefixes, session restore, compact tool feedback, permission gates, long-term memory, and a Windows terminal runtime in TypeScript.",
-    heroPrimary: "Start now",
+      "DeepSeekCode puts DeepSeek native tool calls, local file and shell tools, permission gates, long-term memory, session restore, WeChat remote control, and cache-aware context into one TypeScript runtime. The goal is to let the model work inside a project directory instead of only giving advice.",
+    heroPrimary: "Install",
     heroSecondary: "Read Guide",
-    metricCache: "cache checks",
-    metricTests: "release checks",
-    metricGates: "open gates",
-    installTitle: "Install once, then start in any project directory.",
+    installTitle: "Install globally, then start in any project directory.",
     installText:
-      "Install globally from npm, then run deepseekcode inside a project. The current directory becomes the project, runtime data goes to .deepseekcode, and the TUI asks whether to enable shell for the session.",
+      "Run deepseekcode inside a project. The current directory becomes the project root and state is written to .deepseekcode. The TUI asks whether to enable shell for the current session, and actual commands still pass through permission gates.",
     copy: "Copy",
-    cacheTitle: "Long tasks should not replay raw history forever.",
-    cacheText:
-      "DeepSeekCode compacts old history into conversation summaries, tool_result_summary records, and runtime_run_state while keeping stable prefix blocks early.",
-    featuresTitle: "This release focuses on the local tool loop and TUI interaction.",
+    featuresTitle: "Core capabilities connected in this release.",
     featureAction:
-      "The model requests local tools through DeepSeek native tool calls; the runtime handles permissions, validation, execution, tool-result replay, and failure feedback.",
-    featureTui:
-      "The TUI defaults to Chinese and supports model selection, input history, transcript scrolling, startup shell permission prompts, and shell/plan/question gates.",
+      "The model requests local tools through DeepSeek tools. The runtime validates with Zod, applies permissions, executes tools, replays tool results, and reports failures without relying on large JSON plans.",
+    featureState:
+      "Each project has its own .deepseekcode directory for transcripts, runs, events, artifacts, usage, approval gates, and TencentDB-Agent-Memory.",
+    featureRemote:
+      "WeCom and personal WeChat OpenClaw are both retained. Remote chat shows concise progress, approvals, side-channel answers, and artifact previews instead of terminal logs.",
     featureAgents:
-      "Planner, Builder, Tester, and Reviewer pass compact tool summaries and write agent progress checkpoints.",
-    featureApproval:
-      "Files, shell, browser, MCP, and plan actions can pass through approval or validation gates stored in SQLite.",
-    featureMcp:
-      "Skills, plugins, MCP, Office artifacts, browser actions, WeCom, and personal WeChat OpenClaw remote bridges remain explicit extension boundaries.",
-    featureTelemetry:
-      "Provider cache hit/miss, prompt shape, run progress, and live test audit results are recorded.",
-    archTitle: "The DeepSeekCode backend loop.",
-    roadmapTitle: "Next: more real agent capability.",
+      "v0.2.7 adds native workflow tools such as start_agent_workflow for role design, a shared blackboard, role messages, and a reviewer role. This remains experimental.",
+    featureAsk:
+      "Use /ask during long tasks for read-only questions about progress, architecture, or blockers without interrupting the active run or running tools.",
+    featureArtifacts:
+      "Remote artifact delivery is planned from real file types. HTML gets screenshots, Office/PDF gets previewable files, and code projects get summaries, entry files, and manifests.",
+    remoteTitle: "Keep the computer running; use WeChat to control and inspect results.",
+    remoteText:
+      "Recommended flow: start the TUI in a project, then bind remote control with /remote-control. Pure remote mode is also available with deepseekcode --wechat or --wecom. All channels share the same project runtime.",
+    archTitle: "One runtime chain, not isolated features.",
+    roadmapTitle: "Honest status for unfinished work.",
     roadNow:
-      "Connected native tool calls, the local tool registry, compact tool results, runtime_run_state, skills/plugins paths, TencentDB-Agent-Memory, and experimental WeCom plus personal WeChat OpenClaw remote bridges.",
+      "Native tool calling, local file tools, permission gates, project state, basic TUI, experimental personal WeChat OpenClaw, TencentDB-Agent-Memory, and global npm startup.",
     roadNext:
-      "Continue improving realistic scenario evaluation, worker pools, Office/PPT quality, browser validation, TUI keyboard/mouse acceptance, and large-project stability.",
+      "Multi-agent orchestration, remote artifact preview, browser screenshots, MCP/skills scenario testing, long-task diagnostics, and worker pools.",
     roadLater:
-      "Richer plugin ecosystem, browser automation, reserved personal-WeChat bridging, long-running workers, and finer token/cache optimization.",
+      "Personal WeChat PC hooks, complete computer_use, fully backgrounded worker pools, and deeper GUI automation bridges.",
     faqTitle: "FAQ.",
-    faqOneQ: "What is the core DeepSeekCode loop?",
+    faqOneQ: "Why not classify tasks with keywords?",
     faqOneA:
-      "QueryEngine handles classification and the action loop, Tools execute local capabilities, StateStore persists run/task/action/event data, and SessionStorage keeps chat plus compact tool results.",
-    faqTwoQ: "How does it reduce history token cost?",
+      "Task judgment belongs to the model and native tool calls. The runtime handles permissions, project bounds, state, tool execution, artifact typing, and remote display.",
+    faqTwoQ: "How can I ask questions during a long task?",
     faqTwoA:
-      "It does not replay everything. Stable rules and tool schemas stay early for cache reuse, recent turns are kept, old chat is summarized, and tool output is reduced to failures, paths, artifacts, and key results.",
-    faqThreeQ: "How was this verified beyond basic checks?",
+      "Use /ask. It reads the current run snapshot, recent events, and necessary file context without writing files, running shell, or polluting the main task history.",
+    faqThreeQ: "Why not send every generated file to WeChat?",
     faqThreeA:
-      "Public docs describe connected capabilities only. Real task reports, prompt audit, artifact checks, and failure notes stay in the isolated test directory.",
+      "WeChat is better for concise results. HTML prefers screenshots, Office/PDF sends previewable files, and multi-file projects send a summary, entry point, and manifest.",
   },
 };
 
@@ -110,13 +104,13 @@ function setLanguage(lang) {
   document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
   document.querySelectorAll("[data-i18n]").forEach((node) => {
     const key = node.getAttribute("data-i18n");
-    if (!table[key]) return;
+    if (!key || !table[key]) return;
     node.innerHTML = table[key];
   });
   document.querySelectorAll(".lang-btn").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.lang === lang);
   });
-  localStorage.setItem("deepseekcode-site-lang", lang);
+  window.localStorage.setItem("deepseekcode-site-lang", lang);
 }
 
 const observer = new IntersectionObserver(
@@ -134,16 +128,15 @@ const observer = new IntersectionObserver(
 document.querySelectorAll(".reveal").forEach((node) => observer.observe(node));
 
 document.querySelectorAll(".lang-btn").forEach((button) => {
-  button.addEventListener("click", () => setLanguage(button.dataset.lang));
+  button.addEventListener("click", () => setLanguage(button.dataset.lang || "zh"));
 });
 
 document.querySelectorAll("[data-copy]").forEach((button) => {
   button.addEventListener("click", async () => {
-    const target = document.querySelector(button.dataset.copy);
+    const target = document.querySelector(button.dataset.copy || "");
     if (!target) return;
-    const text = target.innerText;
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(target.innerText);
       const original = button.innerText;
       button.innerText = "Copied";
       window.setTimeout(() => {
@@ -155,4 +148,4 @@ document.querySelectorAll("[data-copy]").forEach((button) => {
   });
 });
 
-setLanguage(localStorage.getItem("deepseekcode-site-lang") || "zh");
+setLanguage(window.localStorage.getItem("deepseekcode-site-lang") || "zh");

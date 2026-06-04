@@ -18,6 +18,7 @@ import { QueryEngine, type QueryEvent } from "../../query/QueryEngine.js";
 import { ApprovalService } from "../../services/approval/approvalService.js";
 import { DeepSeekClient } from "../../services/deepseek/client.js";
 import type { RuntimePermissionState } from "../../services/permissions/permissionProfiles.js";
+import { getSessionHub } from "../../services/session/sessionHub.js";
 import { StateStore } from "../../state/sqlite.js";
 import { RemoteAccessPolicy } from "../accessPolicy.js";
 import { RemoteProjectBinding } from "../projectBinding.js";
@@ -153,6 +154,12 @@ export class WeComRemoteControlService implements RemoteChannel {
 
   private updateStatus(status: string): void {
     this.statusText = status;
+    getSessionHub().updateRemote({
+      channel: this.name,
+      projectPath: this.options.baseConfig.projectPath,
+      status,
+      updatedAtMs: Date.now(),
+    });
     this.options.onStatus?.(`[wecom] ${status}`);
   }
 
@@ -339,7 +346,7 @@ export class WeComRemoteControlService implements RemoteChannel {
         runId: active.runId,
         projectPath,
       });
-      await this.safeReplyStream(frame, active.streamId, final, true);
+      await this.safeReplyStream(frame, active.streamId, final.text, true);
       await this.sendRecentArtifactFiles(message.chatId, runtime, active.runId);
     } catch (error) {
       const final = `任务异常：${compactOneLine(errorMessage(error), 1000)}`;

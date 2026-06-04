@@ -1,6 +1,6 @@
 {
   "name": "@xh12312/deepseekcode",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "private": false,
   "description": "DeepSeek-first local agent workbench, TypeScript runtime.",
   "type": "module",
@@ -20,6 +20,8 @@
     "GUIDE.md",
     "ARCHITECTURE.md",
     "CLI_REFERENCE.md",
+    "DEVELOPMENT.md",
+    "API_REFERENCE.md",
     "LICENSE"
   ],
   "engines": {

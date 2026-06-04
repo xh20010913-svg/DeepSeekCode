@@ -254,6 +254,44 @@ export const InvokeAgentActionSchema = z.object({
   task: z.string().min(1),
 });
 
+export const AgentRoleSpecSchema = z.object({
+  name: z.string().min(1),
+  responsibility: z.string().min(1),
+  skills: z.array(z.string().min(1)).default([]),
+  tools: z.array(z.string().min(1)).default([]),
+  acceptance: z.array(z.string().min(1)).default([]),
+});
+
+export const StartAgentWorkflowActionSchema = z.object({
+  type: z.literal("start_agent_workflow"),
+  objective: z.string().min(1),
+  roles: z.array(AgentRoleSpecSchema).default([]),
+  acceptance_criteria: z.array(z.string().min(1)).default([]),
+  max_steps: z.number().int().min(1).max(50).default(12),
+});
+
+export const SendAgentMessageActionSchema = z.object({
+  type: z.literal("send_agent_message"),
+  workflow_id: z.string().optional(),
+  from: z.string().min(1).default("supervisor"),
+  to: z.string().min(1),
+  message: z.string().min(1),
+});
+
+export const AgentStatusActionSchema = z.object({
+  type: z.literal("agent_status"),
+  workflow_id: z.string().optional(),
+});
+
+export const FinishAgentWorkflowActionSchema = z.object({
+  type: z.literal("finish_agent_workflow"),
+  workflow_id: z.string().optional(),
+  status: z.enum(["succeeded", "failed", "needs_followup"]).default("succeeded"),
+  summary: z.string().min(1),
+  artifacts: z.array(z.string().min(1)).default([]),
+  issues: z.array(z.string().min(1)).default([]),
+});
+
 export const ActionRequestSchema = z.discriminatedUnion("type", [
   WriteFileActionSchema,
   AppendFileActionSchema,
@@ -285,6 +323,10 @@ export const ActionRequestSchema = z.discriminatedUnion("type", [
   PlannedComputerUseActionSchema,
   InvokeSkillActionSchema,
   InvokeAgentActionSchema,
+  StartAgentWorkflowActionSchema,
+  SendAgentMessageActionSchema,
+  AgentStatusActionSchema,
+  FinishAgentWorkflowActionSchema,
 ]);
 
 export type ActionRequest = z.infer<typeof ActionRequestSchema>;

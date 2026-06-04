@@ -127,7 +127,7 @@ If a model or gateway does not support tool calling, the run fails with a clear 
 
 ## 5. WeChat Remote Control
 
-DeepSeekCode v0.2.6 can run two experimental remote channels:
+DeepSeekCode v0.2.7 can run two experimental remote channels:
 
 - Enterprise WeChat / WeCom intelligent bot long connection through the official SDK.
 - Personal WeChat through Tencent OpenClaw QR login and long polling.
@@ -162,6 +162,7 @@ Remote commands:
 ```text
 /help
 /status
+/ask What is the current blocker?
 /project
 /project D:\work\agent-test
 /run Continue the dashboard and send me the artifacts
@@ -171,7 +172,17 @@ Remote commands:
 /usage
 ```
 
-Natural-language messages also work. In group chats, messages must mention the bot or use a slash command by default. When shell/browser/file-sensitive actions need approval, WeCom receives a template card. Personal WeChat has no template card surface, so it asks you to reply with `1` allow once, `2` allow for session, `3` reject, or `4` stop.
+Natural-language messages also work. If a long task is already running, normal messages return the current status; use `/ask <question>` for read-only side questions that should not interrupt the main task. In group chats, messages must mention the bot or use a slash command by default. When shell/browser/file-sensitive actions need approval, WeCom receives a template card. Personal WeChat has no template card surface, so it asks you to reply with `1` allow once, `2` allow for session, `3` reject, or `4` stop.
+
+Artifact delivery is runtime-based:
+
+| Artifact | Remote delivery |
+| --- | --- |
+| HTML | Render a screenshot and send the image preview; do not flood chat with raw HTML/CSS/JS. |
+| DOCX/PPTX/XLSX/PDF | Send the file when WeChat can open it. |
+| PNG/JPG/WEBP | Send the image directly. |
+| Markdown/text | Send a short chat summary; keep the file local unless requested. |
+| Multi-file project | Send entry file, screenshot, and manifest-style summary. |
 
 Attachments are saved under:
 
@@ -269,6 +280,32 @@ Multi-agent mode:
 
 The durable multi-agent flow uses Planner -> Builder -> Tester -> Reviewer, task records, compact role feedback, and run checkpoints.
 
+Native multi-agent workflow tools are also available to the model:
+
+```text
+start_agent_workflow
+send_agent_message
+agent_status
+finish_agent_workflow
+```
+
+Use natural language when you want a role-based workflow:
+
+```text
+Open a multi-agent workflow. Let one agent design the UI, one agent implement it, one agent test it, and one reviewer verify the final artifacts.
+```
+
+If you do not specify roles, the model should design project-specific roles and add a reviewer role by default.
+
+Side questions during long tasks:
+
+```text
+/ask What is currently blocking the run?
+/ask Which artifacts have been produced so far?
+```
+
+`/ask` is read-only. It can inspect current run state, tasks, events, artifacts, and usage, but it cannot write files, run shell, use browser, or call MCP.
+
 ## 9. Cache And Cost
 
 DeepSeekCode keeps stable prompt blocks before dynamic context to improve provider prefix-cache reuse. Old history is compressed into:
@@ -315,6 +352,8 @@ Recommended scenario set:
 | DOCX report | Title hierarchy, tables/lists, document validation. |
 | Failure repair | Tool failure diagnosis, follow-up fix, final verification. |
 | Multi-agent project | Planner/Builder/Tester/Reviewer handoff and checkpoints. |
+| Side-channel question | Ask `/ask` while a long task is running and confirm the main task continues. |
+| WeChat remote | Start OpenClaw, send a task, approve permissions, receive concise status and artifact preview. |
 | Resume | CLI restart and `--continue`/`--resume` recovery. |
 | Long-term memory | Teach a durable preference, restart, recall it with `/memory search`, then verify a natural follow-up uses it. |
 

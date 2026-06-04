@@ -8,6 +8,7 @@ export interface WeChatOpenClawConfig {
   enabled: boolean;
   accountId?: string;
   apiBaseUrl: string;
+  cdnBaseUrl: string;
   allowedUsers: string[];
   allowedGroups: string[];
   projectRoots: string[];
@@ -21,6 +22,7 @@ export function readWeChatOpenClawConfig(runtime: RuntimeConfig): WeChatOpenClaw
     enabled: readBoolean("DEEPSEEKCODE_WECHAT_OPENCLAW_ENABLED", true),
     accountId: readOptional("DEEPSEEKCODE_WECHAT_ACCOUNT_ID"),
     apiBaseUrl: readOptional("DEEPSEEKCODE_WECHAT_API_BASE_URL") ?? "https://ilinkai.weixin.qq.com",
+    cdnBaseUrl: readOptional("DEEPSEEKCODE_WECHAT_CDN_BASE_URL") ?? "https://novac2c.cdn.weixin.qq.com/c2c",
     allowedUsers: parseRemoteCsv(process.env.DEEPSEEKCODE_WECHAT_ALLOWED_USERS),
     allowedGroups: parseRemoteCsv(process.env.DEEPSEEKCODE_WECHAT_ALLOWED_GROUPS),
     projectRoots: parseRemoteCsv(process.env.DEEPSEEKCODE_WECHAT_PROJECT_ROOTS),
@@ -45,6 +47,7 @@ export function formatWeChatOpenClawStatus(runtime: RuntimeConfig): string {
     `account=${selectedAccount?.accountId ?? selected ?? "none"}`,
     `project=${runtime.projectPath}`,
     `apiBaseUrl=${config.apiBaseUrl}`,
+    `cdnBaseUrl=${config.cdnBaseUrl}`,
     `allowedUsers=${config.allowedUsers.length || "all-private"}`,
     `allowedGroups=${config.allowedGroups.length || "mention-or-slash"}`,
     `projectRoots=${config.projectRoots.length ? config.projectRoots.join("; ") : runtime.projectPath}`,

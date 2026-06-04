@@ -9,6 +9,7 @@ import {
 } from "../bridge/cdpClient.js";
 import {
   ActionRequestSchema,
+  AgentStatusActionSchema,
   ApplyPatchActionSchema,
   AskUserQuestionActionSchema,
   BrowserClickActionSchema,
@@ -19,6 +20,7 @@ import {
   BrowserTypeActionSchema,
   EnterPlanModeActionSchema,
   ExitPlanModeActionSchema,
+  FinishAgentWorkflowActionSchema,
   GlobFilesActionSchema,
   GrepFilesActionSchema,
   AppendFileActionSchema,
@@ -35,6 +37,8 @@ import {
   SshReadFileActionSchema,
   SshRunActionSchema,
   SshWriteFileActionSchema,
+  SendAgentMessageActionSchema,
+  StartAgentWorkflowActionSchema,
   TdaiConversationSearchActionSchema,
   TdaiMemorySearchActionSchema,
   TodoWriteActionSchema,
@@ -43,6 +47,7 @@ import {
   type ActionRequest,
 } from "../protocol/actions.js";
 import { loadAgent } from "../agents/loader.js";
+import { AgentWorkflowService } from "../services/agents/agentWorkflow.js";
 import { hasApprovedToolAction } from "../services/approval/approvalPolicy.js";
 import { McpService } from "../services/mcp/mcpService.js";
 import { BrowserTrajectoryRecorder } from "../services/browser/browserTrajectory.js";
@@ -927,6 +932,153 @@ export const baseTools: Tools = [
             agent.tools?.length ? `tools: ${agent.tools.join(", ")}` : "tools: inherited",
             excerpt,
           ].join("\n"),
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "start_agent_workflow",
+    displayName: "Agent Workflow",
+    description: "Start a project-scoped multi-agent workflow with role specs, shared blackboard messages, and a default reviewer role.",
+    inputSchema: StartAgentWorkflowActionSchema,
+    concurrencySafe: false,
+    destructive: false,
+    run(input, context) {
+      if (!context.state || !context.runId) {
+        return {
+          result: {
+            action_type: input.type,
+            status: "failed",
+            message: "start_agent_workflow requires a run context.",
+          },
+        };
+      }
+      const workflow = new AgentWorkflowService(context.state, context.root).start({
+        runId: context.runId,
+        objective: input.objective,
+        roles: (input.roles ?? []).map((role) => ({
+          name: role.name,
+          responsibility: role.responsibility,
+          skills: role.skills ?? [],
+          tools: role.tools ?? [],
+          acceptance: role.acceptance ?? [],
+        })),
+        acceptanceCriteria: input.acceptance_criteria ?? [],
+        maxSteps: input.max_steps ?? 12,
+      });
+      return {
+        data: workflow,
+        result: {
+          action_type: input.type,
+          status: "succeeded",
+          message: [
+            `workflow ${workflow.id} started`,
+            `objective: ${workflow.objective}`,
+            `roles: ${workflow.roles.map((role) => role.name).join(", ")}`,
+            "A reviewer role is included for acceptance checks.",
+          ].join("\n"),
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "send_agent_message",
+    displayName: "Agent Message",
+    description: "Send a tracked blackboard message between roles in the active multi-agent workflow.",
+    inputSchema: SendAgentMessageActionSchema,
+    concurrencySafe: false,
+    destructive: false,
+    run(input, context) {
+      if (!context.state || !context.runId) {
+        return {
+          result: {
+            action_type: input.type,
+            status: "failed",
+            message: "send_agent_message requires a run context.",
+          },
+        };
+      }
+      const workflow = new AgentWorkflowService(context.state, context.root).message({
+        runId: context.runId,
+        workflowId: input.workflow_id,
+        from: input.from ?? "supervisor",
+        to: input.to,
+        message: input.message,
+      });
+      return {
+        result: {
+          action_type: input.type,
+          status: "succeeded",
+          message: `workflow ${workflow.id}: ${input.from} -> ${input.to}: ${input.message}`,
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "agent_status",
+    displayName: "Agent Status",
+    description: "Show the active multi-agent workflow status, role tasks, and latest blackboard message.",
+    inputSchema: AgentStatusActionSchema,
+    readOnly: true,
+    concurrencySafe: true,
+    run(input, context) {
+      if (!context.state) {
+        return {
+          result: {
+            action_type: input.type,
+            status: "failed",
+            message: "agent_status requires state.",
+          },
+        };
+      }
+      const text = new AgentWorkflowService(context.state, context.root).formatStatus(input.workflow_id);
+      return {
+        result: {
+          action_type: input.type,
+          status: "succeeded",
+          message: text,
+          context: text,
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "finish_agent_workflow",
+    displayName: "Finish Workflow",
+    description: "Finish the active multi-agent workflow after the reviewer has checked acceptance criteria.",
+    inputSchema: FinishAgentWorkflowActionSchema,
+    concurrencySafe: false,
+    destructive: false,
+    run(input, context) {
+      if (!context.state || !context.runId) {
+        return {
+          result: {
+            action_type: input.type,
+            status: "failed",
+            message: "finish_agent_workflow requires a run context.",
+          },
+        };
+      }
+      const workflow = new AgentWorkflowService(context.state, context.root).finish({
+        runId: context.runId,
+        workflowId: input.workflow_id,
+        status: input.status ?? "succeeded",
+        summary: input.summary,
+        artifacts: input.artifacts ?? [],
+        issues: input.issues ?? [],
+      });
+      const artifacts = input.artifacts ?? [];
+      const issues = input.issues ?? [];
+      return {
+        result: {
+          action_type: input.type,
+          status: input.status === "failed" ? "failed" : "succeeded",
+          message: [
+            `workflow ${workflow.id} ${input.status ?? "succeeded"}`,
+            input.summary,
+            artifacts.length ? `artifacts: ${artifacts.join(", ")}` : "",
+            issues.length ? `issues: ${issues.join("; ")}` : "",
+          ].filter(Boolean).join("\n"),
         },
       };
     },

@@ -2,6 +2,7 @@ import type { Command } from "../types/command.js";
 import type { CommandContext } from "../types/command.js";
 import { addDirCommand } from "./builtin/addDir.js";
 import { agentsCommand } from "./builtin/agents.js";
+import { askCommand } from "./builtin/ask.js";
 import { attachCommand } from "./builtin/attach.js";
 import { approvalCommand } from "./builtin/approval.js";
 import { bridgeCommand } from "./builtin/bridge.js";
@@ -82,6 +83,7 @@ export function buildCommandCatalog(context?: CommandContext): Command[] {
     exportCommand,
     attachCommand,
     runsCommand,
+    askCommand,
     queueCommand,
     remoteControlCommand,
     pauseCommand,

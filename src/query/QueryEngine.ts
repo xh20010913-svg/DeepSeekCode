@@ -1344,7 +1344,7 @@ function looksOngoing(text: string): boolean {
 
 */
 function looksOngoingClean(text: string): boolean {
-  return /姝ｅ湪|鍑嗗|灏嗚|鎺ヤ笅鏉闇€瑕佺户缁瓅灏濊瘯|楠岃瘉涓瓅creating|validating|will\s+/i.test(text);
+  return /正在|准备|将要|接下来|需要继续|尝试|验证中|creating|validating|will\s+/i.test(text);
 }
 
 function withLatestRunDetails(message: string): string {
@@ -1823,7 +1823,7 @@ function formatTencentMemoryRecall(recall?: TencentMemoryRecall): string {
 
 function explicitlyRequestsLocalTool(userMessage: string): boolean {
   const lower = userMessage.toLowerCase();
-  if (!/(call|invoke|use|run|璋冪敤|浣跨敤|鎵ц|蹇呴』璋冪敤|蹇呴』浣跨敤).{0,80}(tool|宸ュ叿|tdai_|read_file|write_file|run_command)/i.test(userMessage)) {
+  if (!/(call|invoke|use|run|调用|使用|执行|必须调用|必须使用).{0,80}(tool|工具|tdai_|read_file|write_file|run_command)/i.test(userMessage)) {
     return false;
   }
   return baseTools.some((tool) => lower.includes(tool.name.toLowerCase()));

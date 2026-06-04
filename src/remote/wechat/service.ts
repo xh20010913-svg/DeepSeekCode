@@ -1,16 +1,23 @@
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { bootstrapConfig, type RuntimeConfig } from "../../bootstrap/config.js";
+import { captureBrowserScreenshot } from "../../bridge/cdpClient.js";
 import type { DeepSeekProviderClient } from "../../protocol/provider.js";
 import { QueryEngine } from "../../query/QueryEngine.js";
 import { ApprovalService } from "../../services/approval/approvalService.js";
+import { answerAsyncQuestion } from "../../services/async/asyncQuestionService.js";
 import { DeepSeekClient } from "../../services/deepseek/client.js";
 import type { RuntimePermissionState } from "../../services/permissions/permissionProfiles.js";
+import { getSessionHub } from "../../services/session/sessionHub.js";
 import { StateStore } from "../../state/sqlite.js";
 import { RemoteAccessPolicy } from "../accessPolicy.js";
+import { planRemoteDelivery, type RemoteDeliveryCandidate } from "../delivery.js";
 import { RemoteProjectBinding } from "../projectBinding.js";
+import { captureHtmlWithHeadlessBrowser } from "../preview.js";
 import { compactOneLine, redactRemoteText } from "../redact.js";
-import { RemoteReplyRenderer } from "../renderer.js";
+import { RemoteReplyRenderer, type RemoteFinalRender } from "../renderer.js";
+import { buildRemoteStatus } from "../status.js";
 import type { RemoteAttachment, RemoteChannel, RemoteMessage } from "../types.js";
 import { readWeChatOpenClawConfig, type WeChatOpenClawConfig } from "./config.js";
 import {
@@ -35,6 +42,9 @@ interface ActiveRun {
   runId?: string;
   contextToken?: string;
   replyTarget: string;
+  startedAtMs: number;
+  lastEventAtMs: number;
+  lastEventText?: string;
 }
 
 interface PendingApproval {
@@ -43,6 +53,11 @@ interface PendingApproval {
   runId: string;
   gateId: string;
   summary: string;
+}
+
+interface TraceArtifact {
+  path?: string;
+  kind?: string;
 }
 
 export interface WeChatOpenClawRemoteControlOptions {
@@ -63,6 +78,7 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
   private controller?: AbortController;
   private readonly runtimes = new Map<string, RuntimeBundle>();
   private readonly activeRuns = new Map<string, ActiveRun>();
+  private readonly activeRunPromises = new Map<string, Promise<void>>();
   private readonly pendingApprovals = new Map<string, PendingApproval>();
   private readonly sessionShellGrants = new Set<string>();
   private statusText = "disconnected";
@@ -84,12 +100,15 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
     }
     this.controller = new AbortController();
     this.updateStatus("connected");
-    void this.client!.poll((message) => this.handleIncoming(message), this.controller.signal)
-      .finally(() => {
-        if (this.controller?.signal.aborted) return;
-        this.updateStatus("disconnected");
-        this.controller = undefined;
+    void this.client!.poll(async (message) => {
+      void this.handleIncoming(message).catch((error) => {
+        this.updateStatus(`message handling failed: ${errorMessage(error)}`);
       });
+    }, this.controller.signal).finally(() => {
+      if (this.controller?.signal.aborted) return;
+      this.updateStatus("disconnected");
+      this.controller = undefined;
+    });
   }
 
   async stop(): Promise<void> {
@@ -99,6 +118,7 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
       active.engine.cancelActiveRun("wechat openclaw remote stopped");
     }
     this.activeRuns.clear();
+    this.activeRunPromises.clear();
     this.pendingApprovals.clear();
     for (const runtime of this.runtimes.values()) {
       if (!runtime.closeWithService) continue;
@@ -144,6 +164,12 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
 
   private updateStatus(status: string): void {
     this.statusText = status;
+    getSessionHub().updateRemote({
+      channel: this.name,
+      projectPath: this.options.baseConfig.projectPath,
+      status,
+      updatedAtMs: Date.now(),
+    });
     this.options.onStatus?.(`[wechat] ${status}`);
   }
 
@@ -170,6 +196,10 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
         await this.sendText(message, this.statusReply(message.chatId));
         return;
       }
+      if (command.kind === "ask") {
+        await this.answerSideQuestion(message, command.arg);
+        return;
+      }
       if (command.kind === "project") {
         await this.handleProjectCommand(message, command.arg);
         return;
@@ -180,6 +210,10 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
       }
       if (command.kind === "usage") {
         await this.sendText(message, this.usageReply(message.chatId));
+        return;
+      }
+      if (command.kind === "shell") {
+        await this.handleShellCommand(message, command.arg);
         return;
       }
       if (command.kind === "stop") {
@@ -233,10 +267,17 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
       await this.sendText(message, "请输入任务内容。发送 /help 查看可用命令。");
       return;
     }
-    if (this.activeRuns.has(message.chatId)) {
-      await this.sendText(message, "当前会话已有任务运行中。发送 /stop 可停止，或等待完成后再继续。");
+    const running = this.activeRuns.get(message.chatId);
+    if (running) {
+      await this.sendText(message, [
+        "当前任务仍在运行。",
+        "发送 /status 查看进度，发送 /ask <问题> 进行旁路问答，发送 /stop 停止任务。",
+        "",
+        this.statusReply(message.chatId),
+      ].join("\n"));
       return;
     }
+
     const projectPath = this.currentProject(message.chatId);
     const runtime = this.runtimeFor(projectPath);
     if (!runtime.provider) {
@@ -244,7 +285,6 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
       return;
     }
 
-    await this.sendText(message, "已收到，正在处理...");
     const permissions = this.permissionsFor(message.chatId, projectPath);
     const engine = new QueryEngine({
       config: runtime.config,
@@ -262,6 +302,8 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
       projectPath,
       contextToken: String((message.raw as OpenClawMessage | undefined)?.context_token ?? ""),
       replyTarget: replyTargetFromRaw(message.raw as OpenClawMessage | undefined),
+      startedAtMs: Date.now(),
+      lastEventAtMs: Date.now(),
     };
     this.activeRuns.set(message.chatId, active);
     runtime.state.appendEvent(null, "remote_wechat_prompt", {
@@ -271,30 +313,62 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
       prompt_preview: compactOneLine(prompt, 200),
     });
 
+    await this.sendText(message, "已收到，开始处理。微信端只会推送关键进度、权限请求和最终结果。");
+    const task = this.executePrompt(message, runtime, active, prompt)
+      .finally(() => {
+        this.activeRuns.delete(message.chatId);
+        this.activeRunPromises.delete(message.chatId);
+      });
+    this.activeRunPromises.set(message.chatId, task);
+  }
+
+  private async executePrompt(
+    message: RemoteMessage,
+    runtime: RuntimeBundle,
+    active: ActiveRun,
+    prompt: string,
+  ): Promise<void> {
     let lastProgressAt = 0;
     const sentGates = new Set<string>();
     try {
-      for await (const event of engine.submit(prompt)) {
+      for await (const event of active.engine.submit(prompt)) {
         active.runId = active.runId ?? runtime.state.listRuns(1)[0]?.id;
+        active.lastEventAtMs = Date.now();
+        active.lastEventText = event.type === "status"
+          ? `${event.text}${event.detail ? `: ${event.detail}` : ""}`
+          : event.type === "tool_start" || event.type === "tool_result" || event.type === "error" || event.type === "command"
+            ? event.text
+            : active.lastEventText;
         const progress = active.renderer.accept(event);
         await this.maybeSendApproval(message, active, runtime.state, sentGates);
-        if (progress && Date.now() - lastProgressAt > 2500) {
+        const now = Date.now();
+        if (progress && (lastProgressAt === 0 || now - lastProgressAt > 8000)) {
           await this.sendText(message, progress);
-          lastProgressAt = Date.now();
+          lastProgressAt = now;
+        } else if (now - lastProgressAt > 30_000) {
+          const heartbeat = active.renderer.progress({ important: true });
+          if (heartbeat) {
+            await this.sendText(message, heartbeat);
+            lastProgressAt = now;
+          }
         }
       }
       active.runId = active.runId ?? runtime.state.listRuns(1)[0]?.id;
       const final = active.renderer.final({
         stateStore: runtime.state,
         runId: active.runId,
-        projectPath,
+        projectPath: active.projectPath,
       });
-      await this.sendText(message, final);
-      await this.sendArtifactSummary(message, runtime, active.runId);
+      await this.sendText(message, final.text);
+      await this.sendArtifactsAndSummary(message, runtime, active.runId, final);
     } catch (error) {
-      await this.sendText(message, `任务异常：${compactOneLine(errorMessage(error), 1000)}`);
-    } finally {
-      this.activeRuns.delete(message.chatId);
+      const messageText = errorMessage(error);
+      await this.sendText(
+        message,
+        /cancelled|stopped/i.test(messageText)
+          ? "任务已停止。"
+          : `任务异常：${compactOneLine(messageText, 1000)}`,
+      );
     }
   }
 
@@ -327,6 +401,41 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
     ].join("\n"));
   }
 
+  private async answerSideQuestion(message: RemoteMessage, question: string): Promise<void> {
+    const trimmed = question.trim();
+    if (!trimmed) {
+      await this.sendText(message, "请输入旁路问题，例如：/ask 现在做到哪一步了？");
+      return;
+    }
+    const projectPath = this.currentProject(message.chatId);
+    const runtime = this.runtimeFor(projectPath);
+    const provider = runtime.config.provider ? new DeepSeekClient(runtime.config.provider) : runtime.provider;
+    if (!provider) {
+      await this.sendText(message, "DeepSeek provider 未配置，暂时无法回答旁路问题。");
+      return;
+    }
+    const active = this.activeRuns.get(message.chatId);
+    const fallbackRun = runtime.state.listRuns(1)[0]?.id;
+    const runId = active?.runId ?? fallbackRun;
+    await this.sendText(message, "收到，我用只读上下文快速回答，不会打断当前任务。");
+    const result = await answerAsyncQuestion({
+      question: trimmed,
+      config: runtime.config,
+      state: runtime.state,
+      provider,
+      runId,
+    });
+    if (result.usage && runId) {
+      runtime.state.recordUsage(runId, result.usage, "remote_async_ask");
+    }
+    runtime.state.appendEvent(runId ?? null, "remote_async_question_answered", {
+      channel: "wechat-openclaw",
+      chat_id: message.chatId,
+      question_preview: compactOneLine(trimmed, 160),
+    });
+    await this.sendText(message, `旁路回答\n${compactOneLine(result.answer, 1600)}`);
+  }
+
   private async remoteMessage(raw: OpenClawMessage): Promise<RemoteMessage> {
     const chatId = remoteChatId(raw);
     const attachments: RemoteAttachment[] = [];
@@ -343,7 +452,7 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
           bytes: saved.bytes,
         });
       } catch {
-        // Keep processing the text part even when an attachment download fails.
+        // Keep processing text even when one attachment fails to download.
       }
     }
     const text = messageText(raw);
@@ -412,24 +521,36 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
   private statusReply(chatId: string): string {
     const projectPath = this.currentProject(chatId);
     const runtime = this.runtimeFor(projectPath);
-    const run = runtime.state.listRuns(1)[0];
-    return [
-      "## DeepSeekCode 个人微信远程状态",
-      `连接：${this.status()}`,
-      `项目：${projectPath}`,
-      `模型：${runtime.config.model}`,
-      `shell：${this.permissionsFor(chatId, projectPath).allowShell ? "on" : "off"}`,
-      run ? `最近任务：${run.status} ${run.id}` : "最近任务：暂无",
-    ].join("\n");
+    const active = this.activeRuns.get(chatId);
+    return buildRemoteStatus({
+      connection: this.status(),
+      projectPath,
+      model: runtime.config.model,
+      shellAllowed: this.permissionsFor(chatId, projectPath).allowShell,
+      state: runtime.state,
+      active: active
+        ? {
+            runId: active.runId,
+            startedAtMs: active.startedAtMs,
+            lastEventAtMs: active.lastEventAtMs,
+            lastEventText: active.lastEventText,
+            renderer: active.renderer.snapshot(),
+          }
+        : undefined,
+    });
   }
 
   private artifactsReply(chatId: string): string {
     const runtime = this.runtimeFor(this.currentProject(chatId));
     const run = runtime.state.listRuns(1)[0];
     if (!run) return "暂无任务产物。";
-    const trace = runtime.state.traceRun(run.id) as { artifacts?: Array<{ path?: string; kind?: string }> };
-    const artifacts = (trace.artifacts ?? []).map((artifact) => `- ${artifact.path}${artifact.kind ? ` (${artifact.kind})` : ""}`);
-    return artifacts.length ? ["## 最近产物", ...artifacts.slice(-12)].join("\n") : "最近任务没有记录到产物。";
+    const artifacts = artifactPaths(runtime, run.id).map((artifact) => `- ${artifact.path}${artifact.kind ? ` (${artifact.kind})` : ""}`);
+    if (!artifacts.length) return "最近任务没有记录到产物。";
+    return [
+      "📦 最近产物",
+      `共 ${artifacts.length} 个。这里只列文件名，避免刷屏。`,
+      ...artifacts.slice(-8).map((line) => `- ${briefFile(line)}`),
+    ].join("\n");
   }
 
   private usageReply(chatId: string): string {
@@ -437,7 +558,7 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
     const run = runtime.state.listRuns(1)[0];
     const usage = run ? runtime.state.usageTotals(run.id) : runtime.state.usageTotals();
     return [
-      "## 使用量",
+      "💰 使用量",
       `输入：${usage.inputTokens}`,
       `输出：${usage.outputTokens}`,
       `缓存命中：${usage.cacheHitTokens}`,
@@ -454,22 +575,120 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
     }
     active.engine.cancelActiveRun("stopped from WeChat");
     this.activeRuns.delete(message.chatId);
+    this.pendingApprovals.delete(message.chatId);
     await this.sendText(message, "已请求停止当前任务。");
   }
 
-  private async sendArtifactSummary(message: RemoteMessage, runtime: RuntimeBundle, runId: string | undefined): Promise<void> {
-    if (!runId) return;
-    const trace = runtime.state.traceRun(runId) as { artifacts?: Array<{ path?: string; kind?: string }> };
-    const artifacts = (trace.artifacts ?? [])
-      .map((artifact) => artifact.path)
-      .filter((value): value is string => Boolean(value))
-      .slice(-5);
-    const existing = artifacts.filter((artifactPath) => {
-      const fullPath = path.isAbsolute(artifactPath) ? artifactPath : path.join(runtime.config.projectPath, artifactPath);
-      return fs.existsSync(fullPath);
-    });
+  private async handleShellCommand(message: RemoteMessage, arg: string): Promise<void> {
+    const projectPath = this.currentProject(message.chatId);
+    const normalized = arg.trim().toLowerCase();
+    if (["on", "enable", "enabled", "开", "开启"].includes(normalized)) {
+      this.sessionShellGrants.add(sessionGrantKey(message.chatId, projectPath));
+      const active = this.activeRuns.get(message.chatId);
+      if (active && path.resolve(active.projectPath) === path.resolve(projectPath)) {
+        active.permissions.allowShell = true;
+        active.permissions.profile = "custom";
+      }
+      await this.sendText(message, `shell 已为当前微信会话开启。\n项目：${projectPath}\n具体命令仍会经过工具权限和安全策略。`);
+      return;
+    }
+    if (["off", "disable", "disabled", "关", "关闭"].includes(normalized)) {
+      this.sessionShellGrants.delete(sessionGrantKey(message.chatId, projectPath));
+      const active = this.activeRuns.get(message.chatId);
+      if (active && !this.options.permissions.allowShell) {
+        active.permissions.allowShell = false;
+        active.permissions.profile = this.options.permissions.profile;
+      }
+      await this.sendText(message, `shell 已为当前微信会话关闭。\n项目：${projectPath}`);
+      return;
+    }
+    await this.sendText(message, `当前 shell：${this.permissionsFor(message.chatId, projectPath).allowShell ? "on" : "off"}\n发送 /shell on 开启，/shell off 关闭。`);
+  }
+
+  private async sendArtifactsAndSummary(
+    message: RemoteMessage,
+    runtime: RuntimeBundle,
+    runId: string | undefined,
+    final: RemoteFinalRender,
+  ): Promise<void> {
+    const existing = runId ? existingArtifacts(runtime, runId) : [];
+    const delivery = planRemoteDelivery(existing.map((artifact) => ({
+      path: artifact.path,
+      fullPath: artifact.fullPath,
+      kind: artifact.kind,
+      sizeBytes: artifact.stat.size,
+    })));
     if (existing.length) {
-      await this.sendText(message, ["最近产物路径：", ...existing.map((item) => `- ${item}`)].join("\n"));
+      await this.sendText(message, deliverySummary(existing, delivery.candidates));
+    }
+
+    let sentVisual = false;
+    const visual = await this.bestVisualArtifact(runtime, delivery.candidates);
+    if (visual) {
+      sentVisual = await this.trySendMedia(message, visual, "任务效果快照");
+    }
+
+    let sentFiles = 0;
+    for (const artifact of delivery.files.slice(0, 3)) {
+      if (artifact.fullPath === visual) continue;
+      if (await this.trySendMedia(message, artifact.fullPath, `产物文件：${path.basename(artifact.fullPath)}`)) {
+        sentFiles += 1;
+      }
+    }
+
+    if (!sentVisual && sentFiles === 0) {
+      const summaryPath = this.writeRemoteSummary(runtime, runId, final.markdown);
+      await this.sendText(message, [
+        "📄 暂时没有微信可直接预览的产物。",
+        "我已把完成情况保存到本机项目状态里。",
+        `本地摘要：${path.basename(summaryPath)}`,
+        "发送 /artifacts 可以查看最近产物文件名。",
+      ].join("\n"));
+    }
+  }
+
+  private async bestVisualArtifact(runtime: RuntimeBundle, artifacts: RemoteDeliveryCandidate[]): Promise<string | undefined> {
+    const directImage = artifacts.find((artifact) => artifact.deliveryKind === "image" || isImagePath(artifact.fullPath));
+    if (directImage) return directImage.fullPath;
+
+    const html = artifacts.find((artifact) => artifact.deliveryKind === "html" || isHtmlPath(artifact.fullPath));
+    if (!html) return undefined;
+    try {
+      const bytes = await captureBrowserScreenshot(pathToFileURL(html.fullPath).href, false);
+      const previewDir = path.join(runtime.config.dataDir, "remote", "previews");
+      fs.mkdirSync(previewDir, { recursive: true });
+      const target = path.join(previewDir, `${safeFilename(path.basename(html.fullPath, path.extname(html.fullPath)))}-${Date.now()}.png`);
+      fs.writeFileSync(target, bytes);
+      return target;
+    } catch {
+      const fallback = await captureHtmlWithHeadlessBrowser({
+        htmlPath: html.fullPath,
+        outputDir: path.join(runtime.config.dataDir, "remote", "previews"),
+      });
+      return fallback?.path;
+    }
+  }
+
+  private writeRemoteSummary(runtime: RuntimeBundle, runId: string | undefined, markdown: string): string {
+    const dir = path.join(runtime.config.dataDir, "remote", "summaries");
+    fs.mkdirSync(dir, { recursive: true });
+    const target = path.join(dir, `remote-task-summary-${safeFilename(runId ?? "latest")}.md`);
+    fs.writeFileSync(target, `${markdown.trim()}\n`, "utf-8");
+    return target;
+  }
+
+  private async trySendMedia(message: RemoteMessage, fullPath: string, caption: string): Promise<boolean> {
+    const active = this.activeRuns.get(message.chatId);
+    const raw = message.raw as OpenClawMessage | undefined;
+    const target = active?.replyTarget || replyTargetFromRaw(raw);
+    const contextToken = active?.contextToken || String(raw?.context_token ?? "");
+    if (!this.client || !fs.existsSync(fullPath)) return false;
+    try {
+      await this.client.sendMediaFile(target, fullPath, caption, contextToken);
+      return true;
+    } catch (error) {
+      await this.sendText(message, `产物发送失败：${path.basename(fullPath)}，${compactOneLine(errorMessage(error), 160)}`);
+      return false;
     }
   }
 
@@ -505,7 +724,7 @@ function parseRemoteCommand(text: string, mentionNames: string[]): { kind: strin
   if (!match) return { kind: "run", arg: trimmed };
   const name = match[1].toLowerCase();
   const arg = match[2] ?? "";
-  if (["help", "status", "project", "artifacts", "usage", "stop", "continue"].includes(name)) {
+  if (["help", "status", "project", "artifacts", "usage", "shell", "stop", "continue", "ask"].includes(name)) {
     return { kind: name, arg };
   }
   if (name === "run") return { kind: "run", arg };
@@ -524,15 +743,19 @@ function stripMention(text: string, mentionNames: string[]): string {
 
 function helpText(): string {
   return [
-    "## DeepSeekCode 个人微信远程控制",
-    "/status 查看状态",
-    "/project 查看当前项目",
-    "/project D:\\code\\Project 切换项目",
-    "/run <任务> 执行任务",
-    "/continue 继续上次任务",
-    "/artifacts 查看产物",
-    "/usage 查看用量",
-    "/stop 停止当前任务",
+    "🤖 DeepSeekCode 个人微信远程控制",
+    "可用命令：",
+    "- /status 查看状态",
+    "- /status full 查看更详细状态",
+    "- /ask <问题> 在长任务运行中旁路问答",
+    "- /project 查看当前项目",
+    "- /project D:\\code\\Project 切换项目",
+    "- /run <任务> 执行任务",
+    "- /continue 继续上次任务",
+    "- /artifacts 查看产物",
+    "- /usage 查看用量",
+    "- /shell on 或 /shell off 切换本会话 shell",
+    "- /stop 停止当前任务",
     "",
     "也可以直接发送自然语言任务。群聊中请 @DeepSeekCode 或使用 /run。",
   ].join("\n");
@@ -562,8 +785,90 @@ function attachmentKind(item: OpenClawMessageItem): RemoteAttachment["kind"] | u
   return undefined;
 }
 
+function artifactPaths(runtime: RuntimeBundle, runId: string): TraceArtifact[] {
+  const trace = runtime.state.traceRun(runId) as { artifacts?: TraceArtifact[] };
+  return trace.artifacts ?? [];
+}
+
+interface ExistingArtifact {
+  path: string;
+  fullPath: string;
+  kind?: string;
+  stat: fs.Stats;
+}
+
+function existingArtifacts(runtime: RuntimeBundle, runId: string): ExistingArtifact[] {
+  const existing: ExistingArtifact[] = [];
+  for (const artifact of artifactPaths(runtime, runId)) {
+    if (!artifact.path) continue;
+    const fullPath = path.isAbsolute(artifact.path) ? artifact.path : path.join(runtime.config.projectPath, artifact.path);
+    if (!fs.existsSync(fullPath)) continue;
+    const stat = fs.statSync(fullPath);
+    if (!stat.isFile()) continue;
+    existing.push({ path: artifact.path, fullPath, kind: artifact.kind, stat });
+  }
+  return existing;
+}
+
+function deliverySummary(existing: ExistingArtifact[], candidates: RemoteDeliveryCandidate[]): string {
+  const preview = candidates.find((candidate) => candidate.deliveryKind === "image" || candidate.deliveryKind === "html");
+  const files = candidates.filter((candidate) => candidate.canSendFile);
+  const counts = new Map<string, number>();
+  for (const candidate of candidates) {
+    counts.set(candidate.deliveryKind, (counts.get(candidate.deliveryKind) ?? 0) + 1);
+  }
+  const typeSummary = [...counts.entries()]
+    .map(([kind, count]) => `${deliveryKindLabel(kind)} ${count}`)
+    .join("；");
+  return [
+    "📦 产物已生成",
+    `共 ${existing.length} 个文件。${typeSummary ? `类型：${typeSummary}` : ""}`,
+    preview ? `预览：${path.basename(preview.fullPath)}，将优先发送图片快照。` : "",
+    files.length ? `微信可直接打开：${files.slice(0, 3).map((file) => path.basename(file.fullPath)).join("；")}` : "微信可直接打开的文件：暂无",
+    "不会自动发送 HTML/CSS/JS/MD 等微信不易预览的原始文件。",
+  ].filter(Boolean).join("\n");
+}
+
+function deliveryKindLabel(kind: string): string {
+  switch (kind) {
+    case "image":
+      return "图片";
+    case "html":
+      return "网页";
+    case "office":
+      return "Office";
+    case "pdf":
+      return "PDF";
+    case "text":
+      return "文本";
+    case "code":
+      return "代码";
+    case "archive":
+      return "压缩包";
+    default:
+      return "文件";
+  }
+}
+
+function briefFile(value: string): string {
+  const cleaned = value.replace(/^\s*-\s*/, "").replace(/\s+\([^)]+\)$/u, "");
+  return path.basename(cleaned) || cleaned;
+}
+
+function isImagePath(filePath: string): boolean {
+  return /\.(png|jpg|jpeg|webp)$/i.test(filePath);
+}
+
+function isHtmlPath(filePath: string): boolean {
+  return /\.(html|htm)$/i.test(filePath);
+}
+
 function sessionGrantKey(chatId: string, projectPath: string): string {
   return `${chatId}:${path.resolve(projectPath)}`;
+}
+
+function safeFilename(value: string): string {
+  return value.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").slice(0, 120) || "file";
 }
 
 function errorMessage(error: unknown): string {

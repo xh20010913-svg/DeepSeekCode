@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import type { ActionExecutionReport, ActionResult, ArtifactKind } from "../protocol/actions.js";
 import type { UsageSnapshot } from "../protocol/provider.js";
+import { getRunEventBus } from "../services/runs/runEventBus.js";
 
 export type RunStatus = "running" | "succeeded" | "failed" | "paused" | "cancelled";
 export type TaskStatus = "queued" | "running" | "succeeded" | "failed" | "paused" | "cancelled";
@@ -155,10 +156,13 @@ export class StateStore {
   }
 
   appendEvent(runId: string | null, kind: string, payload: unknown): void {
+    const createdAtMs = Date.now();
     this.db.prepare(`
       INSERT INTO events (run_id, kind, payload_json, created_at_ms)
       VALUES (?, ?, ?, ?)
-    `).run(runId, kind, stableJson(payload), Date.now());
+    `).run(runId, kind, stableJson(payload), createdAtMs);
+    const projectPath = runId ? this.getRun(runId)?.projectPath : undefined;
+    getRunEventBus().publish({ runId, projectPath, kind, payload, createdAtMs });
   }
 
   recordUsage(runId: string, usage: UsageSnapshot, source: string): void {

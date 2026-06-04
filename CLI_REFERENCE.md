@@ -125,6 +125,7 @@ npm install -g github:xh20010913-svg/DeepSeekCode
 | `/settings` | Runtime settings overview. |
 | `/config` | Runtime config view. |
 | `/status` | Current runtime status. |
+| `/ask <question>` | Ask a read-only side-channel question while a long task keeps running. |
 | `/project` | Project scope. |
 | `/permissions` | Permission profile and gates. |
 | `/shell on|off` | Toggle shell tools. |
@@ -165,6 +166,40 @@ npm install -g github:xh20010913-svg/DeepSeekCode
 | `/clear` `/quit` | Clear UI or exit. |
 
 Use `/help` in the TUI for the exact command catalog.
+
+## Remote Commands
+
+WeCom and personal WeChat use the same project runtime as the TUI. Remote commands are intentionally concise so a phone chat does not turn into a terminal transcript.
+
+| Command | Purpose |
+| --- | --- |
+| `/help` | Show remote command help. |
+| `/status` | Show a concise run snapshot. |
+| `/status full` | Show recent events, waiting gates, artifacts, and likely blockers. |
+| `/project` | Show the bound project. |
+| `/project <path>` | Switch to an allowed project root. |
+| `/run <task>` | Start a new task in the bound project. |
+| `/continue` | Continue the latest paused task. |
+| `/ask <question>` | Ask a read-only question without interrupting the active run. |
+| `/artifacts` | Show artifact summary and delivery status. |
+| `/usage` | Show run/session usage summary. |
+| `/agents` | Show multi-agent workflow status when one is active. |
+| `/stop` | Stop the active remote run. |
+
+Personal WeChat approvals use numeric replies because personal WeChat does not provide WeCom-style template cards: `1` allows once, `2` allows for the session, `3` rejects, and `4` stops the task.
+
+## Multi-Agent Workflow Tools
+
+The user can still call `/multi provider <task>` for the legacy provider workflow, but v0.2.7 also exposes native workflow tools to the model so natural language can start coordinated roles:
+
+| Tool | Purpose |
+| --- | --- |
+| `start_agent_workflow` | Create a supervisor-managed workflow from user-defined or model-designed roles. |
+| `send_agent_message` | Record a role-to-role message on the shared blackboard. |
+| `agent_status` | Summarize roles, messages, artifacts, open questions, and reviewer state. |
+| `finish_agent_workflow` | Close the workflow with a final acceptance or failure summary. |
+
+The runtime automatically expects a reviewer-style role when the task needs validation. Child roles keep their own compact transcript summaries; the main session receives role summaries, artifacts, issues, and the reviewer conclusion instead of every raw turn.
 
 ## Permission Profiles
 
