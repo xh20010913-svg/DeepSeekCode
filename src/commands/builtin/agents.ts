@@ -4,6 +4,7 @@ import { AgentService } from "../../services/agents/agentService.js";
 import { AgentDaemonService } from "../../services/agents/agentDaemon.js";
 import { AgentRunService } from "../../services/agents/agentRunService.js";
 import { buildAgentWizardPlan, formatAgentWizardPlan } from "../../services/agents/agentWizard.js";
+import { AgentWorkflowService } from "../../services/agents/agentWorkflow.js";
 import { resolveRunId } from "../runSelection.js";
 import {
   AgentPanel,
@@ -100,6 +101,69 @@ export const agentsCommand: Command = {
         }).join("\n"),
         display: React.createElement(AgentPanel, { model: agentRunsPanelModel(runs) }),
       };
+    }
+    if (trimmed === "workflow" || trimmed.startsWith("workflow ")) {
+      const workflowId = trimmed.startsWith("workflow ") ? trimmed.slice("workflow ".length).trim() : undefined;
+      try {
+        const service = new AgentWorkflowService(context.state, context.config.projectPath);
+        const status = service.status(workflowId);
+        const taskByAgent = new Map(status.tasks.map((task) => [task.agent, task]));
+        const counts = {
+          total: status.tasks.length,
+          done: status.tasks.filter((task) => task.status === "succeeded").length,
+          running: status.tasks.filter((task) => task.status === "running").length,
+          failed: status.tasks.filter((task) => task.status === "failed").length,
+        };
+        const rows = status.record.roles.map((role) => {
+          const task = taskByAgent.get(role.name);
+          const taskStatus = task?.status ?? "defined";
+          return {
+            key: role.name,
+            name: role.name,
+            status: taskStatus,
+            tone: taskStatus === "succeeded"
+              ? "success" as const
+              : taskStatus === "failed"
+                ? "error" as const
+                : taskStatus === "running"
+                  ? "warning" as const
+                  : "brand" as const,
+            detail: role.responsibility,
+            note: [
+              role.skills.length ? `skills=${role.skills.join(",")}` : "skills=none",
+              role.tools.length ? `tools=${role.tools.join(",")}` : "tools=inherit",
+              role.acceptance.length ? `acceptance=${role.acceptance.slice(0, 2).join(" | ")}` : "",
+            ].filter(Boolean).join(" "),
+          };
+        });
+        const message = [
+          `workflow ${status.record.id} ${status.record.status}`,
+          `objective: ${status.record.objective}`,
+          `roles: ${status.record.roles.map((role) => role.name).join(", ")}`,
+          `tasks: ${counts.done}/${counts.total} done, running=${counts.running}, failed=${counts.failed}`,
+          status.record.acceptanceCriteria.length ? `acceptance: ${status.record.acceptanceCriteria.join(" | ")}` : "",
+          status.messages.length ? `latest: ${status.messages.at(-1)?.from} -> ${status.messages.at(-1)?.to}: ${status.messages.at(-1)?.message}` : "",
+        ].filter(Boolean).join("\n");
+        return {
+          message,
+          display: React.createElement(AgentPanel, {
+            model: {
+              title: "Agent workflow",
+              subtitle: status.record.objective,
+              rows,
+              preview: [
+                `workflow: ${status.record.id}`,
+                `run: ${status.record.runId}`,
+                `status: ${status.record.status}`,
+                ...status.messages.slice(-6).map((item) => `${item.from} -> ${item.to}: ${item.message}`),
+              ],
+              footer: "/agents workflow | /agents detail attached | /agents runs",
+            },
+          }),
+        };
+      } catch (error) {
+        return { message: error instanceof Error ? error.message : String(error) };
+      }
     }
     if (trimmed === "detail" || trimmed.startsWith("detail ")) {
       const runId = resolveAgentRunId(trimmed.startsWith("detail ") ? trimmed.slice("detail ".length) : "", context);

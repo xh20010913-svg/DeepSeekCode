@@ -15,6 +15,7 @@ export interface CommandContext {
   switchModel?: (model: string) => boolean;
   switchLanguage?: (language: string) => boolean;
   recordUsageEvent?: (usage: UsageSnapshot) => void;
+  emitSystemMessage?: (message: string) => void;
 }
 
 export interface CommandResult {

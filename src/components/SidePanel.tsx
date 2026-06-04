@@ -9,6 +9,7 @@ import { useCacheSummary } from "../hooks/useCacheSummary.js";
 import { useGitStatus } from "../hooks/useGitStatus.js";
 import { useRuns } from "../hooks/useRuns.js";
 import { useTodos } from "../hooks/useTodos.js";
+import { AgentWorkflowService } from "../services/agents/agentWorkflow.js";
 import { AttachedRunPanel } from "./AttachedRunPanel.js";
 import { CacheEfficiencyNotice } from "./CacheEfficiencyNotice.js";
 import { CompactRunList } from "./CompactRunList.js";
@@ -64,6 +65,9 @@ export function SidePanel(props: {
       <PanelSection title="attached run">
         <AttachedRunPanel run={attached.run} runId={attached.runId} />
       </PanelSection>
+      <PanelSection title="agent team">
+        <AgentWorkflowSummary state={props.state} projectPath={props.config.projectPath} />
+      </PanelSection>
       <PanelSection title="todos">
         <TodoPanel todos={todos} />
       </PanelSection>
@@ -75,6 +79,30 @@ export function SidePanel(props: {
       </PanelSection>
     </Box>
   );
+}
+
+function AgentWorkflowSummary(props: {
+  state: StateStore;
+  projectPath: string;
+}): React.ReactElement {
+  try {
+    const service = new AgentWorkflowService(props.state, props.projectPath);
+    const status = service.status();
+    const done = status.tasks.filter((task) => task.status === "succeeded").length;
+    const failed = status.tasks.filter((task) => task.status === "failed").length;
+    const running = status.tasks.filter((task) => task.status === "running").length;
+    const latest = status.messages.at(-1);
+    return (
+      <Box flexDirection="column">
+        <Text color={status.record.status === "failed" ? "red" : "cyan"}>{status.record.status}</Text>
+        <Text color="gray">{`roles ${status.record.roles.length} / tasks ${done}/${status.tasks.length}`}</Text>
+        <Text color="gray">{`running ${running} / failed ${failed}`}</Text>
+        {latest ? <Text color="gray">{compact(`${latest.from}->${latest.to}: ${latest.message}`, 30)}</Text> : null}
+      </Box>
+    );
+  } catch {
+    return <Text color="gray">no active workflow</Text>;
+  }
 }
 
 function UsageSummary(props: {

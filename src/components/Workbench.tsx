@@ -10,6 +10,7 @@ import {
   keypressDeleteAction,
 } from "../keybindings/inputKeys.js";
 import type { DeepSeekProviderClient, UsageSnapshot } from "../protocol/provider.js";
+import type { CommandContext, CommandResult } from "../types/command.js";
 import type { QueryActivityPhase, RunActivityView } from "../types/activity.js";
 import {
   commandPaletteInsertText,
@@ -160,6 +161,10 @@ export function Workbench(props: {
     setHelpOpen(false);
     setClearPromptPending(false);
   }, [activeConfig.model]);
+  const appendSystemMessage = useCallback((text: string) => {
+    sessionStorage.append({ role: "system", text });
+    setItems((previous) => [...previous, { role: "system", text, timestamp: Date.now() }]);
+  }, [sessionStorage]);
   const engine = useMemo(
     () =>
       new QueryEngine({
@@ -172,10 +177,11 @@ export function Workbench(props: {
         requestModelSelector: openModelSelector,
         switchModel,
         switchLanguage,
+        emitSystemMessage: appendSystemMessage,
         awaitUserDecisions: true,
         sessionPersistence: "external",
       }),
-    [activeConfig, activeProvider, props.state, permissions, app, openModelSelector, switchModel, switchLanguage],
+    [activeConfig, activeProvider, props.state, permissions, app, openModelSelector, switchModel, switchLanguage, appendSystemMessage],
   );
   const commands = useMemo(
     () => getCommands(engine.commandContext()),
@@ -500,7 +506,11 @@ export function Workbench(props: {
     }
     if (key.return) {
       if (busy) {
-        queuePrompt(editor.value);
+        if (isImmediateBusyCommand(editor.value)) {
+          void runImmediateSlashCommand(editor.value);
+        } else {
+          queuePrompt(editor.value);
+        }
       } else {
         void submit(editor.value);
       }
@@ -726,11 +736,63 @@ export function Workbench(props: {
 
   async function applyGateCommand(command: string): Promise<void> {
     const result = await runSlashCommand(command, engine.commandContext());
+    applyCommandResult(result, command);
+    if (result.submit) {
+      if (busy) {
+        setQueuedPrompts((previous) => [...previous, result.submit!]);
+      } else {
+        void submit(result.submit, { resetEditor: false });
+      }
+    }
+    if (result.exit) app.exit();
+  }
+
+  async function runImmediateSlashCommand(value: string): Promise<void> {
+    const text = value.trim();
+    if (!text) return;
+    editor.reset();
+    setClearPromptPending(false);
+    setSelectedSuggestion(0);
+    history.add(text);
+    setItems((previous) => appendUserIfMissing(previous, text, Date.now()));
+    const zh = isChineseUi(activeConfig.language);
+    const statusText = zh
+      ? `旁路执行命令：${text}`
+      : `Running side command: ${text}`;
+    setItems((previous) => [...previous, { role: "system", text: statusText, timestamp: Date.now() }]);
+    try {
+      const result = await runSlashCommand(text, immediateCommandContext());
+      applyCommandResult(result, text);
+      if (result.submit) {
+        setQueuedPrompts((previous) => [...previous, result.submit!]);
+      }
+      if (result.exit) app.exit();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const failure = zh ? `旁路命令失败：${message}` : `Side command failed: ${message}`;
+      sessionStorage.append({ role: "error", text: failure });
+      setItems((previous) => [...previous, { role: "error", text: failure, timestamp: Date.now() }]);
+    }
+  }
+
+  function immediateCommandContext(): CommandContext {
+    const provider = activeConfig.provider ? new DeepSeekClient(activeConfig.provider) : activeProvider;
+    return {
+      ...engine.commandContext(),
+      provider,
+      recordUsageEvent: (usage) => {
+        setLastTurnUsage((previous) => addUsage(previous, usage));
+        setSessionUsage((previous) => addUsage(previous, usage));
+      },
+    };
+  }
+
+  function applyCommandResult(result: CommandResult, fallbackText: string): void {
     if (result.clear) {
       setItems([]);
     }
     if (result.display) {
-      sessionStorage.append({ role: "system", text: result.message ?? command });
+      sessionStorage.append({ role: "system", text: result.message ?? fallbackText });
       setItems((previous) => [
         ...previous,
         { role: "display", text: result.message ?? "", display: result.display, timestamp: Date.now() },
@@ -740,14 +802,6 @@ export function Workbench(props: {
       sessionStorage.append({ role: "system", text: message });
       setItems((previous) => [...previous, { role: "system", text: message, timestamp: Date.now() }]);
     }
-    if (result.submit) {
-      if (busy) {
-        setQueuedPrompts((previous) => [...previous, result.submit!]);
-      } else {
-        void submit(result.submit, { resetEditor: false });
-      }
-    }
-    if (result.exit) app.exit();
   }
 
   function handleBackspaceInput(): void {
@@ -1226,6 +1280,42 @@ function shouldCompleteSelectedSuggestion(value: string, commandName: string | u
   const trimmed = value.trim();
   if (!trimmed.startsWith("/") || /\s/.test(trimmed)) return false;
   return trimmed !== `/${commandName}`;
+}
+
+const IMMEDIATE_BUSY_COMMANDS = new Set([
+  "ask",
+  "status",
+  "remote-control",
+  "remote",
+  "wecom",
+  "queue",
+  "runs",
+  "events",
+  "trace",
+  "artifacts",
+  "usage",
+  "cost",
+  "approval",
+  "question",
+  "plan",
+  "permissions",
+  "shell",
+  "browser",
+  "agents",
+  "mcp",
+  "skills",
+  "tools",
+  "cancel",
+  "pause",
+  "run-resume",
+  "unpause",
+  "retry",
+]);
+
+function isImmediateBusyCommand(value: string): boolean {
+  const match = value.trim().match(/^\/([a-zA-Z][\w-]*)/);
+  if (!match) return false;
+  return IMMEDIATE_BUSY_COMMANDS.has(match[1]!.toLowerCase());
 }
 
 function isPageUpKey(key: unknown): boolean {

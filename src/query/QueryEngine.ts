@@ -77,6 +77,7 @@ export interface QueryEngineOptions {
   requestModelSelector?: () => void;
   switchModel?: (model: string) => boolean;
   switchLanguage?: (language: string) => boolean;
+  emitSystemMessage?: (message: string) => void;
   awaitUserDecisions?: boolean;
   sessionPersistence?: "managed" | "external" | "off";
 }
@@ -93,6 +94,7 @@ export class QueryEngine {
   private readonly requestModelSelector?: () => void;
   private readonly switchModel?: (model: string) => boolean;
   private readonly switchLanguage?: (language: string) => boolean;
+  private readonly emitSystemMessage?: (message: string) => void;
   private readonly awaitUserDecisions: boolean;
   private readonly sessionPersistence: "managed" | "external" | "off";
   private readonly actionPrefix = new PrefixStabilityManager();
@@ -117,6 +119,7 @@ export class QueryEngine {
     this.requestModelSelector = options.requestModelSelector;
     this.switchModel = options.switchModel;
     this.switchLanguage = options.switchLanguage;
+    this.emitSystemMessage = options.emitSystemMessage;
     this.awaitUserDecisions = Boolean(options.awaitUserDecisions);
     this.sessionPersistence = options.sessionPersistence ?? "managed";
     this.memoryService = getTencentMemoryService(this.config, this.provider, this.state);
@@ -133,6 +136,7 @@ export class QueryEngine {
       requestModelSelector: this.requestModelSelector,
       switchModel: this.switchModel,
       switchLanguage: this.switchLanguage,
+      emitSystemMessage: this.emitSystemMessage,
     };
   }
 

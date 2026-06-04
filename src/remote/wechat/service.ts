@@ -81,9 +81,16 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
   private readonly activeRunPromises = new Map<string, Promise<void>>();
   private readonly pendingApprovals = new Map<string, PendingApproval>();
   private readonly sessionShellGrants = new Set<string>();
+  private statusListener?: (line: string) => void;
   private statusText = "disconnected";
 
-  constructor(private readonly options: WeChatOpenClawRemoteControlOptions) {}
+  constructor(private readonly options: WeChatOpenClawRemoteControlOptions) {
+    this.statusListener = options.onStatus;
+  }
+
+  setStatusListener(listener: ((line: string) => void) | undefined): void {
+    this.statusListener = listener;
+  }
 
   async login(): Promise<void> {
     this.ensureInitialized();
@@ -170,7 +177,7 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
       status,
       updatedAtMs: Date.now(),
     });
-    this.options.onStatus?.(`[wechat] ${status}`);
+    this.statusListener?.(`[wechat] ${status}`);
   }
 
   private async handleIncoming(raw: OpenClawMessage): Promise<void> {
@@ -708,6 +715,8 @@ export function getSharedWeChatOpenClawRemoteControlService(
 ): WeChatOpenClawRemoteControlService {
   if (!sharedService) {
     sharedService = new WeChatOpenClawRemoteControlService(options);
+  } else {
+    sharedService.setStatusListener(options.onStatus);
   }
   return sharedService;
 }

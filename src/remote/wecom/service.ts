@@ -79,10 +79,17 @@ export class WeComRemoteControlService implements RemoteChannel {
   private readonly activeRuns = new Map<string, ActiveRun>();
   private readonly gateIndex = new Map<string, GateIndexEntry>();
   private readonly sessionShellGrants = new Set<string>();
+  private statusListener?: (line: string) => void;
   private statusText = "disconnected";
   private stopped = false;
 
-  constructor(private readonly options: WeComRemoteControlOptions) {}
+  constructor(private readonly options: WeComRemoteControlOptions) {
+    this.statusListener = options.onStatus;
+  }
+
+  setStatusListener(listener: ((line: string) => void) | undefined): void {
+    this.statusListener = listener;
+  }
 
   async start(): Promise<void> {
     if (this.client) return;
@@ -160,7 +167,7 @@ export class WeComRemoteControlService implements RemoteChannel {
       status,
       updatedAtMs: Date.now(),
     });
-    this.options.onStatus?.(`[wecom] ${status}`);
+    this.statusListener?.(`[wecom] ${status}`);
   }
 
   private async handleText(frame: WsFrame<TextMessage>): Promise<void> {
@@ -599,6 +606,8 @@ let sharedService: WeComRemoteControlService | undefined;
 export function getSharedWeComRemoteControlService(options: WeComRemoteControlOptions): WeComRemoteControlService {
   if (!sharedService) {
     sharedService = new WeComRemoteControlService(options);
+  } else {
+    sharedService.setStatusListener(options.onStatus);
   }
   return sharedService;
 }

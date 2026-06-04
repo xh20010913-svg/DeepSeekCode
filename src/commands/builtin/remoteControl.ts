@@ -27,6 +27,7 @@ export const remoteControlCommand: Command = {
         baseState: context.state,
         baseProvider: context.provider,
         permissions: context.permissions,
+        onStatus: context.emitSystemMessage,
       });
       if (action === "login") {
         await service.login();
@@ -79,6 +80,7 @@ export const remoteControlCommand: Command = {
         baseState: context.state,
         baseProvider: context.provider,
         permissions: context.permissions,
+        onStatus: context.emitSystemMessage,
       });
       await service.start();
       return {
@@ -131,6 +133,7 @@ async function runWeComAction(action: string, context: Parameters<Command["execu
       baseState: context.state,
       baseProvider: context.provider,
       permissions: context.permissions,
+      onStatus: context.emitSystemMessage,
     });
     await service.start();
     return {
