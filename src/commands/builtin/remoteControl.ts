@@ -32,14 +32,19 @@ export const remoteControlCommand: Command = {
         onRemoteAssistantMessage: context.emitRemoteAssistantMessage,
       });
       if (action === "login") {
-        await service.login();
-        return { message: "WeChat OpenClaw login stored." };
+        void service.login().catch((error) => {
+          context.emitSystemMessage?.(`[wechat] login failed: ${errorMessage(error)}`);
+        });
+        return { message: "WeChat OpenClaw login started. Scan the QR code shown in the TUI." };
       }
       if (action === "start" || action === "connect") {
-        await service.start();
+        void service.start().catch((error) => {
+          context.emitSystemMessage?.(`[wechat] start failed: ${errorMessage(error)}`);
+        });
         return {
           message: [
-            "WeChat OpenClaw remote control started.",
+            "WeChat OpenClaw remote control is starting.",
+            "Scan the QR code shown in the TUI. You can keep working while it connects.",
             `status=${service.status()}`,
             `project=${context.config.projectPath}`,
           ].join("\n"),
@@ -155,4 +160,8 @@ async function runWeComAction(action: string, context: Parameters<Command["execu
       "/remote-control wecom stop",
     ].join("\n"),
   };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

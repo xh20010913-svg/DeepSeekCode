@@ -36,6 +36,8 @@ import { SessionStorage } from "../services/session/sessionStorage.js";
 import { setCurrentSessionId } from "../services/session/resumeService.js";
 import { ThemeService } from "../services/theme/themeService.js";
 import { isChineseUi, normalizeUiLanguage } from "../services/ui/languageService.js";
+import { stopSharedWeChatOpenClawRemoteControlService } from "../remote/wechat/service.js";
+import { stopSharedWeComRemoteControlService } from "../remote/wecom/service.js";
 import { useInputHistory } from "../hooks/useInputHistory.js";
 import { useApprovals } from "../hooks/useApprovals.js";
 import { usePromptEditor } from "../hooks/usePromptEditor.js";
@@ -248,6 +250,13 @@ export function Workbench(props: {
   useEffect(() => {
     setCurrentSessionId(props.state, activeConfig.projectPath, sessionStorage.sessionId);
   }, [props.state, activeConfig.projectPath, sessionStorage.sessionId]);
+
+  useEffect(() => {
+    return () => {
+      void stopSharedWeChatOpenClawRemoteControlService();
+      void stopSharedWeComRemoteControlService();
+    };
+  }, []);
 
   useEffect(() => {
     setSelectedSuggestion((previous) => Math.min(previous, Math.max(0, suggestions.length - 1)));

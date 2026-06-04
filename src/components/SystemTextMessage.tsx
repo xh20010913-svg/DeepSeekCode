@@ -14,6 +14,17 @@ export function SystemTextMessage(props: {
   }
   const kind = classifySystemText(props.text);
   const text = formatSystemText(props.text);
+  if (shouldPreserveSystemTextLayout(props.text)) {
+    return (
+      <Box flexDirection="column">
+        {text.split(/\r?\n/).map((line, index) => (
+          <Text key={`${index}-${line.slice(0, 12)}`} dimColor>
+            {line || " "}
+          </Text>
+        ))}
+      </Box>
+    );
+  }
   if (kind === "info") {
     return <Text dimColor>{text || " "}</Text>;
   }
@@ -43,7 +54,9 @@ export function formatSystemText(text: string): string {
 
 function shouldPreserveSystemTextLayout(text: string): boolean {
   return text.includes("OpenClaw 微信登录二维码") ||
-    text.includes("OpenClaw WeChat login QR");
+    text.includes("OpenClaw WeChat login QR") ||
+    text.includes("liteapp.weixin.qq.com/q/") ||
+    text.includes("qrcode=");
 }
 
 function systemTextTitle(kind: SystemTextKind): string {

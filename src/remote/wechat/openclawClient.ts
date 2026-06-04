@@ -124,7 +124,7 @@ export class OpenClawWeixinClient {
     return this.account;
   }
 
-  async login(): Promise<StoredWeChatAccount> {
+  async login(signal?: AbortSignal): Promise<StoredWeChatAccount> {
     const login = await loadLoginQrModule();
     const accountId = this.options.config.accountId;
     const started = await login.startWeixinLoginWithQr({
@@ -143,11 +143,13 @@ export class OpenClawWeixinClient {
       this.options.onStatus?.("OpenClaw login started, but no QR code was returned.");
     }
     this.options.onStatus?.("Waiting for WeChat scan confirmation...");
-    const waited = await login.waitForWeixinLogin({
-      sessionKey: started.sessionKey,
-      timeoutMs: Math.max(300_000, this.options.config.qrPollIntervalMs * 60),
+    const waited = await waitForLoginConfirmation({
       apiBaseUrl: this.options.config.apiBaseUrl,
-      verbose: false,
+      qrcodeUrl: started.qrcodeUrl,
+      signal,
+      timeoutMs: Math.max(300_000, this.options.config.qrPollIntervalMs * 60),
+      statusTimeoutMs: this.options.config.longPollTimeoutMs,
+      onStatus: this.options.onStatus,
     });
     if (!waited.connected && !waited.alreadyConnected) {
       throw new Error(waited.message || "WeChat OpenClaw login did not complete.");
@@ -327,6 +329,7 @@ function saveAccount(root: string, account: StoredWeChatAccount): void {
 
 async function formatLoginQrForStatus(qrcodeUrl: string): Promise<string> {
   const lines = [
+    "OpenClaw WeChat login QR",
     "OpenClaw 微信登录二维码",
     "请用微信扫码确认登录。二维码 5 分钟内有效。",
     "",
@@ -352,6 +355,162 @@ async function renderTerminalQr(qrcodeUrl: string): Promise<string> {
 
 interface QrTerminalModule {
   generate(input: string, options: { small?: boolean }, callback: (output: string) => void): void;
+}
+
+interface LoginStatusResult {
+  connected?: boolean;
+  alreadyConnected?: boolean;
+  botToken?: string;
+  accountId?: string;
+  baseUrl?: string;
+  userId?: string;
+  message?: string;
+}
+
+interface QrStatusResponse {
+  status?: string;
+  bot_token?: string;
+  ilink_bot_id?: string;
+  ilink_user_id?: string;
+  baseurl?: string;
+  redirect_host?: string;
+  errcode?: number;
+  errmsg?: string;
+}
+
+async function waitForLoginConfirmation(input: {
+  apiBaseUrl: string;
+  qrcodeUrl?: string;
+  signal?: AbortSignal;
+  statusTimeoutMs: number;
+  timeoutMs: number;
+  onStatus?: (line: string) => void;
+}): Promise<LoginStatusResult> {
+  const qrcode = qrcodeFromUrl(input.qrcodeUrl);
+  if (!qrcode) {
+    return {
+      connected: false,
+      message: "OpenClaw did not return a usable qrcode token.",
+    };
+  }
+  const deadline = Date.now() + input.timeoutMs;
+  let currentBaseUrl = input.apiBaseUrl || "https://ilinkai.weixin.qq.com";
+  let scanNotified = false;
+  let lastWaitNoticeAt = 0;
+  while (Date.now() < deadline) {
+    throwIfAborted(input.signal);
+    const endpoint = `${currentBaseUrl.replace(/\/+$/, "")}/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`;
+    const status = await fetchQrStatus(endpoint, input.statusTimeoutMs, input.signal);
+    throwIfAborted(input.signal);
+    switch (status.status) {
+      case "confirmed":
+        if (!status.bot_token || !status.ilink_bot_id) {
+          return {
+            connected: false,
+            message: "Login confirmed but OpenClaw did not return bot token/account id.",
+          };
+        }
+        return {
+          connected: true,
+          botToken: status.bot_token,
+          accountId: status.ilink_bot_id,
+          baseUrl: status.baseurl,
+          userId: status.ilink_user_id,
+          message: "WeChat OpenClaw connected.",
+        };
+      case "scaned":
+        if (!scanNotified) {
+          input.onStatus?.("WeChat QR scanned. Waiting for confirmation...");
+          scanNotified = true;
+        }
+        break;
+      case "scaned_but_redirect":
+        if (status.redirect_host) {
+          currentBaseUrl = `https://${status.redirect_host}`;
+          input.onStatus?.(`WeChat login redirected to ${status.redirect_host}. Continuing...`);
+        }
+        break;
+      case "binded_redirect":
+        return {
+          alreadyConnected: true,
+          connected: false,
+          message: "This OpenClaw account is already connected.",
+        };
+      case "expired":
+        return {
+          connected: false,
+          message: "QR code expired. Run /remote-control wechat start again.",
+        };
+      case "need_verifycode":
+        input.onStatus?.("WeChat requires an extra verification code. OpenClaw verification-code input is not available inside TUI yet.");
+        return {
+          connected: false,
+          message: "WeChat requires an extra verification code. Please retry or use the standalone OpenClaw login flow.",
+        };
+      case "verify_code_blocked":
+        return {
+          connected: false,
+          message: "Verification code was blocked after too many attempts.",
+        };
+      default: {
+        const now = Date.now();
+        if (now - lastWaitNoticeAt > 15_000) {
+          input.onStatus?.("Waiting for WeChat scan confirmation...");
+          lastWaitNoticeAt = now;
+        }
+      }
+    }
+    await delay(1000, input.signal);
+  }
+  return {
+    connected: false,
+    message: "WeChat OpenClaw login timed out.",
+  };
+}
+
+async function fetchQrStatus(url: string, timeoutMs: number, signal?: AbortSignal): Promise<QrStatusResponse> {
+  try {
+    const response = await fetchWithTimeout(url, timeoutMs, signal);
+    if (!response.ok) {
+      return { status: "wait", errcode: response.status, errmsg: response.statusText };
+    }
+    return await response.json() as QrStatusResponse;
+  } catch (error) {
+    if (isAbortLike(error)) throw error;
+    return { status: "wait", errmsg: errorMessage(error) };
+  }
+}
+
+async function fetchWithTimeout(url: string, timeoutMs: number, signal?: AbortSignal): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort("timeout"), Math.max(1000, timeoutMs));
+  const abort = () => controller.abort(signal?.reason ?? "aborted");
+  signal?.addEventListener("abort", abort, { once: true });
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", abort);
+  }
+}
+
+function qrcodeFromUrl(qrcodeUrl: string | undefined): string | undefined {
+  if (!qrcodeUrl) return undefined;
+  try {
+    const parsed = new URL(qrcodeUrl);
+    return parsed.searchParams.get("qrcode") ?? undefined;
+  } catch {
+    const match = /[?&]qrcode=([^&]+)/.exec(qrcodeUrl);
+    return match ? decodeURIComponent(match[1] ?? "") : undefined;
+  }
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new Error("WeChat OpenClaw login cancelled.");
+}
+
+function isAbortLike(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 function syncBufPath(dataDir: string, accountId: string): string {

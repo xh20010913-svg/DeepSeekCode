@@ -108,18 +108,36 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
 
   async login(): Promise<void> {
     this.ensureInitialized();
-    await this.client!.login();
-    this.updateStatus(this.client!.status());
+    if (this.controller) return;
+    this.controller = new AbortController();
+    try {
+      await this.client!.login(this.controller.signal);
+      this.updateStatus(this.client!.status());
+    } finally {
+      this.controller = undefined;
+    }
   }
 
   async start(): Promise<void> {
     if (this.controller) return;
     this.ensureInitialized();
     if (!this.remoteConfig!.enabled) throw new Error("WeChat OpenClaw remote control is disabled by environment.");
-    if (!this.client!.currentAccount()) {
-      await this.login();
-    }
     this.controller = new AbortController();
+    try {
+      if (!this.client!.currentAccount()) {
+        await this.client!.login(this.controller.signal);
+        this.updateStatus(this.client!.status());
+      }
+    } catch (error) {
+      this.controller = undefined;
+      this.updateStatus("disconnected");
+      throw error;
+    }
+    if (this.controller.signal.aborted) {
+      this.controller = undefined;
+      this.updateStatus("disconnected");
+      return;
+    }
     this.updateStatus("connected");
     void this.client!.poll(async (message) => {
       void this.handleIncoming(message).catch((error) => {
