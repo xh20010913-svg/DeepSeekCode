@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import type { WeChatOpenClawConfig } from "./config.js";
 
 interface LoginQrModule {
@@ -135,8 +136,9 @@ export class OpenClawWeixinClient {
       verbose: false,
     });
     if (started.qrcodeUrl) {
-      const opened = openUrlInBrowser(started.qrcodeUrl);
-      const message = formatBrowserLoginStatus(started.qrcodeUrl, opened);
+      const qrPath = await writeLoginQrPng(this.options.dataDir, started.qrcodeUrl).catch(() => undefined);
+      const opened = qrPath ? openExternal(qrPath) : false;
+      const message = formatImageLoginStatus(started.qrcodeUrl, qrPath, opened);
       if (this.options.onStatus) this.options.onStatus(message);
       else process.stdout.write(`${message}\n`);
     } else {
@@ -327,18 +329,54 @@ function saveAccount(root: string, account: StoredWeChatAccount): void {
   fs.writeFileSync(path.join(dir, `${safeFilename(account.accountId)}.json`), JSON.stringify(account, null, 2), "utf-8");
 }
 
-function formatBrowserLoginStatus(qrcodeUrl: string, opened: boolean): string {
+function formatImageLoginStatus(qrcodeUrl: string, qrPath: string | undefined, opened: boolean): string {
   const lines = [
-    "OpenClaw WeChat browser login",
+    "OpenClaw WeChat QR image login",
+    qrPath
+      ? "DeepSeekCode generated a local QR image for WeChat login."
+      : "DeepSeekCode could not generate a QR image. Use the backup URL only if you know it works on your network.",
     opened
-      ? "Opened the login page in your default browser. Scan or confirm there, then return to DeepSeekCode."
-      : "Could not open the browser automatically. Copy this URL into your browser.",
-    `URL: ${qrcodeUrl}`,
+      ? "The QR image was opened with your system image viewer. Scan it with WeChat, then return to DeepSeekCode."
+      : "Open the QR image path below and scan it with WeChat.",
   ];
+  if (qrPath) lines.push(`QR image: ${qrPath}`);
+  lines.push(`Backup URL: ${qrcodeUrl}`);
   return lines.join("\n");
 }
 
-function openUrlInBrowser(url: string): boolean {
+async function writeLoginQrPng(dataDir: string, qrcodeUrl: string): Promise<string> {
+  const targetDir = path.join(dataDir, "remote", "wechat-openclaw", "qr");
+  fs.mkdirSync(targetDir, { recursive: true });
+  const target = path.join(targetDir, `openclaw-login-${Date.now()}.png`);
+  const qr = loadQrCodeModule();
+  await qr.toFile(target, qrcodeUrl, {
+    errorCorrectionLevel: "M",
+    margin: 2,
+    scale: 10,
+    type: "png",
+  });
+  return target;
+}
+
+interface QrCodeModule {
+  toFile(
+    path: string,
+    text: string,
+    options: {
+      errorCorrectionLevel?: string;
+      margin?: number;
+      scale?: number;
+      type?: string;
+    },
+  ): Promise<void>;
+}
+
+function loadQrCodeModule(): QrCodeModule {
+  const require = createRequire(import.meta.url);
+  return require("qrcode") as QrCodeModule;
+}
+
+function openExternal(target: string): boolean {
   const platform = process.platform;
   const command = platform === "win32"
     ? "cmd.exe"
@@ -346,8 +384,8 @@ function openUrlInBrowser(url: string): boolean {
       ? "open"
       : "xdg-open";
   const args = platform === "win32"
-    ? ["/d", "/s", "/c", "start", "", url]
-    : [url];
+    ? ["/d", "/s", "/c", "start", "", target]
+    : [target];
   try {
     const child = spawn(command, args, {
       detached: true,

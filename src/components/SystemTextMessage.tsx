@@ -56,6 +56,7 @@ function shouldPreserveSystemTextLayout(text: string): boolean {
   return text.includes("OpenClaw 微信登录二维码") ||
     text.includes("OpenClaw WeChat login QR") ||
     text.includes("OpenClaw WeChat browser login") ||
+    text.includes("OpenClaw WeChat QR image login") ||
     text.includes("liteapp.weixin.qq.com/q/") ||
     text.includes("qrcode=");
 }
