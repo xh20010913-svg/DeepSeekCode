@@ -35,6 +35,8 @@ Windows note: npm creates both PowerShell and cmd shims. If PowerShell blocks `d
 | `--doctor` | Print diagnostics. |
 | `--verify-model` | Verify model access. |
 | `--wecom` | Start Enterprise WeChat / WeCom remote control without opening the TUI. |
+| `--wechat` | Start personal WeChat OpenClaw remote control without opening the TUI. |
+| `--wechat-login` | Scan and store personal WeChat OpenClaw login. |
 | `--allow-shell` | Enable shell tools. |
 | `--allow-browser` | Enable browser tools. |
 | `--permission-profile <profile>` | `safe`, `dev`, `browser`, or `open`. |
@@ -51,6 +53,8 @@ deepseekcode --continue -p "Continue the previous task"
 deepseekcode --resume session_xxx -p "Continue"
 deepseekcode --prompt "Summarize this repository" --json
 deepseekcode --wecom --project "D:\work\agent-test" --model deepseek-v4-flash
+deepseekcode --wechat-login --project "D:\work\agent-test"
+deepseekcode --wechat --project "D:\work\agent-test" --model deepseek-v4-flash
 
 # If a mirror has not synced the scoped package yet:
 npm install -g @xh12312/deepseekcode --registry https://registry.npmjs.org/
@@ -95,6 +99,14 @@ npm install -g github:xh20010913-svg/DeepSeekCode
 | `DEEPSEEKCODE_WECOM_ALLOWED_GROUPS` | Optional WeCom group chatid allowlist. |
 | `DEEPSEEKCODE_WECOM_PROJECT_ROOTS` | Optional allowed project roots for remote `/project <path>`. |
 | `DEEPSEEKCODE_WECOM_MENTION_NAMES` | Optional bot mention aliases for group chats. |
+| `DEEPSEEKCODE_WECHAT_OPENCLAW_ENABLED` | Enable the experimental personal WeChat OpenClaw channel. |
+| `DEEPSEEKCODE_WECHAT_ACCOUNT_ID` | Optional stored OpenClaw account id to use. |
+| `DEEPSEEKCODE_WECHAT_ALLOWED_USERS` | Optional personal WeChat user allowlist. |
+| `DEEPSEEKCODE_WECHAT_ALLOWED_GROUPS` | Optional personal WeChat group allowlist. |
+| `DEEPSEEKCODE_WECHAT_PROJECT_ROOTS` | Optional allowed project roots for remote `/project <path>`. |
+| `DEEPSEEKCODE_WECHAT_MENTION_NAMES` | Bot mention aliases for personal WeChat group chats. |
+| `DEEPSEEKCODE_WECHAT_QR_POLL_INTERVAL_MS` | QR login polling cadence hint. |
+| `DEEPSEEKCODE_WECHAT_LONG_POLL_TIMEOUT_MS` | OpenClaw getupdates long-poll timeout. |
 | `DEEPSEEKCODE_PRICE_INPUT_PER_M` | Input-token price override. |
 | `DEEPSEEKCODE_PRICE_OUTPUT_PER_M` | Output-token price override. |
 | `DEEPSEEKCODE_PRICE_CACHE_HIT_PER_M` | Cache-hit token price override. |
@@ -138,7 +150,9 @@ npm install -g github:xh20010913-svg/DeepSeekCode
 | `/multi provider <task>` | Planner/Builder/Tester/Reviewer workflow. |
 | `/todo` `/todos` | Structured todo state. |
 | `/approval` `/validation` | Gate status and decisions. |
-| `/remote-control` | Inspect, start, or stop WeCom remote control. |
+| `/remote-control` | Inspect, start, or stop WeCom / personal WeChat remote control. |
+| `/remote-control wecom start|stop` | Manage Enterprise WeChat remote control. |
+| `/remote-control wechat login|start|stop` | Manage personal WeChat OpenClaw remote control. |
 | `/review` `/security-review` | Review current diff or files. |
 | `/diff` | Show project diff. |
 | `/files` `/context` | Inspect selected context. |

@@ -6,7 +6,7 @@
     <title>DeepSeekCode 使用指南</title>
     <meta
       name="description"
-      content="DeepSeekCode 安装、配置、权限、工具、skills/plugins、上下文缓存、真实测试和发布说明。"
+      content="DeepSeekCode 安装、配置、权限、远程控制、工具链路、上下文缓存、真实测试和发布边界。"
     />
     <meta name="theme-color" content="#050605" />
     <meta name="color-scheme" content="dark" />
@@ -43,8 +43,10 @@
       <section class="guide-hero section-shell">
         <div class="reveal">
           <span class="eyebrow">GUIDE</span>
-          <h1>DeepSeekCode 使用指南</h1>
-          <p>面向真实本地开发：全局安装、当前目录启动、native tool calling、启动 shell 权限询问、上下文缓存、skills/plugins 和发布验收。</p>
+          <h1>把 DeepSeekCode 放进任何项目目录运行</h1>
+          <p>
+            这是一份面向使用和部署的说明：从 npm 安装、模型配置、权限选择，到企业微信 / 个人微信远程控制、工具能力边界和发布前检查。
+          </p>
         </div>
       </section>
 
@@ -53,7 +55,7 @@
           <a href="#setup">01 安装启动</a>
           <a href="#configure">02 配置模型</a>
           <a href="#permissions">03 权限交互</a>
-          <a href="#remote">04 企业微信远程</a>
+          <a href="#remote">04 微信远程</a>
           <a href="#tools">05 工具链路</a>
           <a href="#context">06 上下文缓存</a>
           <a href="#skills">07 Skills / Plugins</a>
@@ -64,24 +66,22 @@
           <article class="guide-block reveal">
             <span class="eyebrow">01</span>
             <h2>安装后在任意项目目录启动</h2>
-            <p>推荐的用户安装方式是 npm 全局安装。进入任意项目目录后输入 <code>deepseekcode</code>，当前目录就是项目目录，运行数据写入当前目录的 <code>.deepseekcode</code>。</p>
-            <pre><code>npm install -g @xh12312/deepseekcode
+            <p>推荐通过 npm 全局安装。进入项目目录后输入 <code>deepseekcode</code>，当前目录就是项目根目录，运行数据写入该目录的 <code>.deepseekcode</code>。</p>
+            <pre><code>npm install -g @xh12312/deepseekcode --registry https://registry.npmjs.org/
 cd D:\code\DeepSeekTest
 deepseekcode</code></pre>
-            <p>如果本机 npm 镜像站对新版本返回 <code>404 Not Found</code>，可以指定官方 registry：</p>
-            <pre><code>npm install -g @xh12312/deepseekcode --registry https://registry.npmjs.org/</code></pre>
-            <p>也可以用 GitHub 网络安装测试当前 <code>main</code> 分支：</p>
-            <pre><code>npm install -g github:xh20010913-svg/DeepSeekCode</code></pre>
-            <p>安装后的命令是 <code>deepseekcode</code>；不安装 <code>deepseek</code> 别名，避免和其他 DeepSeek 生态工具冲突。</p>
-            <pre><code>deepseekcode --project "D:\code\DeepSeekTest"
-deepseekcode --doctor</code></pre>
-            <p>Windows PowerShell 如果因为执行策略拦截 npm 生成的 <code>deepseekcode.ps1</code>，可以在同一目录直接运行 <code>deepseekcode.cmd</code>；cmd 里输入 <code>deepseekcode</code>。</p>
+            <p>源码 checkout 只用于开发和测试：</p>
+            <pre><code>git clone https://github.com/xh20010913-svg/DeepSeekCode.git
+cd DeepSeekCode
+npm install
+npm run build
+npm run start -- --project "D:\code\DeepSeekTest"</code></pre>
           </article>
 
           <article id="configure" class="guide-block reveal">
             <span class="eyebrow">02</span>
             <h2>模型和运行目录</h2>
-            <p>最小配置是 DeepSeek 兼容端点、API key 和模型名。测试密钥建议只放在测试目录的 <code>.env</code>。</p>
+            <p>最小配置是 DeepSeek 兼容端点、API key 和模型名。测试密钥建议只放在测试项目目录的 <code>.env</code>。</p>
             <pre><code>DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_MODEL=deepseek-v4-flash
@@ -105,24 +105,32 @@ deepseekcode --allow-shell</code></pre>
 
           <article id="remote" class="guide-block reveal">
             <span class="eyebrow">04</span>
-            <h2>企业微信远程控制</h2>
-            <p>v0.2.5 第一版支持企业微信智能机器人长连接，不走个人微信 hook。电脑端保持 <code>deepseekcode --wecom</code> 运行，微信端发送任务、查看简洁进度、审批权限卡片和接收产物摘要。</p>
-            <pre><code>deepseekcode --wecom --project "D:\code\DeepSeekTest" --model deepseek-v4-flash</code></pre>
-            <p>TUI 内可用 <code>/remote-control</code>、<code>/remote-control start</code>、<code>/remote-control stop</code>。微信端支持 <code>/status</code>、<code>/project</code>、<code>/run</code>、<code>/continue</code>、<code>/stop</code>、<code>/artifacts</code> 和 <code>/usage</code>。</p>
+            <h2>微信远程控制</h2>
+            <p>v0.2.6 支持两个实验远程通道：企业微信智能机器人长连接，以及个人微信 OpenClaw 扫码登录和长轮询。电脑端需要保持运行，微信端只显示简洁进度、权限请求和产物摘要。</p>
+            <pre><code>deepseekcode --wecom --project "D:\code\DeepSeekTest" --model deepseek-v4-flash
+deepseekcode --wechat-login --project "D:\code\DeepSeekTest"
+deepseekcode --wechat --project "D:\code\DeepSeekTest" --model deepseek-v4-flash</code></pre>
+            <p>TUI 内可用：</p>
+            <pre><code>/remote-control
+/remote-control wecom start
+/remote-control wechat login
+/remote-control wechat start
+/remote-control wechat stop</code></pre>
+            <p>个人微信没有模板卡片，因此审批用数字回复：<code>1</code> 允许一次，<code>2</code> 本会话允许，<code>3</code> 拒绝，<code>4</code> 停止任务。个人微信 hook、逆向协议和 wxauto 不在默认版中接入。</p>
             <pre><code>DEEPSEEKCODE_WECOM_BOT_ID=your_wecom_bot_id
 DEEPSEEKCODE_WECOM_BOT_SECRET=your_wecom_bot_secret
-DEEPSEEKCODE_WECOM_ALLOWED_USERS=userid1,userid2
-DEEPSEEKCODE_WECOM_PROJECT_ROOTS=D:\code\DeepSeekTest;D:\work</code></pre>
+DEEPSEEKCODE_WECHAT_OPENCLAW_ENABLED=true
+DEEPSEEKCODE_WECHAT_PROJECT_ROOTS=D:\code\DeepSeekTest;D:\work</code></pre>
           </article>
 
           <article id="tools" class="guide-block reveal">
             <span class="eyebrow">05</span>
             <h2>Native Tool Calling</h2>
-            <p>主链路是 DeepSeek <code>tools -> tool_calls -> local tools -> tool result -> next turn</code>。不支持 native tool calls 的模型或网关会明确失败，不静默回退旧 JSON planner。</p>
+            <p>主链路是 DeepSeek <code>tools -> tool_calls -> local tools -> tool_result -> next turn</code>。不支持 native tool calls 的模型或网关会明确失败，不静默回退旧 JSON planner。</p>
             <div class="command-table">
               <div><b>已验证</b><span>文件读写、patch、glob/grep/list、todo、DOCX/PPTX runtime、skills/plugins 基础路径、TencentDB-Agent-Memory。</span></div>
               <div><b>部分可用</b><span>Browser CDP、MCP stdio、Office 质量增强、多 agent 调度。</span></div>
-              <div><b>实验中</b><span>PDF 生成、企业微信远程控制、长任务 worker pool、真实场景自动评测。</span></div>
+              <div><b>实验中</b><span>PDF 生成、微信远程控制、长任务 worker pool、真实场景自动评测。</span></div>
               <div><b>保留</b><span><code>computer_use</code> 和个人微信 hook 还没有完整桥接，不宣传成可用能力。</span></div>
             </div>
           </article>
@@ -130,19 +138,19 @@ DEEPSEEKCODE_WECOM_PROJECT_ROOTS=D:\code\DeepSeekTest;D:\work</code></pre>
           <article id="context" class="guide-block reveal">
             <span class="eyebrow">06</span>
             <h2>上下文、缓存和记忆</h2>
-            <p>DeepSeekCode 不把所有历史原文无限塞回 prompt。稳定规则和工具 schema 放前面以提高缓存复用；旧对话压成 rolling summary；长工具结果压成摘要和 artifact manifest。</p>
+            <p>DeepSeekCode 不把所有历史原文无限塞回 prompt。稳定规则和工具 schema 放前面提高缓存复用；旧对话压成 rolling summary；长工具结果压成摘要和 artifact manifest。</p>
             <pre><code>/cache
 /cache guard &lt;goal&gt;
 /usage
 /cost
 /memory status
-/memory search 中文默认</code></pre>
+/memory search &lt;query&gt;</code></pre>
           </article>
 
           <article id="skills" class="guide-block reveal">
             <span class="eyebrow">07</span>
             <h2>Skills / Plugins</h2>
-            <p>Skills 是 <code>SKILL.md</code> instruction pack；Plugins 可以贡献 commands、skills 和 hooks。兼容读取 <code>.claude</code> 来源，安装目标写入 <code>.deepseekcode</code>。</p>
+            <p>DeepSeekCode 支持项目、用户、插件 skill 发现和调用；兼容 <code>.claude</code> skill，但安装目标写入 <code>.deepseekcode</code>。</p>
             <pre><code>/skills
 /skills install "D:\skills\office-report"
 /skills install https://github.com/example/agent-skills/tree/main/office/report
@@ -174,7 +182,7 @@ git status --short</code></pre>
     </main>
 
     <footer class="site-footer">
-      <span>DeepSeekCode v0.2.5</span>
+      <span>DeepSeekCode v0.2.6</span>
       <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/README.zh-CN.md">中文 README</a>
       <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/README.md">README</a>
       <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/CLI_REFERENCE.md">CLI</a>

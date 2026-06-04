@@ -12,6 +12,7 @@ import { StateStore } from "../state/sqlite.js";
 import { resumeSession, setCurrentSessionId } from "../services/session/resumeService.js";
 import { SessionStorage } from "../services/session/sessionStorage.js";
 import { WeComRemoteControlService } from "../remote/wecom/service.js";
+import { WeChatOpenClawRemoteControlService } from "../remote/wechat/service.js";
 
 interface CliOptions {
   project?: string;
@@ -23,6 +24,8 @@ interface CliOptions {
   doctor?: boolean;
   verifyModel?: boolean;
   wecom?: boolean;
+  wechat?: boolean;
+  wechatLogin?: boolean;
   allowShell?: boolean;
   allowBrowser?: boolean;
   permissionProfile?: string;
@@ -41,6 +44,8 @@ const program = new Command()
   .option("--doctor", "print runtime diagnostics")
   .option("--verify-model", "verify DeepSeek model access")
   .option("--wecom", "start WeCom remote-control bridge")
+  .option("--wechat", "start personal WeChat OpenClaw remote-control bridge")
+  .option("--wechat-login", "scan and store personal WeChat OpenClaw login")
   .option("--allow-shell", "allow shell tool execution")
   .option("--allow-browser", "allow browser bridge actions")
   .option("--permission-profile <profile>", "permission profile: safe, dev, browser, open")
@@ -77,6 +82,10 @@ if (options.doctor) {
   print(result.message ?? "");
 } else if (options.wecom) {
   await runWeComRemote();
+} else if (options.wechatLogin) {
+  await runWeChatLogin();
+} else if (options.wechat) {
+  await runWeChatRemote();
 } else if (options.prompt) {
   await runHeadless(options.prompt, Boolean(options.json));
 } else {
@@ -86,6 +95,44 @@ if (options.doctor) {
   } finally {
     restore();
   }
+}
+
+async function runWeChatLogin(): Promise<void> {
+  const service = new WeChatOpenClawRemoteControlService({
+    baseConfig: config,
+    baseState: state,
+    baseProvider: provider,
+    permissions: {
+      allowShell: config.shellEnabled,
+      allowBrowser: config.browserEnabled,
+      profile: config.permissionProfile,
+    },
+    onStatus: print,
+  });
+  await service.login();
+  print("WeChat OpenClaw login stored.");
+}
+
+async function runWeChatRemote(): Promise<void> {
+  const service = new WeChatOpenClawRemoteControlService({
+    baseConfig: config,
+    baseState: state,
+    baseProvider: provider,
+    permissions: {
+      allowShell: config.shellEnabled,
+      allowBrowser: config.browserEnabled,
+      profile: config.permissionProfile,
+    },
+    onStatus: print,
+  });
+  await service.start();
+  print(`WeChat OpenClaw remote control started for ${config.projectPath}`);
+  print("Press Ctrl+C to stop.");
+  await new Promise<void>((resolve) => {
+    process.once("SIGINT", resolve);
+    process.once("SIGTERM", resolve);
+  });
+  await service.stop();
 }
 
 async function runWeComRemote(): Promise<void> {

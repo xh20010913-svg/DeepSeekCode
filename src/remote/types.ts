@@ -1,6 +1,6 @@
 import type { QueryEvent } from "../query/QueryEngine.js";
 
-export type RemoteChannelName = "wecom";
+export type RemoteChannelName = "wecom" | "wechat-openclaw";
 
 export interface RemoteAttachment {
   kind: "file" | "image" | "voice" | "video";

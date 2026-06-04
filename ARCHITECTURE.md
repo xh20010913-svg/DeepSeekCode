@@ -7,7 +7,7 @@ DeepSeekCode v0.2 is a terminal runtime built around native DeepSeek tool calls,
 ```text
 src/cli/main.tsx
   -> bootstrap config
-  -> Workbench, headless prompt, or WeCom remote channel
+  -> Workbench, headless prompt, WeCom, or WeChat OpenClaw remote channel
   -> QueryEngine
   -> DeepSeekClient
   -> native tool_calls
@@ -36,7 +36,7 @@ The model-facing planning path is native tool calling only. Internal `ActionEnve
 | MCP | `src/services/mcp/` | MCP configuration and unified `mcp_call` execution. |
 | Hooks | `src/hooks/`, `src/services/hooks/` | PreToolUse/PostToolUse and related hook execution. |
 | UI | `src/components/` | Ink/React TUI panels, picker, transcript, permission and status views. |
-| Remote channels | `src/remote/` | WeCom bridge, access policy, project binding, concise reply rendering, and remote approval cards. |
+| Remote channels | `src/remote/` | WeCom and WeChat OpenClaw bridges, access policy, project binding, concise reply rendering, and remote approval. |
 | Website | `website/` | Static public manual site. |
 
 The release tree intentionally removed unconnected upstream source-path adapters. The directory layout is DeepSeekCode-oriented rather than a mirror of another agent.
@@ -136,19 +136,24 @@ The current worker system is partial: task records, checkpoints, resume/cancel/r
 
 ## Remote Control
 
-Remote channels do not create a separate agent runtime. The WeCom adapter receives text, file/image/video messages, and template-card events, then calls the same QueryEngine used by TUI and headless mode. Session scope is isolated by `channel + chatId + projectPath`, while tools still execute inside the bound project path.
+Remote channels do not create a separate agent runtime. The WeCom adapter receives text, file/image/video messages, and template-card events. The WeChat OpenClaw adapter receives personal WeChat messages through OpenClaw QR login and long polling. Both call the same QueryEngine used by TUI and headless mode. Session scope is isolated by `channel + accountId + chatId + projectPath`, while tools still execute inside the bound project path.
 
 ```text
-WeCom WS message
+WeCom WS message or WeChat OpenClaw getupdates message
   -> RemoteAccessPolicy
   -> RemoteProjectBinding
   -> QueryEngine.submit()
   -> normal permission gates and tool execution
   -> RemoteReplyRenderer concise progress/final summary
-  -> WeCom replyStream / template card / media upload
+  -> WeCom replyStream/template card or WeChat text/numeric approval
 ```
 
-The first supported remote adapter is Enterprise WeChat / WeCom intelligent bot long connection through `@wecom/aibot-node-sdk`. Personal WeChat hooks are not wired and remain reserved.
+Remote adapters currently include:
+
+- Enterprise WeChat / WeCom intelligent bot long connection through `@wecom/aibot-node-sdk`.
+- Personal WeChat OpenClaw through Tencent `@tencent-weixin/openclaw-weixin@2.4.4`.
+
+Personal WeChat PC hooks, reverse protocol clients, and wxauto are not wired into the default build and remain reserved.
 
 ## Skills, Plugins, MCP, Hooks
 
@@ -179,7 +184,8 @@ Hooks run around local tools. PreToolUse can block a tool; PostToolUse records o
 | DOCX/PPTX | supported |
 | TencentDB-Agent-Memory | supported |
 | WeCom remote control | experimental / testable |
-| Personal WeChat | reserved |
+| Personal WeChat OpenClaw | experimental / testable |
+| Personal WeChat hook | reserved |
 | PDF | experimental |
 | Long-running worker | partial |
 | `computer_use` | reserved |

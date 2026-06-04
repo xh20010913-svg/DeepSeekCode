@@ -79,6 +79,12 @@ Useful optional settings:
 | `DEEPSEEKCODE_WECOM_ALLOWED_USERS` | Optional comma/semicolon/newline separated WeCom userid allowlist. |
 | `DEEPSEEKCODE_WECOM_ALLOWED_GROUPS` | Optional WeCom group chatid allowlist. |
 | `DEEPSEEKCODE_WECOM_PROJECT_ROOTS` | Optional allowed project roots for `/project <path>` from WeCom. |
+| `DEEPSEEKCODE_WECHAT_OPENCLAW_ENABLED` | Enable the experimental personal WeChat OpenClaw channel. |
+| `DEEPSEEKCODE_WECHAT_ACCOUNT_ID` | Optional stored OpenClaw account id to use. |
+| `DEEPSEEKCODE_WECHAT_ALLOWED_USERS` | Optional personal WeChat user allowlist. |
+| `DEEPSEEKCODE_WECHAT_ALLOWED_GROUPS` | Optional personal WeChat group allowlist. |
+| `DEEPSEEKCODE_WECHAT_PROJECT_ROOTS` | Optional allowed project roots for `/project <path>` from personal WeChat. |
+| `DEEPSEEKCODE_WECHAT_MENTION_NAMES` | Bot mention names for group chats. |
 | `DEEPSEEKCODE_PRICE_INPUT_PER_M` | Input-token price override. |
 | `DEEPSEEKCODE_PRICE_OUTPUT_PER_M` | Output-token price override. |
 | `DEEPSEEKCODE_PRICE_CACHE_HIT_PER_M` | Cache-hit input price override. |
@@ -119,25 +125,39 @@ provider messages + tools schema
 
 If a model or gateway does not support tool calling, the run fails with a clear provider error. It does not fall back to a JSON action planner.
 
-## 5. Enterprise WeChat Remote Control
+## 5. WeChat Remote Control
 
-DeepSeekCode v0.2.5 can run an experimental Enterprise WeChat / WeCom intelligent bot bridge. It uses the official long-connection SDK and does not use personal WeChat hooks.
+DeepSeekCode v0.2.6 can run two experimental remote channels:
 
-Start it from any project directory:
+- Enterprise WeChat / WeCom intelligent bot long connection through the official SDK.
+- Personal WeChat through Tencent OpenClaw QR login and long polling.
+
+Both channels reuse the normal QueryEngine, StateStore, and permission gate. They do not add keyword-based task routing, and they do not replace the local native tool-calling loop.
+
+Start WeCom from any project directory:
 
 ```bash
 deepseekcode --wecom --project "D:\work\agent-test" --model deepseek-v4-flash
+```
+
+Log in and start personal WeChat OpenClaw:
+
+```bash
+deepseekcode --wechat-login --project "D:\work\agent-test"
+deepseekcode --wechat --project "D:\work\agent-test" --model deepseek-v4-flash
 ```
 
 Or start/stop it inside the TUI:
 
 ```text
 /remote-control
-/remote-control start
-/remote-control stop
+/remote-control wecom start
+/remote-control wechat login
+/remote-control wechat start
+/remote-control wechat stop
 ```
 
-WeCom commands:
+Remote commands:
 
 ```text
 /help
@@ -151,12 +171,13 @@ WeCom commands:
 /usage
 ```
 
-Natural-language messages also work. In group chats, messages must mention the bot or use a slash command by default. The WeCom bridge reuses the normal QueryEngine, StateStore, and permission gate. When shell/browser/file-sensitive actions need approval, WeCom receives a template card with allow once, allow for session, reject, and stop.
+Natural-language messages also work. In group chats, messages must mention the bot or use a slash command by default. When shell/browser/file-sensitive actions need approval, WeCom receives a template card. Personal WeChat has no template card surface, so it asks you to reply with `1` allow once, `2` allow for session, `3` reject, or `4` stop.
 
 Attachments are saved under:
 
 ```text
 <data-dir>\remote\inbox\<chat-id>\
+<data-dir>\remote\wechat-openclaw\inbox\<chat-id>\
 ```
 
 Only the local path is passed to the agent. Secrets and long logs are redacted from remote replies.

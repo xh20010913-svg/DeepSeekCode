@@ -19,7 +19,7 @@
 <p align="center">
   <a href="https://github.com/xh20010913-svg/DeepSeekCode"><img src="https://img.shields.io/github/stars/xh20010913-svg/DeepSeekCode.svg?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="GitHub stars"/></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/xh20010913-svg/DeepSeekCode.svg?style=flat-square&color=8b949e&labelColor=161b22" alt="license"/></a>
-  <a href="./package.json"><img src="https://img.shields.io/badge/version-v0.2.5-38bdf8.svg?style=flat-square&labelColor=161b22" alt="v0.2.5"/></a>
+  <a href="./package.json"><img src="https://img.shields.io/badge/version-v0.2.6-38bdf8.svg?style=flat-square&labelColor=161b22" alt="v0.2.6"/></a>
   <a href="./package.json"><img src="https://img.shields.io/badge/node-%3E%3D22-5fa04e.svg?style=flat-square&labelColor=161b22&logo=nodedotjs&logoColor=white" alt="Node >= 22"/></a>
 </p>
 
@@ -27,7 +27,7 @@
 
 DeepSeekCode is a DeepSeek-first local terminal agent runtime for project work, office artifacts, long-running tasks, and recoverable testing. It calls typed local tools through native DeepSeek function calling, persists run/task/action/artifact/usage state in SQLite, and can continue work after CLI restarts.
 
-v0.2.5 documents the current wired capability surface rather than treating partial work as finished. The main loop is:
+v0.2.6 documents the current wired capability surface rather than treating partial work as finished. The main loop is:
 
 ```text
 stable runtime prompt + context
@@ -162,24 +162,35 @@ The TUI model picker is available from `/model`. The footer shows the active mod
 | `/multi provider <task>` | Run the Planner -> Builder -> Tester -> Reviewer workflow. |
 | `/approval` `/validation` | Inspect and resolve approval or validation gates. |
 | `/resume` `/sessions` | Restore persisted chat sessions. |
-| `/remote-control` | Inspect, start, or stop Enterprise WeChat remote control. |
+| `/remote-control` | Inspect, start, or stop Enterprise WeChat / personal WeChat remote control. |
 
 See [CLI Reference](./CLI_REFERENCE.md) for the full command surface.
 
-## Enterprise WeChat Remote Control
+## WeChat Remote Control
 
-v0.2.5 adds an experimental Enterprise WeChat / WeCom intelligent bot bridge. It does not use personal WeChat hooks. The computer must stay on and keep DeepSeekCode running; WeCom is used for concise task input, progress summaries, permission approval cards, and artifact summaries.
+v0.2.6 keeps the Enterprise WeChat / WeCom intelligent bot bridge and adds an experimental personal WeChat OpenClaw channel. Both channels are only remote message surfaces; the core agent path remains local `QueryEngine -> native tool_calls -> local tools -> tool_result`.
+
+Enterprise WeChat:
 
 ```bash
 deepseekcode --wecom --project "D:\work\agent-test" --model deepseek-v4-flash
+```
+
+Personal WeChat OpenClaw:
+
+```bash
+deepseekcode --wechat-login --project "D:\work\agent-test"
+deepseekcode --wechat --project "D:\work\agent-test" --model deepseek-v4-flash
 ```
 
 Inside the TUI:
 
 ```text
 /remote-control
-/remote-control start
-/remote-control stop
+/remote-control wecom start
+/remote-control wechat login
+/remote-control wechat start
+/remote-control wechat stop
 ```
 
 Configuration:
@@ -190,9 +201,16 @@ DEEPSEEKCODE_WECOM_BOT_SECRET=your_wecom_bot_secret
 DEEPSEEKCODE_WECOM_ALLOWED_USERS=userid1,userid2
 DEEPSEEKCODE_WECOM_ALLOWED_GROUPS=chatid1,chatid2
 DEEPSEEKCODE_WECOM_PROJECT_ROOTS=D:\work;D:\code\DeepSeekTest
+DEEPSEEKCODE_WECHAT_OPENCLAW_ENABLED=true
+DEEPSEEKCODE_WECHAT_ALLOWED_USERS=
+DEEPSEEKCODE_WECHAT_ALLOWED_GROUPS=
+DEEPSEEKCODE_WECHAT_PROJECT_ROOTS=D:\work;D:\code\DeepSeekTest
+DEEPSEEKCODE_WECHAT_MENTION_NAMES=DeepSeekCode,deepseekcode
 ```
 
-WeCom text supports `/help`, `/status`, `/project`, `/project <path>`, `/run <task>`, `/continue`, `/stop`, `/artifacts`, and `/usage`. Natural-language tasks also work. Group chats require `@DeepSeekCode` or a `/run` prefix by default. Sensitive shell/browser/file actions still go through the local permission gate; WeCom receives approval cards for allow once, allow for session, reject, or stop.
+Remote text supports `/help`, `/status`, `/project`, `/project <path>`, `/run <task>`, `/continue`, `/stop`, `/artifacts`, and `/usage`. Natural-language tasks also work. Group chats require `@DeepSeekCode` or a `/run` prefix by default. Sensitive shell/browser/file actions still go through the local permission gate. WeCom receives approval cards; personal WeChat uses a numeric reply menu: `1` allow once, `2` allow for session, `3` reject, `4` stop.
+
+The personal WeChat path uses Tencent `@tencent-weixin/openclaw-weixin` / OpenClaw QR login and long polling. It is not a PC hook, reverse protocol, or wxauto bridge. Auth state is stored under `.deepseekcode/remote/wechat-openclaw/auth/` and is never sent to the model or committed.
 
 ## Capability Matrix
 
@@ -204,7 +222,8 @@ WeCom text supports `/help`, `/status`, `/project`, `/project <path>`, `/run <ta
 | Shell tools | permission-required | Disabled unless the session allows shell. Dangerous Windows commands go through gates. |
 | Browser CDP tools | partial | Browser actions are integrated and permission-gated; real UI acceptance still needs more work. |
 | WeCom remote control | experimental / testable | Uses the official `@wecom/aibot-node-sdk` long-connection SDK for text tasks, concise progress, approval cards, project binding, attachment inbox, and artifact summaries. |
-| Personal WeChat | reserved | Personal WeChat hook support is not wired or advertised as supported. |
+| Personal WeChat OpenClaw | experimental / testable | Uses Tencent `@tencent-weixin/openclaw-weixin@2.4.4` QR login and long polling for text tasks, numeric approval, project binding, attachment inbox, and artifact summaries. |
+| Personal WeChat hook | reserved | PC hooks, reverse protocols, and wxauto are not wired into the default build. |
 | MCP tools | partial | Exposed through `mcp_call`; native per-tool schema expansion is planned. |
 | Hooks | verified | PreToolUse and PostToolUse run around local tools; hook errors are recorded without taking over the main task. |
 | Skills | verified | Built-in/project/user/plugin skills are discoverable and invokable. `.claude` skills are compatible; installs target `.deepseekcode`. |
@@ -310,7 +329,7 @@ Reports include model, token usage, cache hit/miss, tool counts, artifacts, fail
 
 ## Still In Progress
 
-v0.2.5 adds the experimental Enterprise WeChat intelligent bot remote-control bridge. It does not claim the entire 24-item backend plan is finished. Work that remains active:
+v0.2.6 adds the experimental personal WeChat OpenClaw remote-control bridge. It does not claim the entire 24-item backend plan is finished. Work that remains active:
 
 - Full realistic scenario evaluation and self-repair coverage.
 - Background worker pool details for long tasks, queue recovery, cancel, retry, and resume.
@@ -330,7 +349,7 @@ npm run typecheck
 npm run build
 ```
 
-The repository also includes GitHub Actions CI for typecheck and build, plus GitHub Pages deployment for `website/`. v0.2.5 keeps the build helper present in the published repository.
+The repository also includes GitHub Actions CI for typecheck and build, plus GitHub Pages deployment for `website/`. v0.2.6 keeps the build helper present in the published repository.
 
 ## Release Boundary
 
