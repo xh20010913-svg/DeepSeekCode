@@ -78,6 +78,8 @@ export interface QueryEngineOptions {
   switchModel?: (model: string) => boolean;
   switchLanguage?: (language: string) => boolean;
   emitSystemMessage?: (message: string) => void;
+  emitRemoteUserMessage?: (message: string) => void;
+  emitRemoteAssistantMessage?: (message: string) => void;
   awaitUserDecisions?: boolean;
   sessionPersistence?: "managed" | "external" | "off";
 }
@@ -95,6 +97,8 @@ export class QueryEngine {
   private readonly switchModel?: (model: string) => boolean;
   private readonly switchLanguage?: (language: string) => boolean;
   private readonly emitSystemMessage?: (message: string) => void;
+  private readonly emitRemoteUserMessage?: (message: string) => void;
+  private readonly emitRemoteAssistantMessage?: (message: string) => void;
   private readonly awaitUserDecisions: boolean;
   private readonly sessionPersistence: "managed" | "external" | "off";
   private readonly actionPrefix = new PrefixStabilityManager();
@@ -120,6 +124,8 @@ export class QueryEngine {
     this.switchModel = options.switchModel;
     this.switchLanguage = options.switchLanguage;
     this.emitSystemMessage = options.emitSystemMessage;
+    this.emitRemoteUserMessage = options.emitRemoteUserMessage;
+    this.emitRemoteAssistantMessage = options.emitRemoteAssistantMessage;
     this.awaitUserDecisions = Boolean(options.awaitUserDecisions);
     this.sessionPersistence = options.sessionPersistence ?? "managed";
     this.memoryService = getTencentMemoryService(this.config, this.provider, this.state);
@@ -137,6 +143,8 @@ export class QueryEngine {
       switchModel: this.switchModel,
       switchLanguage: this.switchLanguage,
       emitSystemMessage: this.emitSystemMessage,
+      emitRemoteUserMessage: this.emitRemoteUserMessage,
+      emitRemoteAssistantMessage: this.emitRemoteAssistantMessage,
     };
   }
 

@@ -165,6 +165,16 @@ export function Workbench(props: {
     sessionStorage.append({ role: "system", text });
     setItems((previous) => [...previous, { role: "system", text, timestamp: Date.now() }]);
   }, [sessionStorage]);
+  const appendRemoteUserMessage = useCallback((text: string) => {
+    const message = `[wechat] ${text}`;
+    sessionStorage.append({ role: "user", text: message });
+    setItems((previous) => [...previous, { role: "user", text: message, timestamp: Date.now() }]);
+  }, [sessionStorage]);
+  const appendRemoteAssistantMessage = useCallback((text: string) => {
+    const message = `[wechat] ${text}`;
+    sessionStorage.append({ role: "assistant", text: message });
+    setItems((previous) => [...previous, { role: "assistant", text: message, timestamp: Date.now(), model: activeConfig.model }]);
+  }, [activeConfig.model, sessionStorage]);
   const engine = useMemo(
     () =>
       new QueryEngine({
@@ -178,10 +188,24 @@ export function Workbench(props: {
         switchModel,
         switchLanguage,
         emitSystemMessage: appendSystemMessage,
+        emitRemoteUserMessage: appendRemoteUserMessage,
+        emitRemoteAssistantMessage: appendRemoteAssistantMessage,
         awaitUserDecisions: true,
         sessionPersistence: "external",
       }),
-    [activeConfig, activeProvider, props.state, permissions, app, openModelSelector, switchModel, switchLanguage, appendSystemMessage],
+    [
+      activeConfig,
+      activeProvider,
+      props.state,
+      permissions,
+      app,
+      openModelSelector,
+      switchModel,
+      switchLanguage,
+      appendSystemMessage,
+      appendRemoteUserMessage,
+      appendRemoteAssistantMessage,
+    ],
   );
   const commands = useMemo(
     () => getCommands(engine.commandContext()),

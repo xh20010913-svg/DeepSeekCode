@@ -37,7 +37,13 @@ export function classifySystemText(text: string): SystemTextKind {
 }
 
 export function formatSystemText(text: string): string {
+  if (shouldPreserveSystemTextLayout(text)) return text.trimEnd();
   return text.replace(/\s+/g, " ").trim();
+}
+
+function shouldPreserveSystemTextLayout(text: string): boolean {
+  return text.includes("OpenClaw 微信登录二维码") ||
+    text.includes("OpenClaw WeChat login QR");
 }
 
 function systemTextTitle(kind: SystemTextKind): string {

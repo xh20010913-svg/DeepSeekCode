@@ -16,6 +16,8 @@ export interface CommandContext {
   switchLanguage?: (language: string) => boolean;
   recordUsageEvent?: (usage: UsageSnapshot) => void;
   emitSystemMessage?: (message: string) => void;
+  emitRemoteUserMessage?: (message: string) => void;
+  emitRemoteAssistantMessage?: (message: string) => void;
 }
 
 export interface CommandResult {

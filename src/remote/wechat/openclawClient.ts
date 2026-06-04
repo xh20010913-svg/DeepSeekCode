@@ -11,7 +11,6 @@ interface LoginQrModule {
     apiBaseUrl?: string;
     botType?: string;
   }): Promise<{ qrcodeUrl?: string; message?: string; sessionKey: string }>;
-  displayQRCode(qrcodeUrl: string): Promise<void>;
   waitForWeixinLogin(input: {
     timeoutMs?: number;
     verbose?: boolean;
@@ -135,8 +134,11 @@ export class OpenClawWeixinClient {
       verbose: false,
     });
     if (started.qrcodeUrl) {
-      this.options.onStatus?.(await formatLoginQrForStatus(started.qrcodeUrl));
-      await login.displayQRCode(started.qrcodeUrl);
+      if (this.options.onStatus) {
+        this.options.onStatus(await formatLoginQrForStatus(started.qrcodeUrl));
+      } else {
+        process.stdout.write(`${await formatLoginQrForStatus(started.qrcodeUrl)}\n`);
+      }
     } else {
       this.options.onStatus?.("OpenClaw login started, but no QR code was returned.");
     }

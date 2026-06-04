@@ -28,6 +28,8 @@ export const remoteControlCommand: Command = {
         baseProvider: context.provider,
         permissions: context.permissions,
         onStatus: context.emitSystemMessage,
+        onRemoteUserMessage: context.emitRemoteUserMessage,
+        onRemoteAssistantMessage: context.emitRemoteAssistantMessage,
       });
       if (action === "login") {
         await service.login();

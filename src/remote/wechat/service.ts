@@ -66,6 +66,8 @@ export interface WeChatOpenClawRemoteControlOptions {
   baseProvider: DeepSeekProviderClient | null;
   permissions: RuntimePermissionState;
   onStatus?: (line: string) => void;
+  onRemoteUserMessage?: (line: string) => void;
+  onRemoteAssistantMessage?: (line: string) => void;
 }
 
 export class WeChatOpenClawRemoteControlService implements RemoteChannel {
@@ -82,14 +84,26 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
   private readonly pendingApprovals = new Map<string, PendingApproval>();
   private readonly sessionShellGrants = new Set<string>();
   private statusListener?: (line: string) => void;
+  private remoteUserListener?: (line: string) => void;
+  private remoteAssistantListener?: (line: string) => void;
   private statusText = "disconnected";
 
   constructor(private readonly options: WeChatOpenClawRemoteControlOptions) {
     this.statusListener = options.onStatus;
+    this.remoteUserListener = options.onRemoteUserMessage;
+    this.remoteAssistantListener = options.onRemoteAssistantMessage;
   }
 
   setStatusListener(listener: ((line: string) => void) | undefined): void {
     this.statusListener = listener;
+  }
+
+  setRemoteTranscriptListeners(input: {
+    onRemoteUserMessage?: (line: string) => void;
+    onRemoteAssistantMessage?: (line: string) => void;
+  }): void {
+    this.remoteUserListener = input.onRemoteUserMessage;
+    this.remoteAssistantListener = input.onRemoteAssistantMessage;
   }
 
   async login(): Promise<void> {
@@ -182,6 +196,9 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
 
   private async handleIncoming(raw: OpenClawMessage): Promise<void> {
     const message = await this.remoteMessage(raw);
+    if (message.text.trim()) {
+      this.remoteUserListener?.(remoteTranscriptText(message.text));
+    }
     const approvalHandled = await this.tryHandleNumericApproval(message);
     if (approvalHandled) return;
 
@@ -704,7 +721,9 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
     const raw = message.raw as OpenClawMessage | undefined;
     const target = active?.replyTarget || replyTargetFromRaw(raw);
     const contextToken = active?.contextToken || String(raw?.context_token ?? "");
-    await this.client?.sendText(target, redactRemoteText(text, 4500), contextToken);
+    const output = redactRemoteText(text, 4500);
+    await this.client?.sendText(target, output, contextToken);
+    this.remoteAssistantListener?.(remoteTranscriptText(output));
   }
 }
 
@@ -717,6 +736,10 @@ export function getSharedWeChatOpenClawRemoteControlService(
     sharedService = new WeChatOpenClawRemoteControlService(options);
   } else {
     sharedService.setStatusListener(options.onStatus);
+    sharedService.setRemoteTranscriptListeners({
+      onRemoteUserMessage: options.onRemoteUserMessage,
+      onRemoteAssistantMessage: options.onRemoteAssistantMessage,
+    });
   }
   return sharedService;
 }
@@ -878,6 +901,10 @@ function sessionGrantKey(chatId: string, projectPath: string): string {
 
 function safeFilename(value: string): string {
   return value.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").slice(0, 120) || "file";
+}
+
+function remoteTranscriptText(value: string): string {
+  return compactOneLine(value, 1800);
 }
 
 function errorMessage(error: unknown): string {
