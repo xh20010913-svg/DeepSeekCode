@@ -38,9 +38,9 @@ DeepSeekCode 是一个 DeepSeek 优先的本地终端 Agent runtime。它把 Dee
 
 模型不再通过大块 ActionEnvelope JSON 来规划工具。内部仍然保留 Zod schema、JSON 配置和 SQLite 状态，用于参数校验、状态持久化和测试报告。
 
-## 真实运行截图
+## 运行截图
 
-下面三张图来自本轮真实运行测试，不是渲染图或目录截图。
+下面三张图展示本机 TUI、个人微信远程控制和 GSAP skill 调用的实际运行状态。
 
 | 本机 TUI 同步微信输入/输出 | 个人微信远程结果 |
 | --- | --- |

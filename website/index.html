@@ -6,13 +6,13 @@
     <title>DeepSeekCode - DeepSeek-first Local Agent Runtime</title>
     <meta
       name="description"
-      content="DeepSeekCode 是一个 DeepSeek 优先的本地终端 Agent runtime，支持 native tool calls、权限 gate、项目状态、skills、MCP、微信远程控制和可恢复长任务。"
+      content="DeepSeekCode 是面向 DeepSeek 的本地开发 Agent，在终端内连接 native tool calls、本地权限、项目状态、skills、MCP、微信远程和多 Agent 工作流。"
     />
     <meta name="theme-color" content="#050605" />
     <meta name="color-scheme" content="dark" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="DeepSeekCode" />
-    <meta property="og:description" content="DeepSeek-first local agent runtime for real project directories." />
+    <meta property="og:description" content="A local development agent for DeepSeek native tool calling, project state, skills, MCP, and remote control." />
     <meta property="og:image" content="assets/screenshots/wechat-desktop-sync.png" />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="stylesheet" href="src/styles.css" />
@@ -54,9 +54,9 @@
             <span class="line"></span>
             <span>native tools</span>
           </div>
-          <h1 data-i18n="heroTitle">把 <em>DeepSeek</em> 放进真实项目目录工作的本地 Agent runtime。</h1>
+          <h1 data-i18n="heroTitle">面向 <em>DeepSeek</em> 的本地开发 Agent。</h1>
           <p class="hero-lede" data-i18n="heroLede">
-            DeepSeekCode 用 native tool calls 驱动本地文件、shell、browser、skills、MCP、长期记忆、微信远程和多 Agent 工作流。它的目标不是给建议，而是在项目目录里规划、执行、验证、恢复和交付产物。
+            DeepSeekCode 在终端中连接 DeepSeek native tool calls、本地文件、shell/browser 权限、skills、MCP、长期记忆、微信远程和多 Agent 工作流，用一条可恢复的运行链路完成规划、执行、验证和交付。
           </p>
           <div class="hero-actions">
             <a class="solid-button large" href="#install" data-i18n="heroPrimary">安装启动</a>
@@ -77,7 +77,7 @@
             </div>
             <div class="terminal-body">
               <p><span class="prompt">$</span> deepseekcode --model deepseek-v4-flash</p>
-              <p><span class="ok">✓</span> project .deepseekcode loaded</p>
+              <p><span class="ok">✓</span> workspace state loaded</p>
               <p><span class="dim">tool schema</span> native DeepSeek function calling</p>
               <p class="spacer"></p>
               <p><span class="prompt">&gt;</span> 继续完成这个项目，并把结果发到微信</p>
@@ -104,9 +104,9 @@ remote_delivery_plan</code></pre>
       <section id="install" class="section-shell split-section">
         <div class="section-copy reveal">
           <span class="eyebrow">INSTALL</span>
-          <h2 data-i18n="installTitle">全局安装后，在任意项目目录直接启动。</h2>
+          <h2 data-i18n="installTitle">全局安装，在当前工作区启动。</h2>
           <p data-i18n="installText">
-            当前目录就是项目根目录。每个项目拥有自己的 `.deepseekcode` 状态、会话、记忆、远程绑定和产物记录，减少不同项目上下文互相串扰。
+            从任意仓库或工作目录运行 `deepseekcode`。运行状态、会话、记忆、远程绑定和产物记录会保存在当前工作区的 `.deepseekcode` 中，便于继续任务和恢复上下文。
           </p>
         </div>
         <div class="code-panel reveal delay-1">
@@ -120,8 +120,8 @@ deepseekcode --model deepseek-v4-flash</code></pre>
       <section id="screenshots" class="section-shell">
         <div class="section-head reveal">
           <span class="eyebrow">REAL TESTS</span>
-          <h2 data-i18n="shotsTitle">真实运行截图，而不是渲染占位图。</h2>
-          <p data-i18n="shotsText">三张截图分别展示本机 TUI 同步微信消息、个人微信远程结果、GSAP skill 自动调用和 HTML 产物验证。</p>
+          <h2 data-i18n="shotsTitle">运行示例。</h2>
+          <p data-i18n="shotsText">桌面 TUI、个人微信远程控制和 GSAP skill 调用在同一套项目运行时中协同工作。</p>
         </div>
         <div class="screenshot-grid">
           <figure class="screenshot-card reveal">
@@ -142,7 +142,7 @@ deepseekcode --model deepseek-v4-flash</code></pre>
       <section id="features" class="section-shell">
         <div class="section-head reveal">
           <span class="eyebrow">CAPABILITIES</span>
-          <h2 data-i18n="featuresTitle">当前版本已经接通的核心能力。</h2>
+          <h2 data-i18n="featuresTitle">核心能力。</h2>
         </div>
         <div class="feature-grid">
           <article class="feature-card reveal">
@@ -151,7 +151,7 @@ deepseekcode --model deepseek-v4-flash</code></pre>
           </article>
           <article class="feature-card reveal delay-1">
             <h3>Project state</h3>
-            <p data-i18n="featureState">每个项目目录独立保存 transcript、runs、events、artifacts、usage、approval gates 和长期记忆。</p>
+            <p data-i18n="featureState">每个工作区独立保存 transcript、runs、events、artifacts、usage、approval gates 和长期记忆。</p>
           </article>
           <article class="feature-card reveal delay-2">
             <h3>Remote control</h3>
@@ -193,7 +193,7 @@ deepseekcode --model deepseek-v4-flash</code></pre>
       <section class="section-shell architecture-strip">
         <div class="section-copy reveal">
           <span class="eyebrow">ARCHITECTURE</span>
-          <h2 data-i18n="archTitle">统一链路，而不是几个孤立功能。</h2>
+          <h2 data-i18n="archTitle">桌面、远程和工具执行共用同一条运行链路。</h2>
         </div>
         <div class="flow-line reveal delay-1">
           <div><b>01</b><span>messages</span></div>
@@ -207,7 +207,7 @@ deepseekcode --model deepseek-v4-flash</code></pre>
       <section id="status" class="section-shell">
         <div class="section-head reveal">
           <span class="eyebrow">STATUS</span>
-          <h2 data-i18n="statusTitle">能力矩阵按真实状态标注。</h2>
+          <h2 data-i18n="statusTitle">能力矩阵。</h2>
         </div>
         <div class="status-table reveal">
           <div><b>已验证</b><span>native tool calls、文件工具、hooks、skills/plugins、TencentDB-Agent-Memory、/ask</span></div>
@@ -220,7 +220,7 @@ deepseekcode --model deepseek-v4-flash</code></pre>
       <section id="roadmap" class="section-shell roadmap">
         <div class="section-head reveal">
           <span class="eyebrow">ROADMAP</span>
-          <h2 data-i18n="roadmapTitle">查漏补缺：下一步仍在完善的部分。</h2>
+          <h2 data-i18n="roadmapTitle">下一步。</h2>
         </div>
         <div class="roadmap-list">
           <article><b>remote</b><span data-i18n="roadRemote">微信二维码浏览器扫码稳定性、OpenClaw 网络错误恢复、TUI 与微信完整同屏同步。</span></article>

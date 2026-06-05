@@ -38,9 +38,9 @@ user input / remote message / TUI command
 
 The model no longer drives local work by emitting large ActionEnvelope JSON plans. Internal JSON, Zod schemas, and SQLite state still exist for argument validation, configuration, persistence, and reports.
 
-## Real Runtime Screenshots
+## Runtime Screenshots
 
-These screenshots are from real runtime tests, not generated mockups.
+These screenshots show the desktop TUI, personal WeChat remote control, and GSAP skill invocation in use.
 
 | Desktop TUI mirroring WeChat input/output | Personal WeChat remote result |
 | --- | --- |
