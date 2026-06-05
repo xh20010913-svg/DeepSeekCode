@@ -240,12 +240,16 @@ DEEPSEEKCODE_WECHAT_MENTION_NAMES=DeepSeekCode,deepseekcode
 
 ## Skills 和 Plugins
 
-安装 skill：
+安装 skill。源目录或 Git 仓库里只有一个 `SKILL.md` 时会安装单个 skill；如果仓库里有多个 `SKILL.md`，不带名称会批量安装全部 skill：
 
 ```text
 /skills install "D:\skills\office-report"
 /skills install https://github.com/example/agent-skills/tree/main/office/report
 /skills install file:///D:/repos/agent-skills.git#main:office/report
+/skills install greensock/gsap-skills
+/skills install-all greensock/gsap-skills
+/skills install greensock/gsap-skills gsap-core
+/skills search gsap
 /skills update office-report
 /skills validate
 ```
@@ -261,6 +265,8 @@ DEEPSEEKCODE_WECHAT_MENTION_NAMES=DeepSeekCode,deepseekcode
 ```
 
 安装时会校验名称、manifest、BOM、路径穿越和 Git subpath。`.claude` skill/plugin 可以被发现用于兼容，但安装副本写入 `.deepseekcode`。
+
+自动调用规则：DeepSeekCode 会把可自动调用的 skill 名称和 `description` 放入底层 agent prompt，并提供 `search_skills` 与 `invoke_skill` 两个 native tool。模型会根据任务语义自己检索和调用 skill，不靠“网页/PPT/GSAP”这类关键词硬编码。带有 `disable-model-invocation: true` 的 skill 不会进入自动候选，但仍可用 `/skills run <name> <task>` 手动运行。
 
 ## 长任务、上下文和缓存
 

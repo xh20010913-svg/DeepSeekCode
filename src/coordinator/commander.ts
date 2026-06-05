@@ -297,6 +297,7 @@ function availableToolNamesForPermissions(permissions: RuntimePermissionState): 
     "create_pptx",
     "create_pdf",
     "computer_use",
+    "search_skills",
     "invoke_skill",
     "invoke_agent",
   ];

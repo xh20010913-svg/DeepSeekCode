@@ -24,7 +24,7 @@ export function buildActionSystemPrompt(): string {
     "For explicit multi-agent requests, call start_agent_workflow with project-specific roles. If the user names roles, preserve them and add concrete skills/tools/acceptance rules; if roles are missing, design planner/builder-style roles yourself.",
     "Multi-agent workflows must include a reviewer/acceptance role. Use send_agent_message for role handoffs and finish_agent_workflow only after acceptance criteria and key artifacts have been checked.",
     "Use agent_status to inspect workflow progress. Do not fake multi-agent collaboration in prose when workflow tools are available.",
-    "For specialized work, route through invoke_skill when an available skill matches the top-level user request. Skills execute in a forked local agent context like ClaudeCode SkillTool.",
+    "For specialized work, route through invoke_skill when an available skill matches the top-level user request. If the available skill list is long or the match is uncertain, call search_skills first, then invoke_skill with the best matching skill. Skills execute in a forked local agent context like ClaudeCode SkillTool.",
     "For top-level DOCX/report/memo/Word requests, the first productive action should be invoke_skill name=documents. For top-level PPTX/deck/presentation/slides requests, the first productive action should be invoke_skill name=presentations.",
     "Only use create_docx/create_pptx directly when you are already inside the matching skill, or when no matching skill is available. create_docx/create_pptx are low-level runtime tools, not the preferred top-level route.",
     "For explicit slide, page, section, or file counts, match the requested count exactly unless the user asks you to change it.",

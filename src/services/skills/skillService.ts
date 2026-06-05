@@ -79,14 +79,56 @@ export class SkillService {
       dataDir: this.dataDir,
       cacheNamespace: "skills",
     });
-    const sourcePath = resolvedSource.path;
-    const sourceSkillPath = path.join(sourcePath, "SKILL.md");
+    const candidates = discoverInstallableSkillDirs(resolvedSource.path);
+    if (candidates.length === 0) {
+      throw new Error(`skill document not found under: ${resolvedSource.path}`);
+    }
+    const candidate = chooseInstallCandidate(candidates, input.name);
+    if (!candidate) {
+      throw new Error(`install source contains ${candidates.length} skills; pass a skill name or use installAllFromPath`);
+    }
+    return this.installSkillDirectory({
+      sourcePath: candidate.path,
+      sourceRoot: resolvedSource.path,
+      sourceMetadata: resolvedSource.metadata,
+      name: input.name,
+      overwrite: input.overwrite,
+    });
+  }
+
+  installAllFromPath(input: { sourcePath: string; overwrite?: boolean }): LoadedSkill[] {
+    const resolvedSource = resolveInstallSource({
+      sourcePath: input.sourcePath,
+      projectPath: this.projectPath,
+      dataDir: this.dataDir,
+      cacheNamespace: "skills",
+    });
+    const candidates = discoverInstallableSkillDirs(resolvedSource.path);
+    if (candidates.length === 0) {
+      throw new Error(`skill document not found under: ${resolvedSource.path}`);
+    }
+    return candidates.map((candidate) => this.installSkillDirectory({
+      sourcePath: candidate.path,
+      sourceRoot: resolvedSource.path,
+      sourceMetadata: resolvedSource.metadata,
+      overwrite: input.overwrite,
+    }));
+  }
+
+  private installSkillDirectory(input: {
+    sourcePath: string;
+    sourceRoot: string;
+    sourceMetadata: Omit<SkillSourceMetadata, "installedAtMs" | "updatedAtMs">;
+    name?: string;
+    overwrite?: boolean;
+  }): LoadedSkill {
+    const sourceSkillPath = path.join(input.sourcePath, "SKILL.md");
     if (!fs.existsSync(sourceSkillPath)) {
       throw new Error(`skill document not found: ${sourceSkillPath}`);
     }
     const sourceContent = fs.readFileSync(sourceSkillPath, "utf8");
     const parsed = parseSkillDocument(sourceContent);
-    const name = normalizeSkillName(input.name ?? parsed.frontmatter.name ?? path.basename(sourcePath));
+    const name = normalizeSkillName(input.name ?? parsed.frontmatter.name ?? path.basename(input.sourcePath));
     if (!name) throw new Error("skill name is empty");
     const skillRoot = path.join(this.projectPath, ".deepseekcode", "skills");
     const targetPath = path.join(skillRoot, name);
@@ -99,9 +141,9 @@ export class SkillService {
       fs.rmSync(targetPath, { recursive: true, force: true });
     }
     fs.mkdirSync(skillRoot, { recursive: true });
-    fs.cpSync(sourcePath, targetPath, {
+    fs.cpSync(input.sourcePath, targetPath, {
       recursive: true,
-      filter: (source) => shouldCopySkillPath(source),
+      filter: (source) => shouldCopySkillPath(path.relative(input.sourcePath, source)),
     });
     const targetSkillPath = path.join(targetPath, "SKILL.md");
     const targetContent = fs.readFileSync(targetSkillPath, "utf8");
@@ -113,7 +155,7 @@ export class SkillService {
       ), "utf8");
     }
     writeSourceMetadata(targetPath, {
-      ...resolvedSource.metadata,
+      ...sourceMetadataForSkill(input.sourceMetadata, input.sourceRoot, input.sourcePath),
       installedAtMs: Date.now(),
     });
     const skill = this.load(name);
@@ -226,7 +268,75 @@ export class SkillService {
 
 function shouldCopySkillPath(sourcePath: string): boolean {
   const parts = sourcePath.split(/[\\/]/);
-  return !parts.some((part) => part === ".git" || part === "node_modules" || part === ".DS_Store" || part === ".env");
+  return !parts.some((part) => ignoredInstallPart(part));
+}
+
+interface InstallableSkillDir {
+  path: string;
+  name: string;
+}
+
+function discoverInstallableSkillDirs(root: string): InstallableSkillDir[] {
+  if (!fs.existsSync(root)) return [];
+  const results: InstallableSkillDir[] = [];
+  visitSkillRoot(path.resolve(root), results, 0);
+  return results.sort((left, right) => left.name.localeCompare(right.name) || left.path.localeCompare(right.path));
+}
+
+function visitSkillRoot(current: string, results: InstallableSkillDir[], depth: number): void {
+  if (depth > 8) return;
+  const base = path.basename(current);
+  if (ignoredInstallPart(base)) return;
+  const skillPath = path.join(current, "SKILL.md");
+  if (fs.existsSync(skillPath)) {
+    const content = fs.readFileSync(skillPath, "utf8");
+    const parsed = parseSkillDocument(content);
+    const name = normalizeSkillName(parsed.frontmatter.name ?? path.basename(current));
+    if (name) {
+      results.push({ path: current, name });
+    }
+    return;
+  }
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(current, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (ignoredInstallPart(entry.name)) continue;
+    visitSkillRoot(path.join(current, entry.name), results, depth + 1);
+  }
+}
+
+function chooseInstallCandidate(candidates: InstallableSkillDir[], name: string | undefined): InstallableSkillDir | undefined {
+  if (!name) return candidates.length === 1 ? candidates[0] : undefined;
+  const normalized = normalizeSkillName(name);
+  return candidates.find((candidate) => candidate.name === normalized || normalizeSkillName(path.basename(candidate.path)) === normalized);
+}
+
+function sourceMetadataForSkill(
+  metadata: Omit<SkillSourceMetadata, "installedAtMs" | "updatedAtMs">,
+  sourceRoot: string,
+  sourcePath: string,
+): Omit<SkillSourceMetadata, "installedAtMs" | "updatedAtMs"> {
+  const relative = path.relative(sourceRoot, sourcePath).replace(/\\/g, "/");
+  const extraSubpath = relative && relative !== "." ? relative : "";
+  return {
+    ...metadata,
+    subpath: [metadata.subpath, extraSubpath].filter(Boolean).join("/") || metadata.subpath,
+  };
+}
+
+function ignoredInstallPart(part: string): boolean {
+  return part === ".git" ||
+    part === "node_modules" ||
+    part === ".DS_Store" ||
+    part === ".env" ||
+    part === "dist" ||
+    part === "build" ||
+    part === ".deepseekcode";
 }
 
 function sourceMetadataPath(skillPath: string): string {

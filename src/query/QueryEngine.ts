@@ -1294,6 +1294,7 @@ export class QueryEngine {
     const skills = discoverSkills(this.config.projectPath, this.config.dataDir);
     if (skills.length === 0) return "(none)";
     return skills
+      .filter((skill) => !skill.disableModelInvocation)
       .slice(0, 40)
       .map((skill) => `- ${skill.name} (${skill.scope}): ${skill.description || "(no description)"}`)
       .join("\n");

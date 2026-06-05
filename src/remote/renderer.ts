@@ -48,7 +48,9 @@ export class RemoteReplyRenderer {
   accept(event: QueryEvent): string | undefined {
     if (event.type === "status") {
       this.state.phase = event.detail ? `${event.text}: ${event.detail}` : event.text;
-      return this.progress({ important: isImportantPhase(event.phase) });
+      return this.isTaskLike()
+        ? this.progress({ important: isImportantPhase(event.phase) })
+        : undefined;
     }
     if (event.type === "usage") {
       this.state.usage = {
@@ -115,6 +117,13 @@ export class RemoteReplyRenderer {
     const counts = todoCounts(this.state.todos);
     const hasErrors = this.state.errors.length > 0;
     const unfinished = this.state.todos.filter((todo) => todo.status !== "completed");
+    if (!this.isTaskLike(artifacts)) {
+      return {
+        text: assistant || "我在。",
+        markdown: assistant || "我在。",
+        artifacts: [],
+      };
+    }
     const text = this.renderFinalChat({
       artifacts,
       assistant,
@@ -152,6 +161,16 @@ export class RemoteReplyRenderer {
       todos: [...this.state.todos],
       usage: this.state.usage ? { ...this.state.usage } : undefined,
     };
+  }
+
+  isTaskLike(artifacts: string[] = this.state.artifacts): boolean {
+    return Boolean(
+      this.state.tools.length ||
+      this.state.todos.length ||
+      artifacts.length ||
+      this.state.errors.length ||
+      /approval|permission|tool|artifact|validation|plan gate/i.test(this.state.phase ?? ""),
+    );
   }
 
   private renderProgressCard(): string {
@@ -317,7 +336,7 @@ function unique(values: string[]): string[] {
 }
 
 function isImportantPhase(phase: string): boolean {
-  return ["planning", "tool", "validating", "waiting_user", "finishing", "chatting", "command"].includes(phase);
+  return ["tool", "validating", "waiting_user", "finishing", "command"].includes(phase);
 }
 
 function todoCounts(todos: RemoteTodoItem[]): { total: number; pending: number; inProgress: number; completed: number } {

@@ -167,6 +167,16 @@ npm install -g github:xh20010913-svg/DeepSeekCode
 
 Use `/help` in the TUI for the exact command catalog.
 
+Skill installation accepts local paths, GitHub shorthand, GitHub URLs, Git URLs, and `file://` Git sources. When the source contains multiple `SKILL.md` files, `/skills install <source>` installs all discovered skills; pass a final skill name to install only one.
+
+```text
+/skills install greensock/gsap-skills
+/skills install-all greensock/gsap-skills
+/skills install greensock/gsap-skills gsap-core
+/skills search gsap
+/skills validate gsap-core
+```
+
 ## Remote Commands
 
 WeCom and personal WeChat use the same project runtime as the TUI. Remote commands are intentionally concise so a phone chat does not turn into a terminal transcript.

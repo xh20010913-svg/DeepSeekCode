@@ -86,7 +86,7 @@ export function skillSearchPanelModel(skills: SkillSearchResult[], query: string
       sourceNote(skill.path, skill.source?.sourcePath),
       skill.disableModelInvocation,
     )),
-    footer: "/skills show <name> | /skills install <path> [name]",
+    footer: "/skills show <name> | /skills install <path-or-git-url> | /skills install <source> <name>",
   };
 }
 

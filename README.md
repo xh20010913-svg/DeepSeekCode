@@ -247,12 +247,16 @@ The personal WeChat path uses Tencent `@tencent-weixin/openclaw-weixin` / OpenCl
 
 ## Skills And Plugins
 
-Install a skill:
+Install skills. A source with one `SKILL.md` installs that skill. A repository with multiple `SKILL.md` files installs all skills when no name is provided:
 
 ```text
 /skills install "D:\skills\office-report"
 /skills install https://github.com/example/agent-skills/tree/main/office/report
 /skills install file:///D:/repos/agent-skills.git#main:office/report
+/skills install greensock/gsap-skills
+/skills install-all greensock/gsap-skills
+/skills install greensock/gsap-skills gsap-core
+/skills search gsap
 /skills update office-report
 /skills validate
 ```
@@ -268,6 +272,8 @@ Install a plugin:
 ```
 
 Plugin and skill installation validates names, manifest shape, BOM handling, and unsafe subpaths. `.claude` skill/plugin directories can be discovered for compatibility; installed copies are written under `.deepseekcode`.
+
+Automatic invocation: DeepSeekCode exposes auto-invokable skill names and `description` values to the agent prompt, and provides native `search_skills` and `invoke_skill` tools. The model decides when to search and invoke a skill from task semantics; there is no hard-coded "website/PPT/GSAP" keyword router. Skills marked with `disable-model-invocation: true` are excluded from automatic candidates but remain available through `/skills run <name> <task>`.
 
 ## Long Tasks And Context
 

@@ -248,6 +248,12 @@ export const InvokeSkillActionSchema = z.object({
   max_turns: z.number().int().min(1).max(6).optional(),
 });
 
+export const SearchSkillsActionSchema = z.object({
+  type: z.literal("search_skills"),
+  query: z.string().default(""),
+  limit: z.number().int().min(1).max(50).default(10),
+});
+
 export const InvokeAgentActionSchema = z.object({
   type: z.literal("invoke_agent"),
   name: z.string().min(1),
@@ -321,6 +327,7 @@ export const ActionRequestSchema = z.discriminatedUnion("type", [
   PlannedPptxActionSchema,
   PlannedPdfActionSchema,
   PlannedComputerUseActionSchema,
+  SearchSkillsActionSchema,
   InvokeSkillActionSchema,
   InvokeAgentActionSchema,
   StartAgentWorkflowActionSchema,

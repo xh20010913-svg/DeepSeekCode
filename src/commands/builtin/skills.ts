@@ -13,7 +13,7 @@ import {
 export const skillsCommand: Command = {
   name: "skills",
   description: "List, search, show, create, install, update, uninstall, validate, and run DeepSeekCode skills.",
-  usage: "[search [query]|show <name>|source <name>|create <name> <description>|install <path-or-git-url> [name]|update <name>|uninstall <name>|run <name> <task>|validate [name]|path [name]]",
+  usage: "[search [query]|show <name>|source <name>|create <name> <description>|install <path-or-git-url> [name]|install-all <path-or-git-url>|update <name>|uninstall <name>|run <name> <task>|validate [name]|path [name]]",
   async execute(args, context) {
     const trimmed = args.trim();
     const service = new SkillService(context.config.projectPath, context.config.dataDir);
@@ -51,10 +51,36 @@ export const skillsCommand: Command = {
         return { message: error instanceof Error ? error.message : String(error) };
       }
     }
+    if (trimmed.startsWith("install-all ")) {
+      const [sourcePath] = parseArgs(trimmed.slice("install-all ".length));
+      if (!sourcePath) return { message: "Usage: /skills install-all <path-or-git-url>" };
+      try {
+        const skills = service.installAllFromPath({ sourcePath });
+        return {
+          message: [
+            `installed ${skills.length} skill${skills.length === 1 ? "" : "s"}:`,
+            ...skills.map((skill) => `- ${skill.scope}/${skill.name}: ${skill.path}`),
+          ].join("\n"),
+          display: React.createElement(SkillPanel, { model: skillListPanelModel(service.list()) }),
+        };
+      } catch (error) {
+        return { message: error instanceof Error ? error.message : String(error) };
+      }
+    }
     if (trimmed.startsWith("install ")) {
       const [sourcePath, name] = parseArgs(trimmed.slice("install ".length));
       if (!sourcePath) return { message: "Usage: /skills install <path-or-git-url> [name]" };
       try {
+        if (!name) {
+          const skills = service.installAllFromPath({ sourcePath });
+          return {
+            message: [
+              `installed ${skills.length} skill${skills.length === 1 ? "" : "s"}:`,
+              ...skills.map((skill) => `- ${skill.scope}/${skill.name}: ${skill.path}`),
+            ].join("\n"),
+            display: React.createElement(SkillPanel, { model: skillListPanelModel(service.list()) }),
+          };
+        }
         const skill = service.installFromPath({ sourcePath, name });
         return {
           message: `installed skill ${skill.scope}/${skill.name}: ${skill.path}`,

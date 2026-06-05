@@ -233,6 +233,9 @@ Skills are `SKILL.md` instruction packs. Plugins can contribute commands, skills
 /skills install "D:\skills\office-report"
 /skills install https://github.com/example/agent-skills/tree/main/office/report
 /skills install file:///D:/repos/agent-skills.git#main:office/report
+/skills install greensock/gsap-skills
+/skills install-all greensock/gsap-skills
+/skills install greensock/gsap-skills gsap-core
 /skills update office-report
 /skills validate
 
@@ -248,6 +251,8 @@ Compatibility rules:
 
 - `.deepseekcode` is the write target.
 - `.claude` skill/plugin folders can be discovered as read-compatible sources.
+- A source with multiple `SKILL.md` files is installed as a batch when no skill name is supplied.
+- Auto-invokable skills are selected by the model from their `description` through `search_skills` and `invoke_skill`; `disable-model-invocation: true` keeps a skill manual-only.
 - Git subpaths are checked for path traversal.
 - `.env`, `.git`, `node_modules`, and OS metadata are filtered during installs.
 

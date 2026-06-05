@@ -2,13 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { pluginExtensionDirs } from "../plugins/extensions.js";
 import { DOCUMENTS_SKILL, PRESENTATIONS_SKILL } from "./bundled/officeSkillContent.js";
-import { firstSkillDescription } from "./manifest.js";
+import { firstSkillDescription, parseSkillDocument } from "./manifest.js";
 
 export interface SkillSummary {
   name: string;
   path: string;
   scope: "project" | "user" | "cache" | "plugin";
   description: string;
+  disableModelInvocation?: boolean;
 }
 
 export function discoverSkills(projectPath: string, dataDir: string): SkillSummary[] {
@@ -31,15 +32,14 @@ export function discoverSkills(projectPath: string, dataDir: string): SkillSumma
       if (seenNames.has(entry.name)) continue;
       const skillDir = path.join(root.dir, entry.name);
       const skillMd = path.join(skillDir, "SKILL.md");
-      const description = fs.existsSync(skillMd)
-        ? firstSkillDescription(fs.readFileSync(skillMd, "utf8"))
-        : "";
+      const parsed = skillDocumentSummary(skillMd);
       seenNames.add(entry.name);
       skills.push({
         name: entry.name,
         path: skillDir,
         scope: root.scope,
-        description,
+        description: parsed.description,
+        disableModelInvocation: parsed.disableModelInvocation,
       });
     }
   }
@@ -50,19 +50,30 @@ export function discoverSkills(projectPath: string, dataDir: string): SkillSumma
       if (seenNames.has(entry.name)) continue;
       const skillDir = path.join(extension.path, entry.name);
       const skillMd = path.join(skillDir, "SKILL.md");
-      const description = fs.existsSync(skillMd)
-        ? firstSkillDescription(fs.readFileSync(skillMd, "utf8"))
-        : "";
+      const parsed = skillDocumentSummary(skillMd);
       seenNames.add(entry.name);
       skills.push({
         name: entry.name,
         path: skillDir,
         scope: "plugin",
-        description,
+        description: parsed.description,
+        disableModelInvocation: parsed.disableModelInvocation,
       });
     }
   }
   return skills.sort((a, b) => scopeOrder(a.scope) - scopeOrder(b.scope) || a.name.localeCompare(b.name));
+}
+
+function skillDocumentSummary(skillMd: string): { description: string; disableModelInvocation: boolean } {
+  if (!fs.existsSync(skillMd)) {
+    return { description: "", disableModelInvocation: false };
+  }
+  const content = fs.readFileSync(skillMd, "utf8");
+  const parsed = parseSkillDocument(content);
+  return {
+    description: parsed.frontmatter.description ?? firstSkillDescription(content),
+    disableModelInvocation: Boolean(parsed.frontmatter.disableModelInvocation),
+  };
 }
 
 export function bundledRuntimeSkillContent(name: string): string | undefined {

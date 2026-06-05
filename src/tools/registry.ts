@@ -34,6 +34,7 @@ import {
   PlannedPptxActionSchema,
   ReadFileActionSchema,
   RunCommandActionSchema,
+  SearchSkillsActionSchema,
   SshReadFileActionSchema,
   SshRunActionSchema,
   SshWriteFileActionSchema,
@@ -57,6 +58,7 @@ import { readRemoteTextFile, writeRemoteTextFile } from "../services/remote/sshF
 import { SshProfileService } from "../services/remote/sshProfileService.js";
 import { runSshCommand, summarizeSshCommand } from "../services/remote/sshRemoteExecutor.js";
 import { TodoService, formatTodoList } from "../services/todos/todoService.js";
+import { discoverSkills } from "../skills/discovery.js";
 import { loadSkill } from "../skills/loader.js";
 import { summarizeValidation, validateArtifact } from "./artifact.js";
 import { startBrowserSession } from "./browser.js";
@@ -1079,6 +1081,38 @@ export const baseTools: Tools = [
             artifacts.length ? `artifacts: ${artifacts.join(", ")}` : "",
             issues.length ? `issues: ${issues.join("; ")}` : "",
           ].filter(Boolean).join("\n"),
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "search_skills",
+    displayName: "SearchSkills",
+    description: "Search installed DeepSeekCode-compatible SKILL.md skills by name, scope, or description before invoking a specialized skill.",
+    inputSchema: SearchSkillsActionSchema,
+    readOnly: true,
+    concurrencySafe: true,
+    run(input, context) {
+      const query = input.query ?? "";
+      const limit = input.limit ?? 10;
+      const needle = query.trim().toLowerCase();
+      const skills = discoverSkills(context.root, context.dataDir ?? context.root)
+        .filter((skill) => !skill.disableModelInvocation)
+        .filter((skill) => {
+          if (!needle) return true;
+          return [skill.name, skill.scope, skill.description].join(" ").toLowerCase().includes(needle);
+        })
+        .slice(0, limit);
+      const message = skills.length
+        ? skills.map((skill) => `${skill.scope}/${skill.name} - ${skill.description || "(no description)"} (${skill.path})`).join("\n")
+        : `no skills matched: ${query}`;
+      return {
+        data: { skills },
+        result: {
+          action_type: input.type,
+          status: "succeeded",
+          message,
+          context: message,
         },
       };
     },

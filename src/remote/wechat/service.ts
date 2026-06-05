@@ -355,7 +355,6 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
       prompt_preview: compactOneLine(prompt, 200),
     });
 
-    await this.sendText(message, "已收到，开始处理。微信端只会推送关键进度、权限请求和最终结果。");
     const task = this.executePrompt(message, runtime, active, prompt)
       .finally(() => {
         this.activeRuns.delete(message.chatId);
@@ -402,7 +401,9 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
         projectPath: active.projectPath,
       });
       await this.sendText(message, final.text);
-      await this.sendArtifactsAndSummary(message, runtime, active.runId, final);
+      if (active.renderer.isTaskLike(final.artifacts)) {
+        await this.sendArtifactsAndSummary(message, runtime, active.runId, final);
+      }
     } catch (error) {
       const messageText = errorMessage(error);
       await this.sendText(
