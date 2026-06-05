@@ -1,14 +1,12 @@
 # DeepSeekCode API Reference
 
-This reference documents the public command and runtime interfaces exposed by the release build.
+This document describes public commands, runtime interfaces, and integration surfaces in the release build.
 
 ## CLI
 
-```bash
+```cmd
 deepseekcode [options]
 ```
-
-Common options:
 
 | Option | Description |
 | --- | --- |
@@ -17,9 +15,9 @@ Common options:
 | `--model <name>` | Model name, for example `deepseek-v4-flash` or `deepseek-v4-pro`. |
 | `--continue` | Continue the current session context. |
 | `--resume <session>` | Resume a saved session id. |
-| `--doctor` | Print configuration and capability diagnostics. |
-| `--allow-shell` | Enable shell for this process. Tool permissions still apply. |
-| `--allow-browser` | Enable browser bridge for this process. |
+| `--doctor` | Print provider, tools, memory, remote, and permission diagnostics. |
+| `--allow-shell` | Enable shell for this process. Tool gates still apply. |
+| `--allow-browser` | Enable browser/CDP bridge for this process. |
 | `--permission-profile <name>` | `safe`, `dev`, `browser`, or `open`. |
 | `--wecom` | Start Enterprise WeChat remote control without opening the TUI. |
 | `--wechat-login` | Login personal WeChat OpenClaw account. |
@@ -28,7 +26,7 @@ Common options:
 
 Examples:
 
-```bash
+```cmd
 deepseekcode
 deepseekcode --project D:\code\DeepSeekTest
 deepseekcode --project D:\code\DeepSeekTest --model deepseek-v4-flash
@@ -41,28 +39,29 @@ deepseekcode --wechat --project D:\code\DeepSeekTest
 | --- | --- |
 | `/help` | Show command help. |
 | `/doctor` | Diagnose provider, tools, memory, remote, and permission configuration. |
-| `/status` | Show TUI runtime status. |
-| `/ask <question>` | Read-only side-channel answer using the current run/project state. |
+| `/status` | Show runtime status. |
+| `/status full` | Show detailed run/remote/task status where supported. |
+| `/ask <question>` | Read-only side-channel answer using the current project/run state. |
 | `/tools` | List registered local tools and support status. |
 | `/model` | Open model selector. |
 | `/model flash` | Switch to configured flash model. |
 | `/model pro` | Switch to configured pro model. |
 | `/language zh` / `/language en` | Switch TUI language. |
 | `/permissions` | Inspect runtime permission profile. |
-| `/shell on|off` | Toggle shell for current process/session. |
-| `/browser on|off` | Toggle browser bridge for current process/session. |
-| `/skills ...` | List, search, install, validate, update, uninstall, and invoke skills. |
+| `/shell on\|off` | Toggle shell for current process/session. |
+| `/browser on\|off` | Toggle browser bridge for current process/session. |
+| `/skills ...` | List, search, install, validate, update, uninstall, and run skills. |
 | `/plugins ...` | Manage local plugin bundles. |
 | `/mcp ...` | Configure and call MCP servers. |
-| `/agents ...` | Manage reusable agent definitions and legacy agent runs. |
-| `/multi provider <task>` | Run the Planner/Builder/Tester/Reviewer flow. |
+| `/agents ...` | Manage reusable agent definitions and workflow status. |
+| `/multi provider <task>` | Run Planner/Builder/Tester/Reviewer style flow. |
 | `/runs` | List persisted runs. |
 | `/trace <run>` | Show action and artifact trace. |
 | `/events <run>` | Show event log. |
 | `/artifacts` | Show recent artifacts. |
 | `/usage` / `/cost` | Show token and estimated cost usage. |
-| `/remote-control ...` | Start/stop/status WeCom and WeChat remote channels. |
-| `/stop` | Stop current run when supported by the current surface. |
+| `/remote-control ...` | Start/stop/status WeCom and personal WeChat remote channels. |
+| `/stop` | Stop current run when supported by the surface. |
 
 ## Remote Commands
 
@@ -84,11 +83,11 @@ Remote commands work in WeCom and personal WeChat unless noted.
 /shell off
 ```
 
-Natural-language messages are treated as normal tasks when there is no active run. If a run is active, normal messages return status and instructions. Use `/ask` for read-only side questions while the active task continues.
+Natural language can start a task when there is no active run. If a run is active, task-like messages return current status and instructions. Use `/ask` for read-only questions while the active task continues.
 
 ## Remote Permission Decisions
 
-Personal WeChat OpenClaw uses numeric decisions:
+Personal WeChat OpenClaw numeric decisions:
 
 | Reply | Meaning |
 | --- | --- |
@@ -97,25 +96,25 @@ Personal WeChat OpenClaw uses numeric decisions:
 | `3` | Reject. |
 | `4` | Stop current task. |
 
-WeCom uses template cards where supported.
+WeCom uses template cards where the SDK/channel supports them.
 
 ## Native Workflow Tools
 
-The provider sees registered local tools as native function calling tools. Important tool groups:
+The provider receives registered local tools as DeepSeek-compatible function calling tools.
 
 | Tool group | Examples |
 | --- | --- |
 | File tools | `read_file`, `write_file`, `append_file`, `apply_patch`, `list_files`, `grep_files`, `glob_files` |
 | Shell/browser | `run_command`, `browser_session_start`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_screenshot` |
 | Office/artifacts | `create_docx`, `create_pptx`, `create_pdf`, `validate_artifact` |
-| Skills | `invoke_skill` |
+| Skills | `search_skills`, `invoke_skill` |
 | MCP | `mcp_call` |
 | Memory | `tdai_memory_search`, `tdai_conversation_search` |
 | Multi-agent workflow | `start_agent_workflow`, `send_agent_message`, `agent_status`, `finish_agent_workflow` |
 
-Reserved or experimental tools may appear with status metadata but should not be documented as complete unless verified.
+Reserved or experimental tools may appear with status metadata but should not be documented as complete until verified.
 
-## Multi-Agent Workflow Tool Interfaces
+## Multi-Agent Workflow
 
 ### `start_agent_workflow`
 
@@ -130,14 +129,14 @@ Fields:
 | `mode` | string | Optional orchestration mode, currently supervisor-style. |
 | `notes` | string | Optional context. |
 
-Each role can include:
+Role spec example:
 
 ```json
 {
   "name": "frontend",
   "responsibility": "Build the UI",
   "tools": ["read_file", "write_file", "browser_screenshot"],
-  "skills": ["ui"],
+  "skills": ["gsap-core", "ui"],
   "acceptance": ["HTML entry exists", "browser screenshot renders"],
   "notes": "Use current project conventions"
 }
@@ -151,43 +150,42 @@ Fields: `workflow_id`, `from`, `to`, `message`, `kind`.
 
 ### `agent_status`
 
-Returns workflow status and recent messages.
+Returns workflow status, role specs, todo counts, issues, and recent messages.
 
 Fields: `workflow_id` optional.
 
 ### `finish_agent_workflow`
 
-Marks workflow succeeded, failed, or cancelled and records artifacts/issues.
+Marks workflow succeeded, failed, or cancelled and records summary, artifacts, and issues.
 
 Fields: `workflow_id`, `status`, `summary`, `artifacts`, `issues`.
 
 ## Async Question Interface
 
-`/ask` uses `answerAsyncQuestion()` internally.
+`/ask` uses a read-only side-channel.
 
 Inputs:
 
-- question
-- runtime config
-- StateStore
-- provider
-- optional run id
+- question;
+- runtime config;
+- state store;
+- provider;
+- optional run id.
 
-The service reads:
+Allowed context:
 
-- latest run status
-- recent events
-- task list
-- usage totals
-- trace artifacts
+- latest run status;
+- recent events;
+- task list;
+- usage totals;
+- trace artifacts;
+- bounded file snippets if required.
 
-It must not call local tools or mutate files. It may record usage and an event indicating that a side answer was produced.
+The service must not call local write tools, shell, browser, or MCP write operations. It may record usage and a side-answer event.
 
 ## Run Event Bus
 
-`RunEventBus` publishes every `StateStore.appendEvent()` call.
-
-Event shape:
+`RunEventBus` publishes every persisted `StateStore.appendEvent()` call.
 
 ```ts
 interface RunEventBusEvent {
@@ -199,7 +197,7 @@ interface RunEventBusEvent {
 }
 ```
 
-Subscribers can filter by `runId` or `projectPath`. Subscriber errors are swallowed so they cannot break persistence.
+Subscribers can filter by run or project. Subscriber errors are swallowed so they cannot break persistence.
 
 ## Session Hub
 
@@ -207,23 +205,64 @@ Subscribers can filter by `runId` or `projectPath`. Subscriber errors are swallo
 
 - latest run per project;
 - last event kind and timestamp;
-- remote channel status per project.
+- remote channel status per project;
+- active remote account/channel metadata.
 
-It is the future convergence point for desktop TUI, WeCom, and personal WeChat surfaces.
+It is the convergence point for desktop TUI, WeCom, and personal WeChat status surfaces.
 
-## Artifact Delivery Plan
+## Remote Delivery Plan
 
 `planRemoteDelivery()` classifies real artifact files by extension and metadata.
 
 | Type | Preview | File send |
 | --- | --- | --- |
 | image | send image | send image |
-| html | render screenshot | do not send raw HTML automatically |
-| office | optional preview future work | send file |
-| pdf | optional page preview future work | send file |
-| text/markdown | chat summary | do not send automatically |
-| code | summary/manifest | do not send automatically |
-| archive | no preview | send if within size limit |
+| html | render screenshot when available | do not send raw HTML automatically |
+| office | optional preview future work | send DOCX/PPTX/XLSX |
+| pdf | optional page preview future work | send PDF |
+| text/markdown | chat summary | file only on request |
+| code | summary/manifest | do not send every file |
+| archive | no preview | send only if within size limit |
+
+## Skill Interfaces
+
+Skill discovery reads `SKILL.md` files from built-in, project, user, plugin cache, and compatibility `.claude` paths.
+
+Commands:
+
+```text
+/skills list
+/skills search <query>
+/skills install <source> [name]
+/skills install-all <source>
+/skills update <name>
+/skills validate [name]
+/skills uninstall <name>
+/skills run <name> <task>
+```
+
+Native tools:
+
+- `search_skills`: find relevant installed skills by semantic text and metadata.
+- `invoke_skill`: run a selected skill in a bounded forked context.
+
+`disable-model-invocation: true` removes a skill from automatic candidates but keeps manual commands available.
+
+## MCP Interface
+
+MCP is exposed through `mcp_call`:
+
+```json
+{
+  "server": "local-docs",
+  "tool": "search",
+  "arguments": {
+    "query": "cache policy"
+  }
+}
+```
+
+MCP tool results must be summarized before prompt replay. Permissioned MCP operations must pass through the same approval service as local tools.
 
 ## Environment Variables
 
@@ -250,13 +289,19 @@ DEEPSEEKCODE_WECHAT_ALLOWED_USERS
 DEEPSEEKCODE_WECHAT_ALLOWED_GROUPS
 DEEPSEEKCODE_WECHAT_PROJECT_ROOTS
 DEEPSEEKCODE_WECHAT_MENTION_NAMES
+DEEPSEEKCODE_WECHAT_QR_POLL_INTERVAL_MS
+DEEPSEEKCODE_WECHAT_LONG_POLL_TIMEOUT_MS
 ```
 
-Debug and cache:
+Debug, memory, and cost:
 
 ```text
 DEEPSEEKCODE_PROMPT_AUDIT_DIR
 DEEPSEEKCODE_TDAI_MEMORY
+DEEPSEEKCODE_TDAI_CAPTURE
+DEEPSEEKCODE_TDAI_RECALL
+DEEPSEEKCODE_TDAI_EXTRACTION
+DEEPSEEKCODE_TDAI_STORE
 DEEPSEEKCODE_PRICE_INPUT_PER_M
 DEEPSEEKCODE_PRICE_OUTPUT_PER_M
 DEEPSEEKCODE_PRICE_CACHE_HIT_PER_M

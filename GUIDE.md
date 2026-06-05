@@ -1,379 +1,221 @@
-﻿# DeepSeekCode Guide
+# DeepSeekCode 使用指南
 
-This guide explains how to run DeepSeekCode v0.2 as a local agent workbench.
+这份指南面向真实使用和验收。更完整的开发说明见 [DEVELOPMENT.md](./DEVELOPMENT.md)，接口说明见 [API_REFERENCE.md](./API_REFERENCE.md)。
 
-## 1. Install
+## 1. 安装
 
-```bash
-npm install -g @xh12312/deepseekcode
-cd D:\work\agent-test
-deepseekcode
-```
-
-If your npm mirror returns `404 Not Found` for a fresh scoped release, install from the official registry:
-
-```bash
+```cmd
 npm install -g @xh12312/deepseekcode --registry https://registry.npmjs.org/
+cd /d D:\code\DeepSeekTest
+deepseekcode --model deepseek-v4-flash
 ```
 
-GitHub network install is also supported for testing the current `main` branch:
+当前目录就是项目根目录。运行数据写入：
 
-```bash
-npm install -g github:xh20010913-svg/DeepSeekCode
+```text
+D:\code\DeepSeekTest\.deepseekcode
 ```
 
-The installed command is `deepseekcode`. The package does not install a `deepseek` alias. When no `--project` is passed, the current directory is the project. When no `--data-dir` is passed, runtime data is written to `<project>\.deepseekcode`.
+源码运行：
 
-On Windows PowerShell, if the execution policy blocks npm's generated `deepseekcode.ps1` shim, run `deepseekcode.cmd`. In cmd, keep using `deepseekcode`.
-
-Source checkout for development:
-
-```bash
-git clone https://github.com/xh20010913-svg/DeepSeekCode.git
-cd DeepSeekCode
+```cmd
+cd /d D:\code\DeepSeekCode\.release
 npm install
 npm run build
+npm run start -- --project "D:\code\DeepSeekTest" --model deepseek-v4-flash
 ```
 
-Run from source during development:
+## 2. 配置模型
 
-```bash
-npm run dev -- --project "D:\work\agent-test"
-```
-
-Run the compiled CLI:
-
-```bash
-npm run start -- --project "D:\work\agent-test"
-```
-
-## 2. Configure
-
-Minimal provider configuration:
-
-```bash
+```env
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_MODEL=deepseek-v4-flash
 DEEPSEEKCODE_LANGUAGE=zh-CN
 ```
 
-Useful optional settings:
-
-| Setting | Purpose |
-| --- | --- |
-| `DEEPSEEK_TIMEOUT_SECS` | Provider request timeout. |
-| `DEEPSEEKCODE_HOME` | Runtime data directory. |
-| `DEEPSEEKCODE_STARTUP_SHELL_PROMPT` | Set `0` to skip the startup shell permission prompt. |
-| `DEEPSEEKCODE_PROVIDER_CONFIG` | Provider profile JSON path. |
-| `DEEPSEEKCODE_PERMISSION_PROFILE` | `safe`, `dev`, `browser`, or `open`. |
-| `DEEPSEEKCODE_PROMPT_AUDIT_DIR` | Enable debug prompt audit output. |
-| `DEEPSEEKCODE_TDAI_MEMORY` | `on` by default. Set `off` to disable TencentDB-Agent-Memory. |
-| `DEEPSEEKCODE_TDAI_CAPTURE` | Capture successful turns into long-term memory. |
-| `DEEPSEEKCODE_TDAI_RECALL` | Recall long-term memory before model calls. |
-| `DEEPSEEKCODE_TDAI_EXTRACTION` | Extract structured L1/L2/L3 memories with the configured provider. |
-| `DEEPSEEKCODE_TDAI_STORE` | `sqlite` by default; `tcvdb` when Tencent Cloud VectorDB is configured. |
-| `DEEPSEEKCODE_TDAI_EMBEDDING_PROVIDER` | Optional embedding provider. `none` keeps semantic vector recall disabled. |
-| `DEEPSEEKCODE_WECOM_BOT_ID` | Enterprise WeChat intelligent bot ID for remote control. |
-| `DEEPSEEKCODE_WECOM_BOT_SECRET` | Enterprise WeChat intelligent bot secret. |
-| `DEEPSEEKCODE_WECOM_ALLOWED_USERS` | Optional comma/semicolon/newline separated WeCom userid allowlist. |
-| `DEEPSEEKCODE_WECOM_ALLOWED_GROUPS` | Optional WeCom group chatid allowlist. |
-| `DEEPSEEKCODE_WECOM_PROJECT_ROOTS` | Optional allowed project roots for `/project <path>` from WeCom. |
-| `DEEPSEEKCODE_WECHAT_OPENCLAW_ENABLED` | Enable the experimental personal WeChat OpenClaw channel. |
-| `DEEPSEEKCODE_WECHAT_ACCOUNT_ID` | Optional stored OpenClaw account id to use. |
-| `DEEPSEEKCODE_WECHAT_ALLOWED_USERS` | Optional personal WeChat user allowlist. |
-| `DEEPSEEKCODE_WECHAT_ALLOWED_GROUPS` | Optional personal WeChat group allowlist. |
-| `DEEPSEEKCODE_WECHAT_PROJECT_ROOTS` | Optional allowed project roots for `/project <path>` from personal WeChat. |
-| `DEEPSEEKCODE_WECHAT_MENTION_NAMES` | Bot mention names for group chats. |
-| `DEEPSEEKCODE_PRICE_INPUT_PER_M` | Input-token price override. |
-| `DEEPSEEKCODE_PRICE_OUTPUT_PER_M` | Output-token price override. |
-| `DEEPSEEKCODE_PRICE_CACHE_HIT_PER_M` | Cache-hit input price override. |
-| `DEEPSEEKCODE_PRICE_CACHE_MISS_PER_M` | Cache-miss input price override. |
-
-## 3. Choose A Permission Profile
-
-| Profile | Shell | Browser | Use when |
-| --- | --- | --- | --- |
-| `safe` | off | off | Read, edit, and validate files without external execution. |
-| `dev` | on | off | Build, typecheck, test, and run local scripts. |
-| `browser` | off | on | Validate web UI through the browser bridge. |
-| `open` | on | on | Trusted local projects that need shell and browser. |
-
-Examples:
-
-```bash
-deepseekcode --permission-profile dev
-deepseekcode --allow-shell
-deepseekcode --allow-browser
-```
-
-Inside the TUI, use `/permissions`, `/shell on|off`, and `/browser on|off`.
-
-When the TUI starts with shell disabled, it asks whether to enable shell for the current session. Use Up/Down to choose, Enter to confirm, and Esc/N to keep it off. This does not rely on task keywords; actual `run_command` tool calls still pass through the runtime permission gate.
-
-## 4. Native Tool Workflow
-
-DeepSeekCode v0.2 requires native tool calls for local work:
+TUI 里切换：
 
 ```text
-provider messages + tools schema
-  -> assistant tool_calls
-  -> local tool execution
-  -> tool_result messages
-  -> next provider turn
+/model
+/model flash
+/model pro
 ```
 
-If a model or gateway does not support tool calling, the run fails with a clear provider error. It does not fall back to a JSON action planner.
+建议日常测试用 flash，复杂规划或长任务再切 pro。
 
-## 5. WeChat Remote Control
+## 3. 权限
 
-DeepSeekCode v0.2.7 can run two experimental remote channels:
+DeepSeekCode 不靠用户输入里的“网页”“shell”“PPT”这类词做硬判断。模型通过 native tool call 请求工具，runtime 再统一做权限判断。
 
-- Enterprise WeChat / WeCom intelligent bot long connection through the official SDK.
-- Personal WeChat through Tencent OpenClaw QR login and long polling.
+常见权限：
 
-Both channels reuse the normal QueryEngine, StateStore, and permission gate. They do not add keyword-based task routing, and they do not replace the local native tool-calling loop.
+- shell：默认关闭，启动时可选择本会话打开。
+- browser：默认关闭，需要显式开启。
+- MCP/SSH/危险命令：走权限 gate。
+- 微信端：个人微信用 `1/2/3/4` 数字审批；企微用卡片审批。
 
-Start WeCom from any project directory:
+TUI：
 
-```bash
-deepseekcode --wecom --project "D:\work\agent-test" --model deepseek-v4-flash
+```text
+/shell on
+/shell off
+/browser on
+/browser off
+/permissions
 ```
 
-Log in and start personal WeChat OpenClaw:
+## 4. 微信远程
 
-```bash
-deepseekcode --wechat-login --project "D:\work\agent-test"
-deepseekcode --wechat --project "D:\work\agent-test" --model deepseek-v4-flash
-```
-
-Or start/stop it inside the TUI:
+推荐在电脑 TUI 中启动绑定：
 
 ```text
 /remote-control
-/remote-control wecom start
 /remote-control wechat login
 /remote-control wechat start
-/remote-control wechat stop
+/remote-control wecom start
 ```
 
-Remote commands:
+纯远程模式：
+
+```cmd
+deepseekcode --wechat-login --project "D:\code\DeepSeekTest"
+deepseekcode --wechat --project "D:\code\DeepSeekTest" --model deepseek-v4-flash
+deepseekcode --wecom --project "D:\code\DeepSeekTest" --model deepseek-v4-flash
+```
+
+微信端命令：
 
 ```text
 /help
 /status
-/ask What is the current blocker?
+/status full
+/ask 现在做到哪了
 /project
-/project D:\work\agent-test
-/run Continue the dashboard and send me the artifacts
+/project D:\code\DeepSeekTest
+/run 帮我继续完成这个项目
 /continue
 /stop
 /artifacts
 /usage
+/shell on
+/shell off
 ```
 
-Natural-language messages also work. If a long task is already running, normal messages return the current status; use `/ask <question>` for read-only side questions that should not interrupt the main task. In group chats, messages must mention the bot or use a slash command by default. When shell/browser/file-sensitive actions need approval, WeCom receives a template card. Personal WeChat has no template card surface, so it asks you to reply with `1` allow once, `2` allow for session, `3` reject, or `4` stop.
+个人微信 OpenClaw 是实验中能力。二维码、网络、手机插件状态和 OpenClaw 登录态都会影响稳定性。个人微信 PC hook 和逆向协议不属于默认版。
 
-Artifact delivery is runtime-based:
+## 5. 远程产物预览
 
-| Artifact | Remote delivery |
+runtime 根据真实产物类型决定回传方式：
+
+| 产物 | 回传 |
 | --- | --- |
-| HTML | Render a screenshot and send the image preview; do not flood chat with raw HTML/CSS/JS. |
-| DOCX/PPTX/XLSX/PDF | Send the file when WeChat can open it. |
-| PNG/JPG/WEBP | Send the image directly. |
-| Markdown/text | Send a short chat summary; keep the file local unless requested. |
-| Multi-file project | Send entry file, screenshot, and manifest-style summary. |
+| HTML | 截图优先，入口摘要，不刷屏发源码。 |
+| DOCX/PPTX/XLSX | 发原文件。 |
+| PDF | 发 PDF。 |
+| 图片 | 直接发图片。 |
+| Markdown/TXT | 发短摘要，按需发文件。 |
+| 多文件项目 | 发摘要、入口、截图、manifest。 |
 
-Attachments are saved under:
+如果没有可预览产物，远程端会保存本地摘要并提示 `/artifacts`。
 
-```text
-<data-dir>\remote\inbox\<chat-id>\
-<data-dir>\remote\wechat-openclaw\inbox\<chat-id>\
-```
+## 6. Skills
 
-Only the local path is passed to the agent. Secrets and long logs are redacted from remote replies.
-
-## 6. Long-Term Memory
-
-DeepSeekCode includes a vendored MIT runtime of TencentDB-Agent-Memory. It is enabled by default and stores memory under the runtime data directory:
+安装单个或批量 skill：
 
 ```text
-<data-dir>\tdai\memory-tdai\
-```
-
-What it does:
-
-- recalls relevant long-term memory before prompt construction
-- captures successful user/assistant turns after a run
-- exposes `tdai_memory_search` and `tdai_conversation_search` as native read-only tools
-- supports local SQLite by default
-- supports Tencent Cloud VectorDB and embeddings only when explicitly configured
-
-Useful commands:
-
-```text
-/memory status
-/memory search 中文默认
-/memory conversation 继续完善
-```
-
-Disable it for a run:
-
-```bash
-set DEEPSEEKCODE_TDAI_MEMORY=off
-```
-
-## 7. Skills And Plugins
-
-Skills are `SKILL.md` instruction packs. Plugins can contribute commands, skills, and hooks.
-
-```text
-/skills
-/skills search office
 /skills install "D:\skills\office-report"
-/skills install https://github.com/example/agent-skills/tree/main/office/report
-/skills install file:///D:/repos/agent-skills.git#main:office/report
 /skills install greensock/gsap-skills
 /skills install-all greensock/gsap-skills
-/skills install greensock/gsap-skills gsap-core
-/skills update office-report
+/skills search gsap
 /skills validate
+/skills run gsap-core "给当前网页加动画"
+```
 
-/plugins
+模型会根据任务语义自动搜索和调用 skill。你不需要每次都说“使用 GSAP skill”，但 skill 的 `description` 必须写清楚。设置 `disable-model-invocation: true` 的 skill 不会自动调用。
+
+## 7. Plugins 和 MCP
+
+Plugins：
+
+```text
 /plugins install "D:\plugins\review-kit"
 /plugins install https://github.com/example/deepseekcode-plugin
-/plugins install file:///D:/repos/deepseekcode-plugin.git#main
-/plugins enable review-kit
 /plugins validate
+/plugins enable review-kit
 ```
 
-Compatibility rules:
-
-- `.deepseekcode` is the write target.
-- `.claude` skill/plugin folders can be discovered as read-compatible sources.
-- A source with multiple `SKILL.md` files is installed as a batch when no skill name is supplied.
-- Auto-invokable skills are selected by the model from their `description` through `search_skills` and `invoke_skill`; `disable-model-invocation: true` keeps a skill manual-only.
-- Git subpaths are checked for path traversal.
-- `.env`, `.git`, `node_modules`, and OS metadata are filtered during installs.
-
-## 8. Long Tasks
-
-For long-running work, use sessions, runs, checkpoints, and reports:
-
-```bash
-deepseekcode --project "D:\work\agent-test" --continue -p "Continue the last task"
-deepseekcode --project "D:\work\agent-test" --resume session_xxx -p "Continue the paused work"
-```
-
-Useful commands:
+MCP：
 
 ```text
-/runs
-/trace latest
-/events current
-/queue
-/pause latest
-/run-resume latest
-/cancel latest
+/mcp list
+/mcp status
+/mcp call <server> <tool> <json>
 ```
 
-Multi-agent mode:
+MCP 当前通过统一 `mcp_call` 入口接入。权限和 tool_result 摘要规则与本地工具一致。
+
+## 8. 多 Agent 和旁路问答
+
+自然语言可以启动多 Agent：
 
 ```text
-/multi provider Build a small dashboard project with tests and review it.
+开启多 agent 协作，让前端、测试和验收一起完成这个页面。
 ```
 
-The durable multi-agent flow uses Planner -> Builder -> Tester -> Reviewer, task records, compact role feedback, and run checkpoints.
+没有指定角色时，主模型会设计角色并默认加入 Reviewer。当前是实验中能力，适合测试角色分工、黑板消息和验收结果，不是完整后台 worker pool。
 
-Native multi-agent workflow tools are also available to the model:
+长任务运行中问状态：
 
 ```text
-start_agent_workflow
-send_agent_message
-agent_status
-finish_agent_workflow
+/ask 现在做到哪了？
+/ask 生成了哪些文件？
+/ask 这个项目架构是什么？
 ```
 
-Use natural language when you want a role-based workflow:
+`/ask` 是只读旁路问答，不写文件、不执行 shell、不打断主任务。
 
-```text
-Open a multi-agent workflow. Let one agent design the UI, one agent implement it, one agent test it, and one reviewer verify the final artifacts.
+## 9. 真实测试流程
+
+测试目录示例：
+
+```cmd
+cd /d D:\code\DeepSeekTest
+deepseekcode --model deepseek-v4-flash
 ```
 
-If you do not specify roles, the model should design project-specific roles and add a reviewer role by default.
+建议任务：
 
-Side questions during long tasks:
+- 生成全国天气监控 dashboard：开发文档、HTML 入口、浏览器截图。
+- 生成 DOCX 项目报告。
+- 生成答辩 PPT 或课程 PPT。
+- 安装 GSAP skill，让 agent 自动调用并验证页面动画。
+- 微信远程发送任务，审批 shell，查看 `/status full` 和 `/artifacts`。
+- 多 Agent 角色协作，Reviewer 检查是否真的完成。
 
-```text
-/ask What is currently blocking the run?
-/ask Which artifacts have been produced so far?
+基础检查：
+
+```cmd
+npm.cmd run typecheck
+npm.cmd run build
+npm.cmd pack --dry-run
 ```
 
-`/ask` is read-only. It can inspect current run state, tasks, events, artifacts, and usage, but it cannot write files, run shell, use browser, or call MCP.
+## 10. 发布
 
-## 9. Cache And Cost
+发布只从 `.release` 做：
 
-DeepSeekCode keeps stable prompt blocks before dynamic context to improve provider prefix-cache reuse. Old history is compressed into:
-
-- recent conversation
-- rolling summary
-- TencentDB-Agent-Memory recall
-- `tool_result_summary`
-- `runtime_run_state`
-- artifact manifest
-
-Inspect:
-
-```text
-/cache
-/cache guard <goal>
-/cache prepare <goal>
-/usage
-/cost
+```cmd
+cd /d D:\code\DeepSeekCode\.release
+npm.cmd run typecheck
+npm.cmd run build
+npm.cmd pack --dry-run
 ```
 
-Prompt audit is a testing feature:
+正式打包给 npm 发布时，把 tarball 输出到测试目录，例如：
 
-```bash
-set DEEPSEEKCODE_PROMPT_AUDIT_DIR=D:\work\agent-test\prompt-audit
+```cmd
+npm.cmd pack --pack-destination D:\code\DeepSeekTest\npm-packages
 ```
 
-## 10. Real Scenario Testing
-
-Run realistic tests in a separate project directory:
-
-```bash
-deepseekcode --project "D:\work\agent-test" --permission-profile dev
-```
-
-Recommended scenario set:
-
-| Scenario | What to check |
-| --- | --- |
-| Large website | Multi-file HTML/CSS/JS generation, follow-up improvement, browser validation. |
-| Defense PPT | Natural request, structure, visual slides, PPTX validation. |
-| Course PPT | Research-heavy outline, diagrams, slide quality. |
-| OFDR principles PPT | Technical explanation, diagrams, references, layout. |
-| DOCX report | Title hierarchy, tables/lists, document validation. |
-| Failure repair | Tool failure diagnosis, follow-up fix, final verification. |
-| Multi-agent project | Planner/Builder/Tester/Reviewer handoff and checkpoints. |
-| Side-channel question | Ask `/ask` while a long task is running and confirm the main task continues. |
-| WeChat remote | Start OpenClaw, send a task, approve permissions, receive concise status and artifact preview. |
-| Resume | CLI restart and `--continue`/`--resume` recovery. |
-| Long-term memory | Teach a durable preference, restart, recall it with `/memory search`, then verify a natural follow-up uses it. |
-
-Export a report:
-
-```text
-/runs report latest "D:\work\agent-test"
-```
-
-## 11. Release Checks
-
-```bash
-npm run typecheck
-npm run build
-```
-
-The public release includes runtime source, assets, website, and user manuals. It does not include test output, prompt audit logs, runtime databases, or development handoff notes.
-
+GitHub 发布内容只包含 runtime、网站、README、公开说明书和公开资源；测试产物、prompt audit、运行数据库、登录态和临时 tarball 不提交。

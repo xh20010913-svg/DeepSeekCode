@@ -655,6 +655,36 @@ h1 em {
   padding: 40px 0 110px;
 }
 
+.screenshot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  padding: 40px 0 110px;
+}
+
+.screenshot-card {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: rgba(18, 16, 13, 0.68);
+}
+
+.screenshot-card img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  object-position: top left;
+  border-bottom: 1px solid var(--line);
+}
+
+.screenshot-card figcaption {
+  min-height: 74px;
+  padding: 18px 20px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
 .feature-card {
   min-height: 250px;
   padding: 30px;
@@ -750,6 +780,31 @@ h1 em {
 
 .roadmap-list span,
 .faq p {
+  color: var(--muted);
+}
+
+.status-table {
+  display: grid;
+  gap: 1px;
+  margin: 40px 0 110px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.status-table div {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 24px;
+  padding: 24px;
+  background: rgba(18, 16, 13, 0.66);
+}
+
+.status-table b {
+  color: var(--orange);
+  font-family: var(--mono);
+}
+
+.status-table span {
   color: var(--muted);
 }
 
@@ -960,7 +1015,8 @@ h1 em {
     margin-top: 0;
   }
 
-  .feature-grid {
+  .feature-grid,
+  .screenshot-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1062,8 +1118,10 @@ h1 em {
 
   .metric-strip,
   .feature-grid,
+  .screenshot-grid,
   .cache-console,
-  .command-table {
+  .command-table,
+  .status-table div {
     grid-template-columns: 1fr;
   }
 

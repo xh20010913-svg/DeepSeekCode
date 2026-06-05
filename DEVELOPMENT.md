@@ -1,191 +1,256 @@
 # DeepSeekCode Development Guide
 
-This document describes how DeepSeekCode is built and how new runtime features should be developed. It is intentionally focused on the public release tree, not on historical scratch docs.
+This document is the developer manual for the public release tree. It explains how the runtime is organized, how new features should be added, and how to validate changes without polluting the project or test directories.
 
-## Development Principles
+## Principles
 
-- Read the current runtime path before changing code. Prefer existing services, registries, and state tables over new isolated subsystems.
-- Use DeepSeek native function calling for local work. Do not reintroduce model-emitted ActionEnvelope JSON as a public planning protocol.
-- Keep user-facing remote and TUI output concise. Internal IDs, raw JSON, prompt audit files, and long logs belong in state/trace files, not in chat replies.
-- Runtime decisions should be generic. Do not detect “website”, “PPT”, or similar user keywords to force tools. Let the model request tools; let the runtime enforce permissions, artifact validation, and delivery policy.
-- Test with realistic user tasks in an external workspace such as `D:\code\DeepSeekTest`. Do not commit test artifacts, `.env`, prompt audits, or generated reports.
+- Keep the main path native-tool-first: provider requests must use DeepSeek `tools` / `tool_calls`, then local tools return `tool_result` messages.
+- Do not reintroduce model-emitted ActionEnvelope JSON as the public planning protocol. Internal JSON/Zod/state payloads are fine.
+- Do not classify user intent with hard-coded task keywords. The model chooses tools; the runtime enforces project bounds, permissions, validation, artifact typing, and delivery policy.
+- Keep TUI and remote replies readable. Raw JSON, internal ids, long logs, prompt audits, and login state belong in trace/state files.
+- Test real user scenarios in an external workspace such as `D:\code\DeepSeekTest`.
+- Release only from `.release`.
 
 ## Source Layout
 
 ```text
-src/cli/                 CLI entry and process mode selection
-src/components/          Ink TUI components
-src/commands/            Slash commands
-src/query/               QueryEngine and prompt construction
-src/protocol/            Provider/tool schemas and typed action requests
+src/cli/                 CLI entry, config bootstrap, TUI/headless/remote mode selection
+src/components/          Ink TUI panels, pickers, transcript, status and gates
+src/commands/            Slash command parsing and command handlers
+src/query/               QueryEngine, prompt construction, turn classification
+src/protocol/            Provider-facing action/tool schemas and internal requests
 src/tools/               Local tool registry and executor
-src/services/            Runtime services: approval, agents, cache, memory, MCP, skills, sessions
-src/remote/              WeCom / WeChat remote channels and remote rendering
+src/services/            Approval, agents, cache, hooks, memory, MCP, plugins, sessions, skills
+src/remote/              WeCom and WeChat OpenClaw channels, rendering, approvals, delivery
 src/state/               SQLite state store
-src/skills/              Skill discovery helpers
-website/                 Static documentation site
-assets/                  Public README and website assets
+src/skills/              Skill discovery and installation helpers
+website/                 Static product documentation site
+assets/                  Logo and README/website screenshots
+scripts/                 Build and test helper scripts that must be present in release
 ```
+
+The release layout is DeepSeekCode-oriented. It should not mirror Claude Code or any upstream project directory structure unless a file is genuinely needed by the runtime.
 
 ## Runtime Chain
 
-The main local chain is:
-
 ```text
-user input
+user input / remote message / slash command
   -> QueryEngine
-  -> memory recall and request classification
-  -> stable system prompt + context bundle + skill/tool state
-  -> DeepSeek provider native tool calls
-  -> local typed tools
-  -> tool_result summaries persisted to session state
-  -> next provider turn or final answer
+  -> memory recall and context planning
+  -> stable prompt + dynamic context + tool/skill schema
+  -> DeepSeek native tool_calls
+  -> local typed tool execution
+  -> tool_result summaries persisted to state
+  -> next provider call or final answer
 ```
 
-Important state is persisted through `StateStore`:
+Durable state is written through `StateStore`:
 
-- `runs`: one user task or chat turn.
-- `events`: durable event log for status, diagnostics, tool lifecycle, approvals, remote messages, and agent workflow events.
-- `actions` and `artifacts`: tool results and produced files.
-- `tasks` and `jobs`: background and multi-agent work tracking.
-- `checkpoints`: compact resumable state snapshots.
-- `usage_snapshots`: token, cache, and cost accounting inputs.
-- `approval_gates` and `validation_gates`: user decisions and runtime verification records.
+- `runs`: user tasks and chat turns.
+- `events`: status, diagnostics, tool lifecycle, approvals, remote messages, and agent workflow events.
+- `actions`: local tool execution records.
+- `artifacts`: produced files and delivery metadata.
+- `tasks` / `jobs`: long-running work, dependencies, and partial worker state.
+- `checkpoints`: compact resumable state.
+- `usage_snapshots`: token, cache, and cost accounting.
+- `approval_gates` / `validation_gates`: decisions and runtime verification.
 
 ## Native Tools
 
-Tools are registered in `src/tools/registry.ts`. Each tool must have:
+Provider-facing tools are built from the local registry. Every tool needs:
 
-- a stable name and description;
-- a Zod input schema;
-- a permission mode;
-- a runtime implementation that returns an `ActionResult`.
+- stable name and description;
+- Zod input schema;
+- permission mode;
+- runtime implementation returning an action result;
+- concise result summary suitable for prompt replay.
 
-Provider-facing schema lives in `src/protocol/actions.ts`. Internal JSON and Zod validation remain valid because they validate tool arguments and state payloads. The removed pattern is public model planning through large ActionEnvelope JSON blocks.
+Important groups:
+
+| Group | Examples |
+| --- | --- |
+| Files | `read_file`, `write_file`, `append_file`, `apply_patch`, `list_files`, `grep_files`, `glob_files` |
+| Shell/browser | `run_command`, `browser_session_start`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_screenshot` |
+| Office/artifacts | `create_docx`, `create_pptx`, `create_pdf`, `validate_artifact` |
+| Skills/MCP | `search_skills`, `invoke_skill`, `mcp_call` |
+| Memory | `tdai_memory_search`, `tdai_conversation_search` |
+| Multi-agent | `start_agent_workflow`, `send_agent_message`, `agent_status`, `finish_agent_workflow` |
+
+If a provider rejects native tools or a schema, fail clearly. Do not silently fall back to old JSON planning.
 
 ## Permissions
 
-Permission gates are enforced by the runtime, not by prompt keywords.
+Permissions are runtime decisions:
 
-- Shell is off by default unless enabled by CLI flags, startup selector, profile, or remote session grant.
-- Browser and MCP tools follow the same permission service pattern.
-- `ApprovalService` writes gates to SQLite; TUI, WeCom, and personal WeChat decide those gates through their own UI surfaces.
-- Personal WeChat uses a numeric menu: `1` allow once, `2` allow for session, `3` reject, `4` stop task.
-- WeCom uses template cards where the SDK surface supports them.
+- Shell is off by default unless enabled by CLI, startup selector, profile, or remote session grant.
+- Browser, MCP, SSH, and plan/user gates use the same approval service pattern.
+- `ApprovalService` persists gates to SQLite.
+- TUI displays a picker.
+- WeCom uses template cards where available.
+- Personal WeChat uses numeric replies: `1` allow once, `2` allow session, `3` reject, `4` stop.
+
+Adding a permissioned tool requires both local enforcement and user-facing rendering. Never rely on prompt wording alone.
+
+## Skills And Plugins
+
+Skills are discovered from project, user, plugin cache, and compatibility `.claude` locations. Installation writes into `.deepseekcode`.
+
+Development rules:
+
+- Accept local paths, GitHub URLs, Git URLs, and `file://` Git sources.
+- Validate manifest, path traversal, BOM, duplicate names, and source subpaths.
+- Multiple `SKILL.md` files in a repo can be batch-installed.
+- `search_skills` and `invoke_skill` are native tools, so the model can auto-call skills by semantic match.
+- `disable-model-invocation: true` excludes a skill from automatic candidates but keeps manual invocation.
+
+Plugins can contribute commands, hooks, skills, and MCP configuration. Plugin behavior should remain scoped to the project/user install location.
+
+## MCP And Hooks
+
+MCP currently uses a unified `mcp_call` tool. Direct per-tool schema expansion can be added when server metadata is stable, small, and safe to expose.
+
+Hooks run around local tool execution:
+
+- PreToolUse can allow, ask, or block.
+- PostToolUse records summaries and side effects.
+- Hook failures are events, not task-ending failures, unless the hook explicitly blocks.
+
+MCP and hook results must be summarized before they enter prompt replay.
 
 ## Multi-Agent Workflow
 
-v0.2.7 introduces a project-scoped `AgentWorkflowService`.
-
-Native tools:
-
-- `start_agent_workflow`
-- `send_agent_message`
-- `agent_status`
-- `finish_agent_workflow`
-
-The workflow shape is:
+`AgentWorkflowService` is a project-scoped orchestration layer:
 
 ```text
 Supervisor
   -> role specs
   -> shared blackboard messages
-  -> per-role tasks
+  -> role work records
   -> reviewer role
-  -> final status and artifacts
+  -> final summary, artifacts, issues
 ```
 
-`AgentRoleSpec` includes role name, responsibility, allowed tools, preloaded skills, acceptance rules, and optional notes. If the user provides roles, the model should preserve them and enrich their skills/rules. If the user does not provide roles, the model should design project-specific roles and always add a reviewer/acceptance role.
+Role specs include name, responsibility, allowed tools, preloaded skills, acceptance rules, and notes. If the user provides roles, preserve them and enrich the specs. If the user does not, the main model designs project-specific roles and adds a reviewer/acceptance role.
 
-This is not fully unbounded agent-to-agent chat. The runtime records messages and checkpoints so the main agent can summarize and continue without mixing unrelated project history.
+This is structured orchestration, not fully independent background model processes yet. Keep role messages persisted, summarized, and scoped to the current run.
 
-## Async Side Questions
+## Async `/ask`
 
-Long tasks can now accept read-only side questions through:
+`/ask <question>` answers read-only side questions while a long task is running.
 
-```text
-/ask <question>
-```
+Allowed context:
 
-Remote channels also support `/ask`. The side-channel service reads current run state, tasks, recent events, usage, and artifacts, then asks the provider for a concise answer. It is not allowed to write files, run shell, use browser, call MCP, or mutate the main run. Task-like requests should be queued or sent as normal tasks instead.
+- current run snapshot;
+- recent events;
+- tasks and blockers;
+- usage totals;
+- artifact list;
+- selected file snippets when needed.
+
+Disallowed behavior:
+
+- writing files;
+- running shell;
+- browser automation;
+- MCP write calls;
+- mutating the active run objective.
+
+Task-changing requests during an active run should be queued, rejected with a clear status, or require an explicit stop/continue decision.
 
 ## Remote Channels
 
-Remote channels reuse `QueryEngine`, `StateStore`, permissions, skills, and MCP. They do not run a separate agent implementation.
+Remote channels reuse the same QueryEngine, permissions, state, skills, and MCP surfaces. They do not create a second agent implementation.
 
-Supported channels:
+Supported adapters:
 
-- `wecom`: Enterprise WeChat intelligent robot through `@wecom/aibot-node-sdk`.
-- `wechat-openclaw`: personal WeChat OpenClaw QR login and long polling through `@tencent-weixin/openclaw-weixin`.
+- `wecom`: Enterprise WeChat intelligent robot via `@wecom/aibot-node-sdk`.
+- `wechat-openclaw`: personal WeChat QR login and long polling via `@tencent-weixin/openclaw-weixin@2.4.4`.
 
-Both channels:
+Responsibilities:
 
-- bind a chat to a project path;
-- enforce allowlists and allowed project roots;
-- save incoming attachments to `.deepseekcode/remote/.../inbox`;
-- show concise progress;
-- route permissions to ApprovalService;
-- send artifact previews according to runtime classification.
+- bind chat/account/project scopes;
+- enforce allowed users, groups, and project roots;
+- save inbound files to `.deepseekcode/remote/.../inbox`;
+- render concise progress;
+- route approvals to `ApprovalService`;
+- deliver artifacts through `RemoteDeliveryPlan`;
+- publish status through `RunEventBus` / `SessionHub`.
 
-`RunEventBus` publishes every persisted state event. `SessionHub` tracks latest project run and remote channel status so TUI and remote surfaces can converge on one project session instead of separate isolated views.
+Remote chat should not output terminal logs. It should show phase, plan/todo counts, recent tool, blockers, token/cost, and final artifact summary.
 
 ## Artifact Delivery
 
-The runtime classifies actual files, not prompt keywords.
+The runtime classifies real files, not prompt keywords.
 
-| Artifact | Delivery behavior |
+| Artifact | Delivery |
 | --- | --- |
-| `.html` / `.htm` | Generate a browser screenshot and send image preview; do not send raw HTML unless explicitly requested later. |
-| `.docx` / `.pptx` / `.xlsx` | Send file. Future work may add LibreOffice PDF/image previews. |
-| `.pdf` | Send file; future work may render first pages as images. |
-| `.png` / `.jpg` / `.webp` | Send image. |
-| `.md` / `.txt` | Send concise chat summary; keep file local unless requested. |
-| multi-file project | Send summary, entry file name, screenshot, and manifest-style list; do not flood WeChat with every source file. |
+| HTML/HTM | Browser screenshot image when available; short entry-file summary. |
+| DOCX/PPTX/XLSX | Send original file; optional preview if local conversion exists. |
+| PDF | Send PDF; optional first-page images. |
+| PNG/JPG/WebP | Send image. |
+| MD/TXT | Send concise chat summary; file only on request. |
+| Multi-file project | Send summary, entry file, screenshot, manifest; do not flood remote chat. |
 
-## Skills And MCP
+The model may suggest important files, but `RemoteDeliveryPlan` decides what is safe and readable.
 
-Skills are discovered by `src/skills/discovery.ts` and invoked through `invoke_skill`.
+## Memory, Context, And Cache
 
-MCP is currently routed through `mcp_call`, backed by `McpService`. Future work may expose each MCP tool as its own native tool schema when the server metadata is stable and small enough.
+DeepSeekCode vendors TencentDB-Agent-Memory as a local MIT runtime:
 
-When adding or testing skills/MCP:
+- before provider call: recall project/user memories;
+- after successful turn: capture and extract memory;
+- tools: `tdai_memory_search`, `tdai_conversation_search`;
+- default store: local SQLite;
+- TCVDB/embedding: optional enhancement.
 
-- validate manifest and path boundaries;
-- avoid prompt logging secrets;
-- ensure tool results are summarized before entering persistent session history;
-- run both happy path and permission-denied path.
+Context should stay layered:
+
+1. stable runtime prompt;
+2. tool schema;
+3. memory recall;
+4. recent conversation;
+5. rolling summary;
+6. compact tool result summaries;
+7. runtime run state.
+
+Keep stable blocks deterministic to improve DeepSeek context caching.
 
 ## Testing
 
-Core checks:
+Base checks:
 
-```bash
+```cmd
 npm.cmd run typecheck
 npm.cmd run build
+npm.cmd pack --dry-run
 ```
 
-Realistic task tests belong outside the release tree:
+Real scenarios belong outside `.release`:
 
-```bash
+```cmd
 deepseekcode --project D:\code\DeepSeekTest --model deepseek-v4-flash
 deepseekcode --wechat --project D:\code\DeepSeekTest --model deepseek-v4-flash
 ```
 
-Recommended scenarios:
+Recommended coverage:
 
-- large web project with generated docs, HTML entry, and browser screenshot;
-- DOCX project report;
-- PPT course/defense deck;
-- long task continued through multiple turns;
-- multi-agent workflow with reviewer role;
-- `/ask` side question while the main task is running;
-- WeChat artifact preview and permission approval;
-- skill install/search/invoke;
-- MCP mock stdio/http call and permission failure.
+- large website with docs, HTML entry, and screenshot;
+- DOCX/PPTX generation;
+- failure and self-repair;
+- multi-agent workflow with reviewer;
+- `/ask` during long task;
+- WeChat approval and artifact delivery;
+- skill install/search/auto-invoke;
+- MCP mock call and permission failure.
 
-## Release Rules
+## Release Process
 
-- Release from `.release` only.
-- Do not commit `D:\code\DeepSeekTest`, `.env`, prompt audits, login state, node_modules, generated reports, or scratch docs.
-- Update README, Guide, CLI reference, architecture, website guide, and capability matrix whenever behavior changes.
-- Keep README as an operating manual, not a marketing essay.
+1. Work only in `.release`.
+2. Update `package.json` and `package-lock.json` version together.
+3. Update README, Guide, CLI reference, architecture, development, API, and website when behavior changes.
+4. Run typecheck, build, and pack dry-run.
+5. Put real test outputs and npm tarballs in `D:\code\DeepSeekTest`, not in git.
+6. Commit only release files.
+7. Push with local git.
+
+Release exclusions: `.env`, prompt audits, test outputs, runtime databases, login state, generated reports, node_modules, and scratch handoff notes.

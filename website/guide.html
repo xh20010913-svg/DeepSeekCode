@@ -6,7 +6,7 @@
     <title>DeepSeekCode 使用指南</title>
     <meta
       name="description"
-      content="DeepSeekCode 安装、模型配置、权限、微信远程、多 Agent、产物回传、上下文缓存、测试和发布边界。"
+      content="DeepSeekCode 安装、模型配置、权限、微信远程、多 Agent、产物回传、skills、MCP、测试和发布边界。"
     />
     <meta name="theme-color" content="#050605" />
     <meta name="color-scheme" content="dark" />
@@ -17,6 +17,7 @@
     <div class="ambient ambient-a"></div>
     <div class="ambient ambient-b"></div>
     <div class="grain"></div>
+
     <header class="site-header">
       <a class="brand" href="index.html">
         <span class="brand-mark" aria-hidden="true"></span>
@@ -27,9 +28,9 @@
       <nav class="nav-links" aria-label="指南导航">
         <a href="index.html">首页</a>
         <a href="#setup">安装</a>
-        <a href="#remote">远程</a>
+        <a href="#remote">微信</a>
+        <a href="#skills">Skills</a>
         <a href="#agents">多 Agent</a>
-        <a href="#delivery">产物</a>
         <a href="#testing">测试</a>
       </nav>
       <div class="header-actions">
@@ -44,7 +45,7 @@
           <span class="eyebrow">GUIDE</span>
           <h1>把 DeepSeekCode 放进真实项目目录里运行。</h1>
           <p>
-            这份指南面向使用和验收：如何安装、配置模型、控制权限、绑定微信、开启多 Agent、查看长任务状态，以及发布前如何确认能力没有被夸大。
+            这份指南面向使用和验收：如何安装、配置模型、控制权限、绑定微信、启用 skills、多 Agent、查看长任务状态，以及发布前如何确认能力没有被夸大。
           </p>
         </div>
       </section>
@@ -55,32 +56,31 @@
           <a href="#configure">02 模型配置</a>
           <a href="#permissions">03 权限</a>
           <a href="#remote">04 微信远程</a>
-          <a href="#agents">05 多 Agent</a>
-          <a href="#delivery">06 产物回传</a>
-          <a href="#skills">07 Skills / MCP</a>
-          <a href="#testing">08 测试</a>
-          <a href="#release">09 发布</a>
+          <a href="#delivery">05 产物回传</a>
+          <a href="#skills">06 Skills / MCP</a>
+          <a href="#agents">07 多 Agent</a>
+          <a href="#testing">08 测试发布</a>
         </aside>
+
         <div class="guide-content">
           <article class="guide-block reveal">
             <span class="eyebrow">01</span>
             <h2>全局安装</h2>
             <p>推荐用 npm 全局安装。进入任意项目目录后输入 <code>deepseekcode</code>，当前目录就是项目根目录，运行状态写入该目录的 <code>.deepseekcode</code>。</p>
             <pre><code>npm install -g @xh12312/deepseekcode --registry https://registry.npmjs.org/
-cd D:\code\DeepSeekTest
-deepseekcode</code></pre>
+cd /d D:\code\DeepSeekTest
+deepseekcode --model deepseek-v4-flash</code></pre>
             <p>源码开发时使用：</p>
-            <pre><code>git clone https://github.com/xh20010913-svg/DeepSeekCode.git
-cd DeepSeekCode
+            <pre><code>cd /d D:\code\DeepSeekCode\.release
 npm install
 npm run build
-npm run start -- --project "D:\code\DeepSeekTest"</code></pre>
+npm run start -- --project "D:\code\DeepSeekTest" --model deepseek-v4-flash</code></pre>
           </article>
 
           <article id="configure" class="guide-block reveal">
             <span class="eyebrow">02</span>
             <h2>模型配置</h2>
-            <p>最小配置是 DeepSeek 兼容端点、API key 和模型名。测试时建议使用 flash；需要更强推理时在 TUI 里用 <code>/model pro</code> 切换。</p>
+            <p>日常测试建议使用 flash。需要更强规划时，在 TUI 里用 <code>/model pro</code> 切换。</p>
             <pre><code>DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_MODEL=deepseek-v4-flash
@@ -90,26 +90,26 @@ DEEPSEEKCODE_LANGUAGE=zh-CN</code></pre>
           <article id="permissions" class="guide-block reveal">
             <span class="eyebrow">03</span>
             <h2>权限不是关键词判断</h2>
-            <p>DeepSeekCode 不通过“网页、shell、代码”等关键词硬判定任务。模型通过 native tool calls 请求工具，runtime 在工具执行前统一做权限 gate。</p>
-            <pre><code>deepseekcode --permission-profile safe
-deepseekcode --permission-profile dev
-/shell on
+            <p>DeepSeekCode 不通过“网页、shell、PPT、代码”等关键词硬判定任务。模型通过 native tool calls 请求工具，runtime 在工具执行前统一做权限 gate。</p>
+            <pre><code>/shell on
+/shell off
+/browser on
 /permissions</code></pre>
-            <p>shell 关闭时，TUI 会弹出选择框；微信端会用数字菜单审批：1 允许一次，2 本会话允许，3 拒绝，4 停止任务。</p>
+            <p>shell 关闭时，TUI 会弹出选择框；个人微信端使用数字审批：1 允许一次，2 本会话允许，3 拒绝，4 停止任务。</p>
           </article>
 
           <article id="remote" class="guide-block reveal">
             <span class="eyebrow">04</span>
             <h2>微信远程控制</h2>
-            <p>第一版保留两个通道：企业微信 WeCom 和个人微信 OpenClaw。电脑需要保持运行，微信只做简洁控制、状态查看、权限审批和产物预览。</p>
-            <pre><code>deepseekcode --wecom --project "D:\code\DeepSeekTest" --model deepseek-v4-flash
-deepseekcode --wechat-login --project "D:\code\DeepSeekTest"
-deepseekcode --wechat --project "D:\code\DeepSeekTest" --model deepseek-v4-flash</code></pre>
-            <p>TUI 内推荐使用：</p>
+            <p>推荐先在电脑项目目录启动 TUI，再用 <code>/remote-control</code> 绑定微信。电脑保持运行，微信只做简洁控制、状态查看、权限审批和结果回传。</p>
             <pre><code>/remote-control
 /remote-control wechat login
 /remote-control wechat start
 /remote-control wecom start</code></pre>
+            <p>纯远程模式：</p>
+            <pre><code>deepseekcode --wechat-login --project "D:\code\DeepSeekTest"
+deepseekcode --wechat --project "D:\code\DeepSeekTest" --model deepseek-v4-flash
+deepseekcode --wecom --project "D:\code\DeepSeekTest" --model deepseek-v4-flash</code></pre>
             <p>微信端常用命令：</p>
             <pre><code>/run 继续完成这个项目
 /status
@@ -119,77 +119,63 @@ deepseekcode --wechat --project "D:\code\DeepSeekTest" --model deepseek-v4-flash
 /stop</code></pre>
           </article>
 
-          <article id="agents" class="guide-block reveal">
-            <span class="eyebrow">05</span>
-            <h2>多 Agent 工作流</h2>
-            <p>v0.2.7 开始，模型可以通过 native workflow tools 启动多 Agent 协作。用户可以指定角色，也可以让主 agent 根据项目设计角色和验收标准。</p>
-            <pre><code>开启多 agent 协作：前端负责页面，测试负责验收，Reviewer 检查是否真的生成入口文件。</code></pre>
-            <div class="command-table">
-              <div><b>start_agent_workflow</b><span>创建角色、目标、共享黑板和验收约束。</span></div>
-              <div><b>send_agent_message</b><span>记录角色之间的消息，避免上下文串到别的项目。</span></div>
-              <div><b>agent_status</b><span>查看角色进度、问题、产物和 Reviewer 状态。</span></div>
-              <div><b>finish_agent_workflow</b><span>关闭工作流并记录验收结论。</span></div>
-            </div>
-            <p>这仍是实验能力，还不是完全独立后台 worker pool。</p>
-          </article>
-
           <article id="delivery" class="guide-block reveal">
-            <span class="eyebrow">06</span>
+            <span class="eyebrow">05</span>
             <h2>远程产物回传</h2>
-            <p>产物回传由 runtime 根据真实文件类型规划，不靠用户 prompt 关键词。微信端优先看图片预览和简洁摘要，不刷屏发送所有源码文件。</p>
+            <p>产物回传由 runtime 根据真实文件类型规划，不靠 prompt 关键词。微信端优先看图片预览和简洁摘要，不刷屏发送所有源码文件。</p>
             <div class="command-table">
-              <div><b>HTML</b><span>优先生成浏览器截图，再给入口文件摘要。</span></div>
-              <div><b>DOCX / PPTX / XLSX</b><span>发送原文件；本机可转换时附加 PDF 或首屏预览。</span></div>
-              <div><b>PDF</b><span>发送 PDF，并可附前几页图片。</span></div>
-              <div><b>图片</b><span>直接按图片发送。</span></div>
-              <div><b>MD / TXT</b><span>默认发短摘要，用户要求时再发文件。</span></div>
-              <div><b>多文件项目</b><span>发摘要、入口、manifest 和截图，不逐个发送 CSS/JS。</span></div>
+              <div><b>HTML</b><span>优先浏览器截图，再给入口文件摘要。</span></div>
+              <div><b>DOCX / PPTX / XLSX</b><span>发送微信可打开的原文件。</span></div>
+              <div><b>PDF</b><span>发送 PDF，未来可补前几页图片预览。</span></div>
+              <div><b>图片</b><span>直接作为图片发送。</span></div>
+              <div><b>MD / TXT</b><span>默认发送短摘要，需要时再发文件。</span></div>
+              <div><b>多文件项目</b><span>发送摘要、入口、截图和 manifest，不逐个发送 CSS/JS。</span></div>
             </div>
           </article>
 
           <article id="skills" class="guide-block reveal">
-            <span class="eyebrow">07</span>
-            <h2>Skills&#12289;Plugins &#21644; MCP</h2>
-            <p>Skills &#21487;&#20197;&#34987;&#20027; agent &#21644;&#23376; agent &#35843;&#29992;&#65307;MCP &#24403;&#21069;&#36890;&#36807;&#32479;&#19968; <code>mcp_call</code> &#20837;&#21475;&#25509;&#20837;&#12290;&#23433;&#35013;&#22120;&#25903;&#25345;&#26412;&#22320;&#30446;&#24405;&#12289;GitHub&#12289;Git URL &#21644; <code>file://</code> Git &#28304;&#65307;&#22914;&#26524;&#28304;&#37324;&#26377;&#22810;&#20010; <code>SKILL.md</code>&#65292;&#19981;&#24102;&#21517;&#31216;&#20250;&#25209;&#37327;&#23433;&#35013;&#20840;&#37096; skill&#12290;&#27169;&#22411;&#20250;&#26681;&#25454; skill <code>description</code> &#36890;&#36807; <code>search_skills</code> / <code>invoke_skill</code> &#33258;&#20027;&#36873;&#25321;&#65292;&#19981;&#20381;&#36182;&#20889;&#27515;&#30340;&#20219;&#21153;&#20851;&#38190;&#35789;&#12290;</p>
-            <pre><code>/skills
-/skills install "D:\skills\office-report"
-/skills install greensock/gsap-skills
+            <span class="eyebrow">06</span>
+            <h2>Skills、Plugins 和 MCP</h2>
+            <p>安装器支持本地路径、GitHub、Git URL 和 <code>file://</code> Git 源；源里有多个 <code>SKILL.md</code> 时，不带名称会批量安装全部 skill。模型会根据 skill description 通过 <code>search_skills</code> / <code>invoke_skill</code> 自动选择，不依赖写死关键词。</p>
+            <pre><code>/skills install greensock/gsap-skills
 /skills install-all greensock/gsap-skills
-/skills install greensock/gsap-skills gsap-core
 /skills search gsap
+/skills run gsap-core "给当前网页加动画"
 /plugins
 /mcp</code></pre>
           </article>
 
-          <article id="testing" class="guide-block reveal">
-            <span class="eyebrow">08</span>
-            <h2>真实测试</h2>
-            <p>测试产物只放在独立目录，例如 <code>D:\code\DeepSeekTest</code>。真实验收应覆盖网页项目、DOCX/PPTX、失败后自修复、多 Agent、微信远程和浏览器截图。</p>
-            <pre><code>npm.cmd run typecheck
-npm.cmd run build
-cd /d D:\code\DeepSeekTest
-deepseekcode --model deepseek-v4-flash</code></pre>
+          <article id="agents" class="guide-block reveal">
+            <span class="eyebrow">07</span>
+            <h2>多 Agent 和旁路问答</h2>
+            <p>主 agent 可以通过 native workflow tools 创建角色、共享黑板消息和 Reviewer 验收角色。用户没有分配角色时，模型会按项目自动设计角色。该能力仍标为实验中。</p>
+            <pre><code>开启多 agent 协作，让前端、测试和验收一起完成这个页面。
+/ask 现在做到哪了？
+/ask 生成了哪些文件？</code></pre>
           </article>
 
-          <article id="release" class="guide-block reveal">
-            <span class="eyebrow">09</span>
-            <h2>发布边界</h2>
-            <p>发布只从 <code>D:\code\DeepSeekCode\.release</code> 提交。不提交 <code>D:\code\DeepSeekTest</code>、<code>.env</code>、prompt audit、测试报告、node_modules、登录态或 runtime 数据库。</p>
-            <pre><code>git status --short
-npm.cmd run typecheck
-npm.cmd run build</code></pre>
+          <article id="testing" class="guide-block reveal">
+            <span class="eyebrow">08</span>
+            <h2>测试和发布</h2>
+            <p>真实测试产物只放在独立目录，例如 <code>D:\code\DeepSeekTest</code>。发布只从 <code>D:\code\DeepSeekCode\.release</code> 提交。</p>
+            <pre><code>npm.cmd run typecheck
+npm.cmd run build
+npm.cmd pack --dry-run
+npm.cmd pack --pack-destination D:\code\DeepSeekTest\npm-packages</code></pre>
+            <p>不提交测试产物、prompt audit、运行数据库、登录态、node_modules 或临时 npm tarball。</p>
           </article>
         </div>
       </section>
     </main>
 
     <footer class="site-footer">
-      <span>DeepSeekCode v0.2.7</span>
+      <span>DeepSeekCode v0.2.8</span>
       <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/README.zh-CN.md">中文 README</a>
       <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/README.md">README</a>
       <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/DEVELOPMENT.md">Development</a>
       <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/API_REFERENCE.md">API</a>
-      <a href="https://github.com/xh20010913-svg/DeepSeekCode/blob/main/CLI_REFERENCE.md">CLI</a>
     </footer>
+
+    <script src="src/site.js"></script>
   </body>
 </html>
