@@ -449,13 +449,14 @@ h1 em {
   grid-column: 1 / 2;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  width: min(800px, 100%);
+  width: min(920px, 100%);
   margin-top: -46px;
   border-top: 1px solid var(--line);
 }
 
 .metric-strip div {
-  padding: 34px 34px 0;
+  min-width: 0;
+  padding: 30px 18px 0;
   border-right: 1px solid var(--line);
   text-align: center;
 }
@@ -466,11 +467,14 @@ h1 em {
 
 .metric-strip strong {
   display: block;
-  font-family: var(--serif);
-  font-size: 52px;
-  font-style: italic;
+  font-family: var(--mono);
+  font-size: clamp(24px, 2.2vw, 36px);
+  font-style: normal;
   font-weight: 700;
   line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .metric-strip strong span {
@@ -482,6 +486,7 @@ h1 em {
   margin-top: 8px;
   color: var(--faint);
   font-family: var(--mono);
+  font-size: 13px;
   text-transform: uppercase;
 }
 
