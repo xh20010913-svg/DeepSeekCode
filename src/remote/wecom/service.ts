@@ -16,6 +16,7 @@ import { bootstrapConfig, type RuntimeConfig } from "../../bootstrap/config.js";
 import type { DeepSeekProviderClient } from "../../protocol/provider.js";
 import { QueryEngine, type QueryEvent } from "../../query/QueryEngine.js";
 import { ApprovalService } from "../../services/approval/approvalService.js";
+import { getAgentDashboardServer } from "../../services/agents/agentDashboardServer.js";
 import { DeepSeekClient } from "../../services/deepseek/client.js";
 import type { RuntimePermissionState } from "../../services/permissions/permissionProfiles.js";
 import { getSessionHub } from "../../services/session/sessionHub.js";
@@ -319,6 +320,32 @@ export class WeComRemoteControlService implements RemoteChannel {
       awaitUserDecisions: true,
       sessionPersistence: "managed",
       sessionScopeProjectPath: `${path.resolve(projectPath)}#remote:wecom:${message.chatId}`,
+      openAgentDashboard: async (runId, options) => {
+        const selectedRunId = runId ?? runtime.state.listRuns(1)[0]?.id;
+        if (!selectedRunId) return "Agent dashboard is not ready yet.";
+        const dashboard = await getAgentDashboardServer({
+          state: runtime.state,
+          projectPath,
+          dataDir: runtime.config.dataDir,
+        }).open(selectedRunId, {
+          openBrowser: false,
+          share: true,
+          writeTrace: options?.writeTrace ?? true,
+        });
+        const text = dashboard.remoteAccess === "local-only"
+          ? [
+              "多 Agent 面板已启动，但当前只有本机链接。",
+              `本机打开：${dashboard.localUrl}`,
+              "手机访问需要配置 DEEPSEEKCODE_DASHBOARD_PUBLIC_BASE_URL 或安全隧道。",
+            ].join("\n")
+          : [
+              "多 Agent 面板已启动。",
+              `手机打开：${dashboard.shareUrl}`,
+              "链接只读，并带有临时 token。",
+            ].join("\n");
+        await this.sendMessage(message.chatId, text);
+        return text;
+      },
     });
     const active: ActiveRun = {
       engine,

@@ -87,6 +87,10 @@ Agents:
 /agents start <goal>
 /agents status
 /agents message <role> <message>
+/agents dashboard
+/agents dashboard share
+/agents dashboard trace
+/agents dashboard close
 /agents stop
 ```
 
@@ -139,6 +143,7 @@ WeCom:
 | `DEEPSEEKCODE_WECOM_ALLOWED_USERS` | Optional allowlist. |
 | `DEEPSEEKCODE_WECOM_ALLOWED_GROUPS` | Optional group allowlist. |
 | `DEEPSEEKCODE_WECOM_PROJECT_ROOTS` | Allowed project roots for remote switching. |
+| `DEEPSEEKCODE_DASHBOARD_PUBLIC_BASE_URL` | Optional public HTTPS base URL for read-only multi-agent dashboard sharing. |
 
 Personal WeChat OpenClaw:
 
@@ -167,6 +172,52 @@ DeepSeekCode exposes tools through native provider `tools[]`. Important tool gro
 | MCP | `mcp_call` |
 | Agents | `invoke_agent`, `start_agent_workflow`, `send_agent_message`, `agent_status`, `finish_agent_workflow` |
 | Memory | `memory_search`, `memory_capture`, `memory_raw_search` |
+
+## Agent Dashboard
+
+The dashboard is a read-only observer for multi-agent runs. It is started automatically when a workflow begins and can be reopened with `/agents dashboard`.
+
+Snapshot shape:
+
+```ts
+interface AgentDashboardSnapshot {
+  run?: RunRecord;
+  workflow?: AgentWorkflowRecord;
+  projectPath: string;
+  overview: {
+    objective: string;
+    phase: string;
+    status: string;
+    elapsedMs: number;
+    done: number;
+    running: number;
+    pending: number;
+    failed: number;
+    total: number;
+    staleReason?: string;
+    lastTool?: string;
+    cacheHitRate?: number;
+  };
+  roles: Array<{
+    role: string;
+    responsibility: string;
+    currentTask?: string;
+    assignedTasks: string[];
+    completedTasks: string[];
+    blockedBy?: string;
+    lastTool?: string;
+    lastMessage?: string;
+    skills: string[];
+    tools: string[];
+    acceptance: string[];
+  }>;
+  taskBoard: Record<"queued" | "running" | "needs_review" | "succeeded" | "failed", unknown[]>;
+  timeline: Array<{ role?: string; status?: string; task?: string; tool?: string; message?: string; artifact?: string }>;
+  artifacts: Array<{ kind: string; path: string; preview?: string }>;
+}
+```
+
+Pixel-style compatibility is provided through `agent-trace.jsonl` and the SSE stream. The dashboard does not execute tools or approve permissions.
 
 ## `TaskCompletionContract`
 

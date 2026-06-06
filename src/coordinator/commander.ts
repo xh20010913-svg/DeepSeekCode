@@ -24,6 +24,7 @@ export interface ProviderMultiAgentInput {
   provider: DeepSeekProviderClient;
   permissions: RuntimePermissionState;
   onUsage?: (usage: UsageSnapshot) => void;
+  onRunCreated?: (runId: string) => void | Promise<void>;
 }
 
 const ROLE_CHAIN = [
@@ -61,6 +62,18 @@ export async function runProviderMultiAgent(input: ProviderMultiAgentInput): Pro
   input.state.saveContextSnapshot(runId, "repository_map_v1", repositoryMap);
 
   const taskIds = createRoleTasks(input.state, runId);
+  try {
+    await input.onRunCreated?.(runId);
+    input.state.appendEvent(runId, "agent_dashboard_started", {
+      source: "provider_multi_agent",
+      mode: "auto",
+    });
+  } catch (error) {
+    input.state.appendEvent(runId, "agent_dashboard_failed", {
+      source: "provider_multi_agent",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
   let feedback = "";
   const systemPrompt = buildProviderMultiAgentSystemPrompt();
   const contextSummary = repositoryMapPrompt(repositoryMap);

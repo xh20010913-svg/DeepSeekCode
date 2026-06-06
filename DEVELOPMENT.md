@@ -125,6 +125,23 @@ Default roles should include Planner, Builder, Tester, and Reviewer. User-provid
 
 Reviewer must check against the generic task contract. It should not only inspect web artifacts.
 
+## Agent Dashboard Development
+
+The multi-agent dashboard is an observer, not a control plane. It is implemented by:
+
+- `src/services/agents/agentDashboardModel.ts`: converts durable state, workflow roles, tasks, events, usage, and artifacts into `AgentDashboardSnapshot`.
+- `src/services/agents/agentDashboardServer.ts`: starts a per-project local HTTP server, serves the dashboard HTML, snapshot JSON, SSE snapshots, and `agent-trace.jsonl`.
+- `QueryEngine.openAgentDashboard`: automatically opens the dashboard when a run is classified as multi-agent.
+- remote channel callbacks: WeChat/WeCom receive a share link when a public base URL is configured.
+
+Dashboard rules:
+
+- Do not infer roles from free-form terminal text when durable task/workflow state exists.
+- Keep the dashboard read-only; permission approval stays in the TUI or remote approval bridge.
+- Emit Pixel-style JSONL fields (`role`, `status`, `task`, `tool`, `message`, `artifact`, `parentRunId`, `childRunId`) without depending on the Pixel Agents extension.
+- Use `DEEPSEEKCODE_DASHBOARD_PUBLIC_BASE_URL` only for a trusted HTTPS tunnel; otherwise remote channels should say the dashboard is local-only.
+- The view token is short-lived and scoped to one run.
+
 ## Skills, Plugins, And MCP
 
 Skills are reusable instruction/workflow packs. They are not replacements for runtime tools.

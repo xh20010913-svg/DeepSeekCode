@@ -1,5 +1,20 @@
 # DeepSeekCode
 
+## 多 Agent 状态面板
+
+多 Agent 工作流启动时，DeepSeekCode 会自动启动一个只读 Dashboard。TUI 模式会在本机浏览器自动打开一次；微信/企微远程模式会在配置了 `DEEPSEEKCODE_DASHBOARD_PUBLIC_BASE_URL` 的情况下发送带 30 分钟 view token 的安全链接。没有公网隧道时会降级为本机链接和状态摘要。
+
+面板会显示：任务目标、当前阶段、是否卡住、最近工具、token/cache 概览；每个角色的职责、当前任务、已分配任务、完成证据、阻塞点、skills、tools、验收标准；任务板、协作时间线、产物入口、验证结论和 `agent-trace.jsonl`。
+
+备用命令：
+
+```text
+/agents dashboard
+/agents dashboard share
+/agents dashboard trace
+/agents dashboard close
+```
+
 [English](./README.md) | [使用指南](./GUIDE.md) | [架构](./ARCHITECTURE.md) | [CLI](./CLI_REFERENCE.md) | [开发文档](./DEVELOPMENT.md) | [接口文档](./API_REFERENCE.md) | [官网](https://xh20010913-svg.github.io/DeepSeekCode/)
 
 DeepSeekCode 是一个面向真实项目目录运行的本地通用 Agent runtime。它使用 DeepSeek native tool calling 驱动文件、shell、浏览器、skills、plugins、MCP、微信远程、多 agent 协作和任务验收。

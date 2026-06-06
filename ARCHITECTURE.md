@@ -39,6 +39,7 @@ Provider-facing execution does not rely on model-emitted `ActionEnvelope JSON`. 
 | MCP | Provides unified `mcp_call`; native per-tool schema expansion is an extension path. |
 | Remote channels | WeCom and personal WeChat OpenClaw share QueryEngine, state, permissions, and delivery planning. |
 | Agent workflow | Supervisor + role specs + shared blackboard + Tester/Reviewer acceptance. |
+| Agent dashboard | Read-only per-run observer with local HTTP/SSE snapshots, tokenized share links, and Pixel-style JSONL trace output. |
 | Artifact delivery | Sends readable previews by artifact type instead of flooding remote chat with source files. |
 
 ## Generic Completion
@@ -77,6 +78,8 @@ Multi-agent mode is a project-scoped workflow, not a chat gimmick. The main mode
 - acceptance criteria
 
 The workflow writes role messages to a shared blackboard and exposes `agent_status` for TUI/remote display. Reviewer acceptance must refer back to the task contract and the relevant validators.
+
+When a workflow starts, `AgentDashboardServer` can open a local browser dashboard and write `agent-trace.jsonl`. The dashboard is built from durable run/task/event/artifact state, not terminal scraping. Remote channels can share the same view through `DEEPSEEKCODE_DASHBOARD_PUBLIC_BASE_URL`; without a secure tunnel the link remains local-only. The dashboard is read-only and never approves tools or executes commands.
 
 ## Remote Runtime
 

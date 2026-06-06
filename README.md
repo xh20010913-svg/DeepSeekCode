@@ -88,6 +88,23 @@ MCP tools are routed through the same tool-result, permission, hook, audit, and 
 
 Natural language can start a visible multi-agent workflow. User-defined roles are preserved. If no roles are supplied, DeepSeekCode creates Planner, Builder, Tester, and Reviewer roles. Reviewer uses the generic task contract rather than a web-specific checklist.
 
+When a multi-agent workflow starts, DeepSeekCode now starts a read-only dashboard for that run. In TUI mode it opens the local browser once; remote channels receive a tokenized link when `DEEPSEEKCODE_DASHBOARD_PUBLIC_BASE_URL` points to a secure tunnel. The dashboard shows:
+
+- objective, phase, stale state, recent tool, token/cache summary
+- role cards with responsibility, current task, assigned work, blockers, skills, tools, and acceptance criteria
+- task board for queued, running, review, completed, and failed work
+- collaboration timeline with handoffs, tools, approvals, validation, and repair events
+- artifacts, entry points, validation state, and `agent-trace.jsonl`
+
+Backup commands:
+
+```text
+/agents dashboard
+/agents dashboard share
+/agents dashboard trace
+/agents dashboard close
+```
+
 ### Remote control
 
 Two remote channels are available:

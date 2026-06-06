@@ -154,6 +154,17 @@ deepseekcode --model deepseek-v4-flash
             <p>当前多 Agent 和可视化仍是实验能力，重点在角色状态、阻塞点和验收结论能被 TUI/远程看见。</p>
           </article>
 
+          <article id="agent-dashboard" class="guide-block reveal">
+            <span class="eyebrow">08A</span>
+            <h2>多 Agent 状态面板</h2>
+            <p>多 Agent 工作流启动时会自动打开只读 Dashboard。它显示目标、当前阶段、是否卡住、最近工具、角色职责、已分配任务、阻塞点、协作时间线、产物和验收结论。</p>
+            <pre><code>/agents dashboard
+/agents dashboard share
+/agents dashboard trace
+/agents dashboard close</code></pre>
+            <p>微信/企微分享需要配置 <code>DEEPSEEKCODE_DASHBOARD_PUBLIC_BASE_URL</code> 指向安全隧道；没有隧道时只返回本机链接和状态摘要。</p>
+          </article>
+
           <article id="testing" class="guide-block reveal">
             <span class="eyebrow">09</span>
             <h2>测试和发布</h2>

@@ -2,6 +2,7 @@ import React from "react";
 import type { Command } from "../../types/command.js";
 import { AgentService } from "../../services/agents/agentService.js";
 import { AgentDaemonService } from "../../services/agents/agentDaemon.js";
+import { closeAgentDashboardServer, getAgentDashboardServer } from "../../services/agents/agentDashboardServer.js";
 import { AgentRunService } from "../../services/agents/agentRunService.js";
 import { buildAgentWizardPlan, formatAgentWizardPlan } from "../../services/agents/agentWizard.js";
 import { AgentWorkflowService } from "../../services/agents/agentWorkflow.js";
@@ -24,10 +25,49 @@ import {
 export const agentsCommand: Command = {
   name: "agents",
   description: "List, show, create, validate, and run DeepSeekCode agents.",
-  usage: "[show <name>|create <name> <description>|suggest <goal>|create-smart <name> <goal>|runs|detail [attached|current]|start <name> <task>|add <attached|current> <name> <task>|step [attached|current]|drain [attached|current] [max-steps]|daemon [all|attached|current] [max-runs] [max-steps]|run <name> <task>|validate [name]|path [name]]",
+  usage: "[dashboard [share|trace|close] [run]|workflow|show <name>|create <name> <description>|suggest <goal>|create-smart <name> <goal>|runs|detail [attached|current]|start <name> <task>|add <attached|current> <name> <task>|step [attached|current]|drain [attached|current] [max-steps]|daemon [all|attached|current] [max-runs] [max-steps]|run <name> <task>|validate [name]|path [name]]",
   async execute(args, context) {
     const trimmed = args.trim();
     const service = new AgentService(context.config.projectPath, context.config.dataDir);
+    if (trimmed === "dashboard" || trimmed.startsWith("dashboard ")) {
+      const parts = parseArgs(trimmed.startsWith("dashboard ") ? trimmed.slice("dashboard ".length) : "");
+      const action = parts[0] ?? "";
+      if (action === "close") {
+        await closeAgentDashboardServer(context.config.projectPath);
+        return { message: "Agent dashboard closed." };
+      }
+      const share = action === "share";
+      const trace = action === "trace";
+      const selector = share || trace ? parts[1] : parts[0];
+      const runId = resolveDashboardRunId(selector ?? "", context);
+      if (!runId) return { message: "No agent run is available for the dashboard yet." };
+      if (context.openAgentDashboard) {
+        const message = await context.openAgentDashboard(runId, {
+          openBrowser: !share,
+          share,
+          writeTrace: true,
+        });
+        return { message };
+      }
+      const result = await getAgentDashboardServer({
+        state: context.state,
+        projectPath: context.config.projectPath,
+        dataDir: context.config.dataDir,
+      }).open(runId, {
+        openBrowser: !share,
+        share,
+        writeTrace: true,
+      });
+      return {
+        message: [
+          `Agent dashboard: ${share ? result.shareUrl : result.localUrl}`,
+          result.tracePath ? `trace: ${result.tracePath}` : "",
+          share && result.remoteAccess === "local-only"
+            ? "remote: local-only; set DEEPSEEKCODE_DASHBOARD_PUBLIC_BASE_URL or a secure tunnel to share from WeChat."
+            : "",
+        ].filter(Boolean).join("\n"),
+      };
+    }
     if (trimmed.startsWith("create ")) {
       const [name, ...descriptionParts] = parseArgs(trimmed.slice("create ".length));
       if (!name || descriptionParts.length === 0) return { message: "Usage: /agents create <name> <description>" };
@@ -425,6 +465,27 @@ function resolveAgentRunId(selector: string, context: Parameters<typeof resolveR
   if (run?.message.startsWith("agent:")) return run.id;
   if (runId && context.state.listJobs({ runId, kind: "agent_run", limit: 1 }).length > 0) return runId;
   return new AgentRunService(context.state, context.config).list(1)[0]?.run.id;
+}
+
+function resolveDashboardRunId(selector: string, context: Parameters<typeof resolveRunId>[1]): string | undefined {
+  const selected = selector.trim();
+  if (selected) {
+    const explicit = resolveRunId(selected, context);
+    if (explicit) return explicit;
+  }
+  try {
+    const workflow = new AgentWorkflowService(context.state, context.config.projectPath).status();
+    if (workflow.record.runId && context.state.getRun(workflow.record.runId)) return workflow.record.runId;
+  } catch {
+    // Fall through to durable run heuristics.
+  }
+  const agentRun = new AgentRunService(context.state, context.config).list(1)[0]?.run.id;
+  if (agentRun) return agentRun;
+  return context.state.listRuns(30).find((run) =>
+    run.message.startsWith("/multi ") ||
+    run.message.startsWith("agent:") ||
+    context.state.listTasks(run.id).some((task) => task.agent),
+  )?.id ?? context.state.listRuns(1)[0]?.id;
 }
 
 function redactInternalAgentIds(text: string): string {

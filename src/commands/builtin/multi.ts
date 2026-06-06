@@ -21,6 +21,13 @@ export const multiCommand: Command = {
       provider: context.provider,
       permissions: context.permissions,
       onUsage: (usage) => context.recordUsageEvent?.(usage),
+      onRunCreated: async (runId) => {
+        await context.openAgentDashboard?.(runId, {
+          openBrowser: true,
+          share: false,
+          writeTrace: true,
+        });
+      },
     });
     return { message: result };
   },

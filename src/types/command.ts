@@ -4,6 +4,12 @@ import type { DeepSeekProviderClient, UsageSnapshot } from "../protocol/provider
 import type { RuntimePermissionState } from "../services/permissions/permissionProfiles.js";
 import type { StateStore } from "../state/sqlite.js";
 
+export interface AgentDashboardRequestOptions {
+  openBrowser?: boolean;
+  share?: boolean;
+  writeTrace?: boolean;
+}
+
 export interface CommandContext {
   config: RuntimeConfig;
   state: StateStore;
@@ -18,6 +24,7 @@ export interface CommandContext {
   emitSystemMessage?: (message: string) => void;
   emitRemoteUserMessage?: (message: string) => void;
   emitRemoteAssistantMessage?: (message: string) => void;
+  openAgentDashboard?: (runId?: string, options?: AgentDashboardRequestOptions) => Promise<string> | string;
 }
 
 export interface CommandResult {

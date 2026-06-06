@@ -32,6 +32,7 @@ import {
 } from "../prompt/commandSuggestions.js";
 import type { StateStore } from "../state/sqlite.js";
 import { QueryEngine } from "../query/QueryEngine.js";
+import { getAgentDashboardServer } from "../services/agents/agentDashboardServer.js";
 import { SessionStorage } from "../services/session/sessionStorage.js";
 import { setCurrentSessionId } from "../services/session/resumeService.js";
 import { ThemeService } from "../services/theme/themeService.js";
@@ -177,6 +178,37 @@ export function Workbench(props: {
     sessionStorage.append({ role: "assistant", text: message });
     setItems((previous) => [...previous, { role: "assistant", text: message, timestamp: Date.now(), model: activeConfig.model }]);
   }, [activeConfig.model, sessionStorage]);
+  const openAgentDashboard = useCallback(async (
+    runId?: string,
+    options?: { openBrowser?: boolean; share?: boolean; writeTrace?: boolean },
+  ): Promise<string> => {
+    const selectedRunId = runId ?? props.state.listRuns(1)[0]?.id;
+    if (!selectedRunId) {
+      return isChineseUi(activeConfig.language)
+        ? "还没有可展示的 agent run。"
+        : "No agent run is available for the dashboard yet.";
+    }
+    const result = await getAgentDashboardServer({
+      state: props.state,
+      projectPath: activeConfig.projectPath,
+      dataDir: activeConfig.dataDir,
+    }).open(selectedRunId, {
+      openBrowser: options?.openBrowser ?? true,
+      share: options?.share ?? false,
+      writeTrace: options?.writeTrace ?? true,
+    });
+    const traceNote = result.tracePath
+      ? (isChineseUi(activeConfig.language) ? `\ntrace: ${result.tracePath}` : `\ntrace: ${result.tracePath}`)
+      : "";
+    const remoteNote = options?.share && result.remoteAccess === "local-only"
+      ? (isChineseUi(activeConfig.language)
+          ? "\n远程访问需要配置 DEEPSEEKCODE_DASHBOARD_PUBLIC_BASE_URL 或安全隧道；当前链接仅本机可用。"
+          : "\nRemote access needs DEEPSEEKCODE_DASHBOARD_PUBLIC_BASE_URL or a secure tunnel; this link is local-only.")
+      : "";
+    return isChineseUi(activeConfig.language)
+      ? `Agent Dashboard 已启动：${options?.share ? result.shareUrl : result.localUrl}${traceNote}${remoteNote}`
+      : `Agent Dashboard started: ${options?.share ? result.shareUrl : result.localUrl}${traceNote}${remoteNote}`;
+  }, [activeConfig.dataDir, activeConfig.language, activeConfig.projectPath, props.state]);
   const engine = useMemo(
     () =>
       new QueryEngine({
@@ -192,6 +224,7 @@ export function Workbench(props: {
         emitSystemMessage: appendSystemMessage,
         emitRemoteUserMessage: appendRemoteUserMessage,
         emitRemoteAssistantMessage: appendRemoteAssistantMessage,
+        openAgentDashboard,
         awaitUserDecisions: true,
         sessionPersistence: "external",
       }),
@@ -207,6 +240,7 @@ export function Workbench(props: {
       appendSystemMessage,
       appendRemoteUserMessage,
       appendRemoteAssistantMessage,
+      openAgentDashboard,
     ],
   );
   const commands = useMemo(

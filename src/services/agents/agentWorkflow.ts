@@ -277,7 +277,7 @@ function normalizeRoles(roles: AgentRoleSpec[] | undefined, objective: string): 
 }
 
 function ensureAcceptanceReviewerRole(roles: AgentRoleSpec[], acceptanceCriteria: string[]): AgentRoleSpec[] {
-  const hasReviewer = roles.some((role) => /review|reviewer|验收|验证|测试|qa|test/i.test(role.name));
+  const hasReviewer = roles.some((role) => /review|reviewer|验收|审查|reviewer|acceptance/i.test(role.name));
   if (hasReviewer) return roles;
   return [
     ...roles,
@@ -301,7 +301,7 @@ function ensureAcceptanceReviewerRole(roles: AgentRoleSpec[], acceptanceCriteria
 }
 
 function ensureReviewerRole(roles: AgentRoleSpec[], acceptanceCriteria: string[]): AgentRoleSpec[] {
-  const hasReviewer = roles.some((role) => /review|验收|qa|test|验证/i.test(role.name));
+  const hasReviewer = roles.some((role) => /review|reviewer|验收|审查|acceptance/i.test(role.name));
   if (hasReviewer) return roles;
   return [
     ...roles,

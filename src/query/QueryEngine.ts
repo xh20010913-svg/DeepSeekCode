@@ -40,7 +40,7 @@ import { getTencentMemoryService, type TencentMemoryRecall } from "../services/m
 import { buildRequestDiagnostics } from "../services/telemetry/requestDiagnostics.js";
 import type { ApprovalGateRecord, StateStore } from "../state/sqlite.js";
 import { discoverSkills } from "../skills/discovery.js";
-import type { CommandContext } from "../types/command.js";
+import type { AgentDashboardRequestOptions, CommandContext } from "../types/command.js";
 import type { QueryActivityPhase } from "../types/activity.js";
 import { executeEnvelope, type ExecutionOptions } from "../tools/executor.js";
 import { baseTools } from "../tools/registry.js";
@@ -80,6 +80,7 @@ export interface QueryEngineOptions {
   emitSystemMessage?: (message: string) => void;
   emitRemoteUserMessage?: (message: string) => void;
   emitRemoteAssistantMessage?: (message: string) => void;
+  openAgentDashboard?: (runId?: string, options?: AgentDashboardRequestOptions) => Promise<string> | string;
   awaitUserDecisions?: boolean;
   sessionPersistence?: "managed" | "external" | "off";
 }
@@ -99,12 +100,14 @@ export class QueryEngine {
   private readonly emitSystemMessage?: (message: string) => void;
   private readonly emitRemoteUserMessage?: (message: string) => void;
   private readonly emitRemoteAssistantMessage?: (message: string) => void;
+  private readonly openAgentDashboard?: (runId?: string, options?: AgentDashboardRequestOptions) => Promise<string> | string;
   private readonly awaitUserDecisions: boolean;
   private readonly sessionPersistence: "managed" | "external" | "off";
   private readonly actionPrefix = new PrefixStabilityManager();
   private readonly rollingSummary = new RollingSummary();
   private readonly fileStateCache = new FileStateCache();
   private readonly memoryService: ReturnType<typeof getTencentMemoryService>;
+  private readonly openedAgentDashboards = new Set<string>();
   private loadedSessionId?: string;
   private activeAbortController?: AbortController;
 
@@ -126,6 +129,7 @@ export class QueryEngine {
     this.emitSystemMessage = options.emitSystemMessage;
     this.emitRemoteUserMessage = options.emitRemoteUserMessage;
     this.emitRemoteAssistantMessage = options.emitRemoteAssistantMessage;
+    this.openAgentDashboard = options.openAgentDashboard;
     this.awaitUserDecisions = Boolean(options.awaitUserDecisions);
     this.sessionPersistence = options.sessionPersistence ?? "managed";
     this.memoryService = getTencentMemoryService(this.config, this.provider, this.state);
@@ -145,6 +149,7 @@ export class QueryEngine {
       emitSystemMessage: this.emitSystemMessage,
       emitRemoteUserMessage: this.emitRemoteUserMessage,
       emitRemoteAssistantMessage: this.emitRemoteAssistantMessage,
+      openAgentDashboard: this.openAgentDashboard,
     };
   }
 
@@ -249,6 +254,16 @@ export class QueryEngine {
         userText: this.classificationInput(trimmed, memoryRecall),
       }));
       this.state.appendEvent(runId, "turn_classified", classification);
+      if (classification.task_kind === "multi_agent") {
+        const dashboardMessage = await this.openAgentDashboardForRun(runId, {
+          openBrowser: true,
+          share: false,
+          writeTrace: true,
+        });
+        if (dashboardMessage) {
+          yield { type: "command", text: dashboardMessage };
+        }
+      }
 
       if (!classification.needs_local_tools) {
         yield* this.streamChatTurn(runId, trimmed, memoryRecall, signal);
@@ -961,6 +976,32 @@ export class QueryEngine {
 
     this.state.updateRunStatus(runId, "failed", finalMessage || "action loop failed");
     return withLatestRunDetails("Execution failed.");
+  }
+
+  private async openAgentDashboardForRun(
+    runId: string,
+    options: AgentDashboardRequestOptions,
+  ): Promise<string | undefined> {
+    if (!this.openAgentDashboard || this.openedAgentDashboards.has(runId)) return undefined;
+    this.openedAgentDashboards.add(runId);
+    try {
+      const message = await this.openAgentDashboard(runId, options);
+      this.state.appendEvent(runId, "agent_dashboard_started", {
+        source: "query_engine",
+        open_browser: options.openBrowser ?? false,
+        share: options.share ?? false,
+        write_trace: options.writeTrace ?? false,
+        message,
+      });
+      return message || undefined;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.state.appendEvent(runId, "agent_dashboard_failed", {
+        source: "query_engine",
+        message,
+      });
+      return `Agent dashboard failed to open: ${message}`;
+    }
   }
 
   private buildChatMessages(userMessage: string, memoryRecall?: TencentMemoryRecall): ChatMessage[] {
