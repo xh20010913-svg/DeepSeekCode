@@ -2,8 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { captureBrowserScreenshot } from "../bridge/cdpClient.js";
+import { artifactKindFromPath } from "../protocol/actions.js";
 import { captureHtmlWithHeadlessBrowser } from "../remote/preview.js";
 import { type ToolExecutionContext } from "../Tool.js";
+import { summarizeValidation, validateArtifact } from "./artifact.js";
 import { classifyCommandFailure, formatFailureDiagnosis } from "./commandPreflight.js";
 import { safeOptionalJoin } from "./pathSafety.js";
 import { defaultShellPolicy, runCommand, summarizeCommand } from "./shell.js";
@@ -26,6 +28,20 @@ export interface LaunchProjectInput {
   timeout_ms?: number;
 }
 
+export interface TaskCompletionContract {
+  goal?: string;
+  expected_artifacts?: string[];
+  verifiable_behaviors?: string[];
+  acceptance_criteria?: string[];
+  user_constraints?: string[];
+}
+
+export interface VerifyTaskInput extends VerifyProjectInput {
+  objective?: string;
+  contract?: TaskCompletionContract;
+  launch?: boolean;
+}
+
 export interface ProjectVerificationReport {
   status: "succeeded" | "failed";
   root: string;
@@ -36,16 +52,142 @@ export interface ProjectVerificationReport {
   startCommand?: string;
 }
 
-interface ProjectCheck {
+export interface ProjectCheck {
   name: string;
   status: "passed" | "failed" | "skipped" | "warning";
   detail: string;
 }
 
-interface PackageInfo {
+export interface PackageInfo {
   dir: string;
   relativeDir: string;
   scripts: Record<string, string>;
+}
+
+const GENERIC_ARTIFACT_EXTENSIONS = [
+  ".md",
+  ".markdown",
+  ".txt",
+  ".csv",
+  ".tsv",
+  ".json",
+  ".xlsx",
+  ".docx",
+  ".pptx",
+  ".pdf",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".html",
+  ".htm",
+];
+
+const SCRIPT_EXTENSIONS = [".js", ".ts", ".mjs", ".cjs", ".py", ".ps1", ".bat", ".cmd", ".sh"];
+
+export async function verifyTask(
+  projectRoot: string,
+  input: VerifyTaskInput,
+  context: ToolExecutionContext,
+): Promise<ProjectVerificationReport> {
+  const root = safeOptionalJoin(projectRoot, input.path ?? "");
+  const checks: ProjectCheck[] = [];
+  const artifacts: string[] = [];
+  let previewPath: string | undefined;
+
+  const contract = input.contract;
+  const goal = contract?.goal ?? input.objective;
+  if (goal) {
+    checks.push({ name: "task_contract", status: "passed", detail: goal.slice(0, 500) });
+  } else {
+    checks.push({ name: "task_contract", status: "warning", detail: "No explicit task goal was supplied to verify_task." });
+  }
+  for (const criterion of contract?.acceptance_criteria ?? []) {
+    checks.push({ name: "acceptance_criterion", status: "passed", detail: criterion.slice(0, 500) });
+  }
+
+  const expectedArtifacts = uniqueStrings(contract?.expected_artifacts ?? []);
+  for (const expected of expectedArtifacts) {
+    validateExpectedArtifact(projectRoot, expected, checks, artifacts);
+  }
+
+  const projectReport = await verifyProject(projectRoot, {
+    path: input.path,
+    mode: input.mode,
+    install_dependencies: input.install_dependencies,
+    run_build: input.run_build,
+    run_tests: input.run_tests,
+    capture_preview: input.capture_preview,
+    timeout_ms: input.timeout_ms,
+  }, context);
+  checks.push(...projectReport.checks);
+  artifacts.push(...projectReport.artifacts);
+  previewPath = projectReport.previewPath;
+
+  if (input.launch !== false) {
+    const launchPackages = findPackageJsons(root).slice(0, input.mode === "full" ? 4 : 2);
+    for (const pkg of launchPackages) {
+      const launchCommand = chooseLaunchCommand(pkg);
+      if (!launchCommand) {
+        checks.push({
+          name: "launch_smoke",
+          status: "skipped",
+          detail: `${pkg.relativeDir || "."}: no start/dev/serve script`,
+        });
+        continue;
+      }
+      await runPackageCommand(
+        root,
+        pkg,
+        "launch_smoke",
+        launchCommand,
+        Math.min(input.timeout_ms ?? 12_000, 15_000),
+        context,
+        checks,
+        { longRunningOk: true },
+      );
+    }
+  }
+
+  const genericFiles = findFiles(root, GENERIC_ARTIFACT_EXTENSIONS, input.mode === "full" ? 12 : 8)
+    .filter((file) => !file.includes(`${path.sep}node_modules${path.sep}`))
+    .slice(0, input.mode === "full" ? 60 : 30);
+  for (const file of genericFiles) {
+    const relative = rel(root, file);
+    if (!artifacts.includes(relative)) artifacts.push(relative);
+    validateGenericArtifact(root, file, checks);
+  }
+
+  const scripts = findFiles(root, SCRIPT_EXTENSIONS, input.mode === "full" ? 10 : 6)
+    .filter((file) => !file.includes(`${path.sep}node_modules${path.sep}`))
+    .slice(0, 20);
+  if (scripts.length) {
+    checks.push({
+      name: "script_outputs",
+      status: "passed",
+      detail: scripts.slice(0, 8).map((file) => rel(root, file)).join(", "),
+    });
+  }
+
+  if (!genericFiles.length && !scripts.length && expectedArtifacts.length === 0 && projectReport.artifacts.length === 0) {
+    checks.push({
+      name: "task_outputs",
+      status: "failed",
+      detail: "No verifiable output files, project manifests, scripts, documents, data files, or media artifacts were found.",
+    });
+  }
+
+  const failed = checks.some((check) => check.status === "failed");
+  const warnings = checks.filter((check) => check.status === "warning").length;
+  return {
+    status: failed ? "failed" : "succeeded",
+    root,
+    summary: `task checks=${checks.length} failed=${checks.filter((check) => check.status === "failed").length} warnings=${warnings} artifacts=${uniqueStrings(artifacts).length}`,
+    checks,
+    artifacts: uniqueStrings(artifacts),
+    previewPath,
+    startCommand: projectReport.startCommand,
+  };
 }
 
 export async function verifyProject(
@@ -185,6 +327,76 @@ export function formatProjectVerificationReport(report: ProjectVerificationRepor
   ].filter(Boolean).join("\n");
 }
 
+function validateExpectedArtifact(
+  projectRoot: string,
+  expectedPath: string,
+  checks: ProjectCheck[],
+  artifacts: string[],
+): void {
+  const target = safeOptionalJoin(projectRoot, expectedPath);
+  if (!fs.existsSync(target)) {
+    checks.push({ name: "expected_artifact", status: "failed", detail: `${expectedPath} is missing` });
+    return;
+  }
+  if (fs.statSync(target).isDirectory()) {
+    checks.push({ name: "expected_artifact", status: "passed", detail: `${expectedPath} directory exists` });
+    artifacts.push(expectedPath);
+    return;
+  }
+  artifacts.push(expectedPath);
+  try {
+    const kind = artifactKindFromPath(target);
+    const report = validateArtifact(projectRoot, expectedPath, kind);
+    checks.push({
+      name: "expected_artifact",
+      status: report.errors.length ? "failed" : "passed",
+      detail: `${expectedPath}: ${summarizeValidation(report)}`,
+    });
+  } catch (error) {
+    checks.push({ name: "expected_artifact", status: "failed", detail: `${expectedPath}: ${String(error)}` });
+  }
+}
+
+function validateGenericArtifact(root: string, file: string, checks: ProjectCheck[]): void {
+  const relative = rel(root, file);
+  const ext = path.extname(file).toLowerCase();
+  if ([".json"].includes(ext)) {
+    try {
+      JSON.parse(fs.readFileSync(file, "utf-8"));
+      checks.push({ name: "json_artifact", status: "passed", detail: relative });
+    } catch (error) {
+      checks.push({ name: "json_artifact", status: "failed", detail: `${relative}: ${String(error)}` });
+    }
+    return;
+  }
+  if ([".csv", ".tsv"].includes(ext)) {
+    const content = fs.readFileSync(file, "utf-8");
+    const rows = content.split(/\r?\n/).filter((line) => line.trim()).length;
+    checks.push({
+      name: "data_artifact",
+      status: rows > 0 ? "passed" : "failed",
+      detail: `${relative}: rows=${rows}`,
+    });
+    return;
+  }
+  if ([".txt"].includes(ext)) {
+    const size = fs.statSync(file).size;
+    checks.push({ name: "text_artifact", status: size > 0 ? "passed" : "failed", detail: `${relative}: ${size} bytes` });
+    return;
+  }
+  try {
+    const kind = artifactKindFromPath(file);
+    const report = validateArtifact(root, relative, kind);
+    checks.push({
+      name: "artifact_validation",
+      status: report.errors.length ? "failed" : "passed",
+      detail: `${relative}: ${summarizeValidation(report)}`,
+    });
+  } catch (error) {
+    checks.push({ name: "artifact_validation", status: "failed", detail: `${relative}: ${String(error)}` });
+  }
+}
+
 async function runPackageCommand(
   root: string,
   pkg: PackageInfo,
@@ -193,6 +405,7 @@ async function runPackageCommand(
   timeoutMs: number | undefined,
   context: ToolExecutionContext,
   checks: ProjectCheck[],
+  options?: { longRunningOk?: boolean },
 ): Promise<void> {
   if (!context.allowShell) {
     checks.push({ name, status: "skipped", detail: `${pkg.relativeDir || "."}: shell permission disabled` });
@@ -204,11 +417,25 @@ async function runPackageCommand(
     maxTimeoutMs: Math.max(defaultShellPolicy.maxTimeoutMs, timeoutMs ?? 30_000),
   }, { signal: context.abortSignal });
   const diagnosis = classifyCommandFailure(output);
+  const passed = output.exitCode === 0 || (Boolean(options?.longRunningOk) && output.timedOut);
   checks.push({
     name,
-    status: output.exitCode === 0 && !output.timedOut ? "passed" : "failed",
+    status: passed ? "passed" : "failed",
     detail: [`${pkg.relativeDir || "."}: ${summarizeCommand(output)}`, formatFailureDiagnosis(diagnosis)].filter(Boolean).join("\n"),
   });
+}
+
+function chooseLaunchCommand(pkg: PackageInfo): string | undefined {
+  const scripts = pkg.scripts;
+  if (scripts.dev) return "npm.cmd run dev";
+  if (scripts.start) return "npm.cmd start";
+  if (scripts.serve) return "npm.cmd run serve";
+  if (scripts.preview) return "npm.cmd run preview";
+  return undefined;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
 }
 
 function findPackageJsons(root: string): PackageInfo[] {

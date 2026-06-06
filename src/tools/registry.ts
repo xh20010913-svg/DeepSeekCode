@@ -46,6 +46,7 @@ import {
   TdaiMemorySearchActionSchema,
   TodoWriteActionSchema,
   ValidateArtifactActionSchema,
+  VerifyTaskActionSchema,
   VerifyProjectActionSchema,
   WriteFileActionSchema,
   type ActionRequest,
@@ -69,7 +70,7 @@ import { appendFile, applyTextPatch, globFiles, grepFiles, listFiles, readFileFo
 import { createDocxArtifact, createPptxArtifact } from "./officeArtifacts.js";
 import { classifyCommandFailure, formatFailureDiagnosis, formatPreflightFailure, preflightCommand } from "./commandPreflight.js";
 import { safeJoin } from "./pathSafety.js";
-import { formatProjectVerificationReport, launchProject, verifyProject } from "./projectVerification.js";
+import { formatProjectVerificationReport, launchProject, verifyProject, verifyTask } from "./projectVerification.js";
 import { defaultShellPolicy, runCommand, summarizeCommand, type CommandOutput } from "./shell.js";
 
 export const baseTools: Tools = [
@@ -290,6 +291,28 @@ export const baseTools: Tools = [
           path: output.cwd,
           message: [summarizeCommand(output), detail].filter(Boolean).join("\n"),
           context: [commandContext(output), detail].filter(Boolean).join("\n"),
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "verify_task",
+    displayName: "Verify Task",
+    description: "Verify a task against a model-authored completion contract using real project files, scripts, documents, data, media, package manifests, and launch/build/test checks. This is the generic completion gate; HTML is only one artifact type.",
+    inputSchema: VerifyTaskActionSchema,
+    readOnly: true,
+    concurrencySafe: false,
+    destructive: false,
+    async run(input, context) {
+      const report = await verifyTask(context.root, input, context);
+      return {
+        data: report,
+        result: {
+          action_type: input.type,
+          status: report.status,
+          path: report.previewPath ?? report.root,
+          artifact_kind: report.previewPath ? "screenshot" : undefined,
+          message: formatProjectVerificationReport(report),
         },
       };
     },

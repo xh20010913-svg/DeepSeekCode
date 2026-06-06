@@ -1,202 +1,194 @@
 # DeepSeekCode Development Guide
 
-Version: `v0.2.9`
+Version: `v0.3.0`
 
-This document is for contributors and future maintenance work. It describes how to extend the runtime without turning it into a collection of disconnected features.
+This guide is for contributors and future maintenance work. The main rule is simple: DeepSeekCode is a generic local agent runtime. Do not turn it into a pile of task-specific keyword branches.
 
 ## Repository Layout
 
 ```text
 src/
-  cli/                  CLI entry and TUI startup
+  cli/                  CLI entry, startup diagnostics, TUI launch
   commands/             slash commands and command router
   provider/             DeepSeek/OpenAI-compatible provider calls
-  protocol/             typed action and tool schemas
-  query/                prompt assembly and tool-call loop
-  services/             agents, approvals, cache, memory, state
-  remote/               WeChat/WeCom adapters, rendering, delivery
+  protocol/             typed action schemas and Zod validation
+  query/                prompt assembly, native tool loop, verification scheduling
+  remote/               WeChat/WeCom adapters, rendering, artifact delivery
+  services/             agents, approvals, cache, memory, sessions, state
   tools/                local tool registry and implementations
   tui/                  Ink UI components
 website/                public website
-assets/                 public README/website assets
+assets/                 README and website screenshots
 ```
 
-## Development Rules
+## Development Principles
 
-- Prefer native tool calls over model-emitted JSON plans.
-- Keep task intent in the model; keep permissions, platform safety, and artifact typing in the runtime.
-- Do not add keyword hacks such as “if prompt contains website”.
-- Add Zod schemas for every provider-facing tool.
-- Tool output should be useful for the next model turn: status, target, key result, key error, and compact context.
-- Never replay long stdout/diff/log content repeatedly; store details as events/artifacts and summarize.
+- Use native provider `tools[]` and `tool_calls`; do not revive model-emitted JSON planning.
+- Let the model reason about task intent; let runtime enforce permissions, path safety, platform behavior, artifact typing, and verification.
+- Do not add rules like "if prompt contains website then require HTML." Add a validator instead.
+- Every provider-facing tool needs a Zod schema and compact tool result.
+- A good tool result includes status, target, key output, key error, artifact path, and a short next-action hint.
+- Long stdout, logs, diffs, and raw artifacts should be stored in state or files and summarized before replay.
 - Test outputs belong outside the release tree, normally `D:\code\DeepSeekTest`.
 
 ## Native Tool Loop
 
 ```text
-build messages
+build stable messages
   -> provider call with tools[]
-  -> tool_calls
-  -> validate args with Zod
-  -> hooks and permission gate
+  -> native tool_calls
+  -> Zod argument validation
+  -> hook and permission gate
   -> platform preflight
-  -> execute
+  -> local execution
   -> compact tool_result
-  -> next provider turn
+  -> repair / verify_task / next provider turn
 ```
 
-If a gateway/model does not support native tool calls, the runtime should fail clearly instead of silently falling back to JSON planning.
+If the selected provider or gateway does not support native tool calling, fail clearly. Silent JSON fallback makes the runtime unreliable and expensive.
 
-## Windows Preflight
+## Task Completion Contract
 
-`src/tools/commandPreflight.ts` handles command compatibility and failure classification.
+`TaskCompletionContract` is the shared contract for normal mode, multi-agent mode, and remote mode.
 
-Add new rules only when they are platform checks, not task-intent checks. Good examples:
+Fields:
 
-- `mkdir -p` is not PowerShell-compatible.
-- `rm -rf` should become `Remove-Item -Recurse -Force`.
-- `node-gyp` failed because Visual Studio build tools are missing.
+- `goal`: what the user wants done.
+- `expected_artifacts`: files or outputs the model expects to create.
+- `verifiable_behaviors`: commands, UI behavior, data checks, or document properties that can be verified.
+- `acceptance_criteria`: concise completion checks.
+- `user_constraints`: explicit user restrictions such as no shell, no network, no tests in repo, or output location.
 
-Bad examples:
+The model creates the contract. Runtime stores and checks it. Runtime must not infer a task by prompt keywords.
 
-- “Prompt mentions website, therefore require HTML.”
-- “Prompt mentions PPT, therefore force create_pptx.”
+## Generic Verification
 
-## Project Verification
+`src/tools/projectVerification.ts` owns `verify_task`, `verify_project`, and `launch_project`.
 
-`src/tools/projectVerification.ts` owns `verify_project` and `launch_project`.
+`verify_task` is the generic entry point. It may call project checks internally, but it should also inspect non-project artifacts:
 
-Design principles:
-
-- Inspect real files first.
-- Prefer package scripts over invented commands.
-- Capture browser evidence for HTML/UI tasks.
-- Return actionable failures, not vague completion messages.
-- Let the model repair using tool feedback.
+- package manifests and scripts
+- CLI/script outputs
+- HTML/browser-visible outputs
+- DOCX/PPTX/XLSX/PDF
+- Markdown/text reports
+- CSV/TSV/JSON data
+- image/media files
+- skill/plugin/MCP results
+- automation logs and final status
 
 When adding a new artifact class, update:
 
-- `projectVerification.ts`
-- `remote/delivery.ts`
-- README/GUIDE capability matrix
-- API_REFERENCE tool table
+- `src/protocol/actions.ts`
+- `src/tools/artifact.ts`
+- `src/tools/projectVerification.ts`
+- `src/remote/delivery.ts`
+- `README.zh-CN.md`, `README.md`, `GUIDE.md`, `API_REFERENCE.md`
 
-## Remote Channels
+## Auto-Repair Loop
 
-Remote adapters should never create independent agent logic. They should:
+`QueryEngine` schedules verification after concrete work. If verification fails:
 
-1. Authenticate/authorize the sender.
-2. Bind the sender to a project.
-3. Send messages into QueryEngine.
-4. Render concise progress with `RemoteReplyRenderer`.
-5. Deliver artifacts with `RemoteDeliveryPlan`.
+1. compact the failed checks
+2. classify platform or dependency failures
+3. replay failure feedback as a tool result
+4. require the model to change strategy
+5. re-run the relevant validator
 
-Remote output should avoid console logs, raw JSON, approval ids, run ids, secrets, and long file lists.
+Do not let the model retry the same failing install/build/start command forever. Native dependency failures should usually lead to pure-JS alternatives, simplified local data, or an explicit user requirement for system components.
 
-## WeChat OpenClaw
+## Windows Preflight
 
-Personal WeChat is experimental. Keep all OpenClaw API access inside the wrapper/service layer so the rest of the runtime is insulated from SDK changes.
+`src/tools/commandPreflight.ts` only handles command/platform issues. Good rules:
 
-Important behavior:
+- `mkdir -p a b` -> PowerShell `New-Item -ItemType Directory -Force -Path @('a','b')`
+- `rm -rf` -> `Remove-Item -Recurse -Force`
+- `cat` -> `Get-Content`
+- `node-gyp` or Visual Studio errors -> native dependency diagnosis
 
-- Browser QR login is preferred over terminal QR rendering.
-- Incoming messages must be mirrored to TUI listeners.
-- Ordinary chat should not be forced into task-result templates.
-- `/ask` is read-only and must not mutate the active task.
-- Artifact delivery should prefer image previews and previewable documents.
+Bad rules:
 
-## Skills And Plugins
+- "Prompt mentions website, force HTML."
+- "Prompt mentions PPT, force create_pptx."
+- "Prompt mentions database, force SQLite."
 
-Skills are capability prompts and workflows. They do not replace low-level tools.
+## Multi-Agent Development
 
-Install sources:
+The workflow is centered around `AgentWorkflowService` and state events:
 
-- local path
-- GitHub URL
-- Git URL
-- `file://` Git repository
+- `start_agent_workflow`
+- `send_agent_message`
+- `agent_status`
+- `finish_agent_workflow`
 
-Runtime behavior:
+Default roles should include Planner, Builder, Tester, and Reviewer. User-provided roles should be preserved, but still receive tool limits, skills, output requirements, and acceptance rules.
 
-- `search_skills` and `invoke_skill` are provider-facing native tools.
-- The model chooses skills from task semantics and skill descriptions.
-- `disable-model-invocation: true` removes a skill from automatic candidates.
-- Installed copies live under `.deepseekcode`, not the source repository.
+Reviewer must check against the generic task contract. It should not only inspect web artifacts.
 
-## MCP
+## Skills, Plugins, And MCP
 
-MCP currently enters through `mcp_call`. When adding direct schema expansion, ensure:
+Skills are reusable instruction/workflow packs. They are not replacements for runtime tools.
 
-- Stable tool ordering.
-- Permission gates for risky tools.
-- PreToolUse/PostToolUse hook support.
-- Compact tool_result summaries.
-- Mock stdio/http tests.
+- The model may call `search_skills` and `invoke_skill` when a matching skill is installed.
+- Skill execution uses a forked local agent context.
+- Plugin-installed skills and agents must be discoverable through the same registry.
+- MCP tools should enter the native tool loop through either expanded schemas or `mcp_call`.
+- MCP results must pass through permission, hooks, compact summaries, and verification.
 
-## Multi-Agent Workflow
+## Remote Development
 
-The current design is central orchestration:
+Remote channels should never mirror the noisy terminal log directly.
 
-- Main agent starts a workflow.
-- Roles receive specs and limited tool permissions.
-- Shared blackboard records role messages.
-- Reviewer is always present for acceptance.
-- Main session receives summaries and blockers.
+Remote handlers should publish:
 
-Do not implement unbounded agent chatter. The system should stay traceable and resumable.
+- concise phase
+- current plan item
+- latest tool/action
+- permission request
+- artifact summary
+- verification result
+- cost/cache summary
+
+Use `RemoteDeliveryPlan` to choose what to send. It should send previews and summaries, not every source file.
 
 ## Cache And Context
 
-The cache strategy is based on stable prefixes:
+Prompt blocks should stay stable in this order:
 
-- Fixed system prompt order.
-- Fixed tool schema order.
-- Stable skills index summary.
-- Compact dynamic blocks.
-- Rolling summaries for old context.
-- Tool-result micro summaries.
+1. system rules
+2. provider/tool schema
+3. skills/MCP index
+4. project rules
+5. rolling run state
+6. recent turns
+7. compact tool results
 
-Use `/cache report` to inspect provider telemetry and prompt shapes. Do not delete useful history just to reduce token counts; summarize it into run state and artifact manifests.
+When a change is needed, prefer updating dynamic summaries instead of rewriting stable prefix text. `/cache report` should explain low hit rates by stable/dynamic token split and recent churn.
 
-## Testing
+## Local Test Rules
 
-Base checks:
+Use the release tree for code, and `D:\code\DeepSeekTest` for test fixtures and generated artifacts.
 
-```cmd
-npm.cmd run typecheck
-npm.cmd run build
-npm.cmd pack --dry-run
-```
-
-Recommended real scenarios:
-
-- Multi-agent frontend/backend shop: generate, install, launch, verify, self-repair.
-- GSAP animation page: automatic skill invocation and browser screenshot.
-- DOCX/PPTX/XLSX/PDF generation and remote delivery.
-- MCP mock stdio/http call success/failure.
-- WeChat remote ordinary chat, task, `/ask`, `/status full`, approval, and artifact preview.
-- Long task with `/cache report` and token/cost comparison.
-
-Keep all generated outputs in `D:\code\DeepSeekTest` or another external test directory.
-
-## Release
-
-From `.release`:
+Baseline:
 
 ```cmd
 npm.cmd run typecheck
 npm.cmd run build
 npm.cmd pack --dry-run
-git status --short
-git add <intended files>
-git commit -m "Release v0.2.9 agent workflow validation and remote preview"
-git push origin main
 ```
 
-Optional npm tarball for manual publish:
+Targeted checks:
 
-```cmd
-npm.cmd pack --pack-destination D:\code\DeepSeekTest\npm-packages
-```
+- `verify_task` with mixed report/data/script artifacts.
+- Windows command preflight for POSIX commands.
+- skill installation/search/invoke.
+- MCP mock server discovery and call.
+- remote delivery plan for HTML, Office/PDF, Markdown, and multi-file projects.
+- multi-agent workflow status and Reviewer completion.
 
-Do not commit test projects, `.env`, prompt audit, runtime state, login state, reports, `node_modules`, or npm tarballs.
+## Release Rules
+
+- Release from `D:\code\DeepSeekCode\.release`.
+- Do not commit `D:\code\DeepSeekTest`, `.env`, prompt audit logs, node_modules, generated reports, or login state.
+- Keep README, Guide, API Reference, Architecture, Development Guide, CLI Reference, and website consistent.
+- Run build checks before committing.

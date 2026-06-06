@@ -1,8 +1,8 @@
 # DeepSeekCode API Reference
 
-Version: `v0.2.9`
+Version: `v0.3.0`
 
-This document describes public and internal extension surfaces that are stable enough to document.
+This reference covers the public CLI, slash commands, remote commands, tools, and extension surfaces that are stable enough to document.
 
 ## CLI
 
@@ -12,19 +12,19 @@ deepseekcode [options]
 
 | Option | Type | Meaning |
 | --- | --- | --- |
-| `--project` | path | Project root, default current directory. |
-| `--data-dir` | path | Runtime data dir, default `<project>\.deepseekcode`. |
-| `--model` | string | Provider model. |
-| `--continue` | flag | Continue latest session. |
+| `--project` | path | Project root. Defaults to the current directory. |
+| `--data-dir` | path | Runtime data directory. Defaults to `<project>\.deepseekcode`. |
+| `--model` | string | Provider model, for example `deepseek-v4-flash` or `deepseek-v4-pro`. |
+| `--continue` | flag | Continue the latest session for the project. |
 | `--resume` | session id | Resume a known session. |
 | `--doctor` | flag | Print diagnostics and exit. |
-| `--allow-shell` | flag | Enable shell for this process. |
-| `--allow-browser` | flag | Enable browser bridge for this process. |
-| `--permission-profile` | string | Permission profile such as `safe`, `dev`, `browser`, `open`. |
+| `--allow-shell` | flag | Enable shell tools for this process. Commands still pass through permission policy. |
+| `--allow-browser` | flag | Enable browser/CDP tools for this process. |
+| `--permission-profile` | string | Permission profile such as `safe`, `dev`, `browser`, or `open`. |
 | `--wecom` | flag | Start WeCom remote mode. |
 | `--wechat-login` | flag | Login personal WeChat OpenClaw. |
 | `--wechat` | flag | Start personal WeChat OpenClaw remote mode. |
-| `-p, --prompt` | string | Run one prompt and exit. |
+| `-p`, `--prompt` | string | Run one prompt and exit. |
 
 ## Slash Commands
 
@@ -65,7 +65,7 @@ Remote:
 /remote-control wecom stop
 ```
 
-Skills/plugins/MCP:
+Skills, plugins, and MCP:
 
 ```text
 /skills install <source> [name]
@@ -80,10 +80,11 @@ Skills/plugins/MCP:
 /mcp call <server> <tool> <json>
 ```
 
-Agent workflow:
+Agents:
 
 ```text
-/agents start <task>
+/agents
+/agents start <goal>
 /agents status
 /agents message <role> <message>
 /agents stop
@@ -91,128 +92,177 @@ Agent workflow:
 
 ## Remote Commands
 
-WeChat/WeCom text commands:
+WeChat and WeCom expose a smaller command set:
 
 ```text
 /help
 /status
 /status full
-/ask <question>
 /project
 /project <path>
 /run <task>
 /continue
-/stop
+/ask <question>
 /artifacts
 /usage
-/shell on
-/shell off
+/stop
 ```
 
-Approval menu for personal WeChat:
+Personal WeChat uses text approval:
 
 ```text
-1 allow once
-2 allow for this session
-3 reject
-4 stop task
+1  allow once
+2  allow for this session
+3  reject
+4  stop task
 ```
 
-## Provider-Facing Tool Registry
+WeCom may use card approval when the configured adapter supports it.
 
-Tool arguments are Zod-validated. Important tools include:
+## Environment Variables
 
-| Tool | Status | Purpose |
-| --- | --- | --- |
-| `read_file` | supported | Read project files. |
-| `write_file` | supported | Write files after read/permission checks. |
-| `append_file` | supported | Append content. |
-| `apply_patch` | supported | Structured patch editing. |
-| `list_files` | supported | List directory contents. |
-| `grep_files` | supported | Search file contents. |
-| `glob_files` | supported | Find files by pattern. |
-| `run_command` | permissioned | Execute shell with Windows preflight and failure classification. |
-| `verify_project` | partial | Inspect and validate real project artifacts. |
-| `launch_project` | partial | Start/open project entry and collect diagnostics. |
-| `browser_agent` | partial | Browser automation adapter backed by built-in browser tooling where available. |
-| `create_docx` | partial | Generate DOCX. |
-| `create_pptx` | partial | Generate PPTX. |
-| `create_pdf` | experimental | PDF generation/preview support is conservative. |
-| `search_skills` | supported | Search installed skills. |
-| `invoke_skill` | supported | Run a named skill. |
-| `mcp_call` | partial | Call configured MCP server tools. |
-| `start_agent_workflow` | experimental | Start role-based workflow. |
-| `send_agent_message` | experimental | Send message to workflow role/blackboard. |
-| `agent_status` | experimental | Inspect workflow state. |
-| `finish_agent_workflow` | experimental | Finish workflow and summarize acceptance. |
+Provider:
 
-## Run Events
+| Variable | Meaning |
+| --- | --- |
+| `DEEPSEEK_API_KEY` | DeepSeek API key. |
+| `DEEPSEEK_BASE_URL` | Optional provider base URL. |
+| `DEEPSEEKCODE_MODEL` | Default model. |
+| `DEEPSEEKCODE_PROMPT_AUDIT_DIR` | Enables prompt audit output when set. Default off. |
 
-Run events should be compact and useful for both TUI and remote:
+WeCom:
+
+| Variable | Meaning |
+| --- | --- |
+| `DEEPSEEKCODE_WECOM_BOT_ID` | WeCom bot id. |
+| `DEEPSEEKCODE_WECOM_BOT_SECRET` | WeCom bot secret. |
+| `DEEPSEEKCODE_WECOM_ALLOWED_USERS` | Optional allowlist. |
+| `DEEPSEEKCODE_WECOM_ALLOWED_GROUPS` | Optional group allowlist. |
+| `DEEPSEEKCODE_WECOM_PROJECT_ROOTS` | Allowed project roots for remote switching. |
+
+Personal WeChat OpenClaw:
+
+| Variable | Meaning |
+| --- | --- |
+| `DEEPSEEKCODE_WECHAT_OPENCLAW_ENABLED` | Enables OpenClaw channel. |
+| `DEEPSEEKCODE_WECHAT_ALLOWED_USERS` | Optional user allowlist. |
+| `DEEPSEEKCODE_WECHAT_ALLOWED_GROUPS` | Optional group allowlist. |
+| `DEEPSEEKCODE_WECHAT_PROJECT_ROOTS` | Allowed project roots for remote switching. |
+| `DEEPSEEKCODE_WECHAT_MENTION_NAMES` | Names that activate group chat messages. |
+| `DEEPSEEKCODE_WECHAT_QR_POLL_INTERVAL_MS` | QR polling interval. |
+| `DEEPSEEKCODE_WECHAT_LONG_POLL_TIMEOUT_MS` | Message long-poll timeout. |
+
+## Provider Tool Surface
+
+DeepSeekCode exposes tools through native provider `tools[]`. Important tool groups:
+
+| Tool group | Examples |
+| --- | --- |
+| Files | `read_file`, `write_file`, `append_file`, `patch_file`, `list_files`, `glob_files`, `grep_files` |
+| Shell | `run_command` |
+| Browser | `browser_session_start`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, `browser_agent` |
+| Artifacts | `validate_artifact`, `create_docx`, `create_pptx`, `create_xlsx`, `create_pdf` |
+| Verification | `verify_task`, `verify_project`, `launch_project` |
+| Skills/plugins | `search_skills`, `invoke_skill`, `install_skill`, `install_plugin` |
+| MCP | `mcp_call` |
+| Agents | `invoke_agent`, `start_agent_workflow`, `send_agent_message`, `agent_status`, `finish_agent_workflow` |
+| Memory | `memory_search`, `memory_capture`, `memory_raw_search` |
+
+## `TaskCompletionContract`
+
+`verify_task` accepts a model-authored contract:
 
 ```ts
-type RunProgressSnapshot = {
-  phase: string;
-  elapsedMs: number;
-  lastModelCall?: string;
-  lastTool?: string;
-  pendingGate?: string;
-  todoCounts?: { pending: number; inProgress: number; completed: number };
-  artifactCounts?: Record<string, number>;
-  usage?: { input: number; output: number; cacheHit?: number; cacheMiss?: number; costUsd?: number };
-  staleReason?: string;
-};
+interface TaskCompletionContract {
+  goal?: string;
+  expected_artifacts?: string[];
+  verifiable_behaviors?: string[];
+  acceptance_criteria?: string[];
+  user_constraints?: string[];
+}
 ```
 
-Avoid exposing internal run ids, approval ids, raw JSON, or secrets in user-facing renderers.
+Runtime uses the contract plus actual files/tool results to choose validators. It does not infer completion from prompt keywords.
 
-## RemoteDeliveryPlan
+## `verify_task`
 
-The runtime decides what to send remotely from actual artifacts:
+Generic completion gate for non-chat tasks.
+
+Input:
 
 ```ts
-type RemoteDeliveryPlan = {
+{
+  type: "verify_task";
+  path?: string;
+  objective?: string;
+  contract?: TaskCompletionContract;
+  mode?: "auto" | "quick" | "full";
+  install_dependencies?: boolean;
+  run_build?: boolean;
+  run_tests?: boolean;
+  launch?: boolean;
+  capture_preview?: boolean;
+  timeout_ms?: number;
+}
+```
+
+Output:
+
+```ts
+interface ProjectVerificationReport {
+  status: "succeeded" | "failed";
+  root: string;
   summary: string;
-  previewImages: string[];
-  files: string[];
-  entrypoints: string[];
-  manifest: Array<{ path: string; kind: string; size?: number }>;
-  warnings: string[];
-};
+  checks: Array<{ name: string; status: "passed" | "failed" | "skipped" | "warning"; detail: string }>;
+  artifacts: string[];
+  previewPath?: string;
+  startCommand?: string;
+}
 ```
 
-Rules:
+`verify_task` may call package checks, artifact validators, script discovery, launch smoke checks, and browser/document/data validators. Failed checks are compacted and replayed to the model for repair.
 
-- HTML gets screenshots first.
-- Office/PDF can be sent as files.
-- Images are sent as images.
-- Markdown/text are summarized unless requested.
-- Source files in multi-file projects are not spammed into chat.
-
-## Agent Workflow
+## Agent Workflow Types
 
 ```ts
-type AgentRoleSpec = {
+interface AgentRoleSpec {
   name: string;
-  purpose: string;
-  tools: string[];
-  skills: string[];
-  inputs: string[];
-  outputs: string[];
-  acceptance: string[];
-};
+  responsibility?: string;
+  tools?: string[];
+  disallowed_tools?: string[];
+  skills?: string[];
+  acceptance?: string[];
+}
 ```
 
-Default roles are Planner, Builder, Tester, and Reviewer. Reviewer acceptance must check artifacts, startup, blank pages, build/test, and original requirements.
+Workflow tools:
 
-## Cache Report
+- `start_agent_workflow`: creates role specs and a shared blackboard.
+- `send_agent_message`: records role-to-role handoff.
+- `agent_status`: summarizes role state, current task, latest tool, and blockers.
+- `finish_agent_workflow`: closes only after Tester/Reviewer acceptance.
 
-`/cache report` combines:
+## Remote Delivery Plan
 
-- provider telemetry hit/miss rate
-- stable prefix pins
-- prompt-shape repetition
-- risky dynamic context
-- actionable recommendations
+Remote channels should display concise progress and completion:
 
-The goal is stable prefix reuse plus compact dynamic state, not blind history deletion.
+| Artifact | Delivery |
+| --- | --- |
+| HTML/UI | screenshot and entry summary |
+| DOCX/PPTX/XLSX/PDF | previewable file, optional first-page/slide image |
+| Markdown/text | short chat summary, file only when requested |
+| Image/media | direct image/file |
+| Multi-file project | manifest, entry, startup command, verification summary, key preview |
+
+The model may suggest important outputs, but runtime decides delivery from real files.
+
+## Status Values
+
+Use these public status labels in docs and UI:
+
+- `verified`: tested in real runs
+- `partial`: implemented but still has known gaps
+- `experimental`: usable for testing, not yet mature
+- `reserved`: planned or compatibility placeholder
+
+Avoid claiming that experimental remote, MCP, or multi-agent flows are production-complete.

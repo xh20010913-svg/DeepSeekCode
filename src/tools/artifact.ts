@@ -5,7 +5,7 @@ import type { ArtifactKind } from "../protocol/actions.js";
 import { artifactKindFromPath } from "../protocol/actions.js";
 import { safeJoin } from "./pathSafety.js";
 
-const MOJIBAKE_MARKERS = ["锟", "�", "Ã", "Â", "å", "æ", "ç"];
+const MOJIBAKE_MARKERS = ["\uFFFD", "锟斤拷", "Ã", "Â", "â€", "â€™"];
 
 export interface ArtifactValidationReport {
   path: string;
@@ -77,11 +77,13 @@ function validateExtension(
         ? ext === "docx"
         : kind === "pptx"
           ? ext === "pptx"
-        : kind === "pdf"
-          ? ext === "pdf"
-          : kind === "image"
-            ? ["png", "jpg", "jpeg", "webp"].includes(ext)
-            : true;
+          : kind === "xlsx"
+            ? ext === "xlsx"
+            : kind === "pdf"
+              ? ext === "pdf"
+              : kind === "image"
+                ? ["png", "jpg", "jpeg", "webp"].includes(ext)
+                : true;
   if (valid) checks.push("extension");
   else errors.push(`extension does not match ${kind}`);
 }
@@ -97,11 +99,15 @@ function validateContent(
     else errors.push("missing PDF header");
     return;
   }
-  if (kind === "docx" || kind === "pptx") {
+  if (kind === "docx" || kind === "pptx" || kind === "xlsx") {
     if (bytes.subarray(0, 2).toString() === "PK") checks.push("zip_header");
     else errors.push(`${kind.toUpperCase()} is not a zip package`);
     const entries = zipEntries(bytes);
-    const requiredEntry = kind === "docx" ? "word/document.xml" : "ppt/presentation.xml";
+    const requiredEntry = kind === "docx"
+      ? "word/document.xml"
+      : kind === "pptx"
+        ? "ppt/presentation.xml"
+        : "xl/workbook.xml";
     if (entries?.some((entry) => entry.name === requiredEntry)) checks.push(`${kind}_main_part`);
     else errors.push(`missing ${requiredEntry}`);
     if (kind === "pptx" && entries) {
@@ -109,6 +115,9 @@ function validateContent(
     }
     if (kind === "docx" && entries) {
       validateDocxStructure(bytes, entries, checks, errors);
+    }
+    if (kind === "xlsx" && entries) {
+      validateXlsxStructure(entries, checks, errors);
     }
     return;
   }
@@ -194,6 +203,23 @@ function validateDocxStructure(
   if (textChars > 0) checks.push(`docx_text_chars=${textChars}`);
   else errors.push("DOCX has no readable document text");
   if (cjkChars > 0) checks.push(`docx_cjk_chars=${cjkChars}`);
+}
+
+function validateXlsxStructure(
+  entries: ZipEntry[],
+  checks: string[],
+  errors: string[],
+): void {
+  const worksheets = entries.filter((entry) => /^xl\/worksheets\/sheet\d+\.xml$/i.test(entry.name));
+  const sharedStrings = entries.some((entry) => entry.name === "xl/sharedStrings.xml");
+  const styles = entries.some((entry) => entry.name === "xl/styles.xml");
+  if (worksheets.length === 0) {
+    errors.push("XLSX has no worksheet parts");
+    return;
+  }
+  checks.push(`xlsx_worksheets=${worksheets.length}`);
+  if (sharedStrings) checks.push("xlsx_shared_strings");
+  if (styles) checks.push("xlsx_styles");
 }
 
 function zipEntries(bytes: Buffer): ZipEntry[] | undefined {

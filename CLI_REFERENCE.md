@@ -1,242 +1,107 @@
 # DeepSeekCode CLI Reference
 
-Package: `@xh12312/deepseekcode`
-
-Public command:
+## Binary
 
 ```cmd
-deepseekcode
+deepseekcode [options]
 ```
 
-The package does not install a `deepseek` alias.
+The npm package only installs `deepseekcode`.
 
-## Install
-
-```cmd
-npm install -g @xh12312/deepseekcode --registry https://registry.npmjs.org/
-cd /d D:\code\DeepSeekTest
-deepseekcode --model deepseek-v4-flash
-```
-
-## CLI Options
+## Options
 
 | Option | Description |
 | --- | --- |
-| `--project <path>` | Project root. Defaults to current directory. |
+| `--project <path>` | Project directory. Defaults to current working directory. |
 | `--data-dir <path>` | Runtime state directory. Defaults to `<project>\.deepseekcode`. |
-| `--model <name>` | Model name. |
-| `--continue` | Continue the latest session. |
-| `--resume <session>` | Resume a specific session. |
-| `--doctor` | Print diagnostics and exit. |
-| `--allow-shell` | Enable shell for this process. Permission gates still apply. |
-| `--allow-browser` | Enable browser/CDP bridge for this process. |
-| `--permission-profile <name>` | `safe`, `dev`, `browser`, or `open`. |
-| `--wecom` | Start WeCom remote channel. |
-| `--wechat-login` | Login personal WeChat OpenClaw account. |
-| `--wechat` | Start personal WeChat OpenClaw remote channel. |
-| `-p, --prompt <text>` | Run a single prompt and exit. |
+| `--model <name>` | Model name, for example `deepseek-v4-flash` or `deepseek-v4-pro`. |
+| `--permission-profile <safe\|dev\|custom>` | Permission profile. |
+| `--allow-shell` | Start with shell enabled for the session. Commands still pass through runtime gates. |
+| `--allow-browser` | Start with browser tools enabled. |
+| `--continue` | Resume the latest project session when possible. |
+| `--doctor` | Print configuration, provider, tools, skills, plugins, MCP, cache, and permission diagnostics. |
+| `--wechat` | Start personal WeChat OpenClaw remote mode. Experimental. |
+| `--wecom` | Start WeCom remote mode. Experimental. |
+| `--wechat-login` | Start OpenClaw login flow. |
 
-Examples:
-
-```cmd
-deepseekcode
-deepseekcode --project D:\code\DeepSeekTest
-deepseekcode --project D:\code\DeepSeekTest --model deepseek-v4-flash
-deepseekcode --project D:\code\DeepSeekTest --continue -p "继续上一轮任务"
-deepseekcode --doctor
-```
-
-## Core Slash Commands
+## Slash commands
 
 | Command | Description |
 | --- | --- |
-| `/help` | Show help. |
-| `/status` | Show concise runtime status. |
-| `/status full` | Show detailed run/task/remote status. |
-| `/doctor` | Diagnose provider, tools, state, remote, memory, skills, and permissions. |
-| `/tools` | List provider-facing tools and status. |
+| `/help` | Show command help. |
+| `/doctor` | Runtime diagnostics. |
+| `/tools` | Registered tools and status. |
 | `/model` | Open model selector. |
-| `/model flash` | Switch to flash model. |
-| `/model pro` | Switch to pro model. |
-| `/language zh` / `/language en` | Switch TUI language. |
-| `/shell on` / `/shell off` | Toggle shell for this session. |
-| `/browser on` / `/browser off` | Toggle browser bridge. |
-| `/permissions` | Show permission profile and current grants. |
-| `/cache` | Show cache readiness. |
-| `/cache report` | Show provider telemetry, stable prefix, low-hit reasons, and advice. |
-| `/usage` / `/cost` | Show tokens and estimated cost. |
-| `/runs` | List persisted runs. |
-| `/trace <run>` | Show action and artifact trace. |
-| `/events <run>` | Show event log. |
-| `/artifacts` | Show recent artifacts. |
-| `/ask <question>` | Ask a read-only side question during an active long task. |
-| `/stop` | Stop current run when supported. |
+| `/model flash` | Switch to flash model alias. |
+| `/model pro` | Switch to pro model alias. |
+| `/language zh` / `/language en` | Switch UI language. |
+| `/shell on` / `/shell off` | Toggle shell permission. |
+| `/browser on` / `/browser off` | Toggle browser permission. |
+| `/status` | Current run summary. |
+| `/status full` | Detailed run state, recent events, waiting item, and issues. |
+| `/ask <question>` | Read-only side question while a task is running. |
+| `/cache report` | Cache hit/miss, stable prefix, dynamic context, and suggestions. |
+| `/skills` | List installed skills. |
+| `/skills install <source>` | Install a skill from local path, GitHub, Git URL, or `file://`. |
+| `/plugins` | List installed plugins. |
+| `/plugins install <source>` | Install a plugin. |
+| `/mcp` | MCP status and callable tools. |
+| `/remote-control` | Remote channel panel. |
+| `/remote-control wechat start` | Start personal WeChat remote. |
+| `/remote-control wecom start` | Start WeCom remote. |
+| `/agents status` | Show active multi-agent workflow. |
+| `/artifacts` | Recent artifacts and delivery summary. |
+| `/stop` | Stop the current run when cancellable. |
 
-## Remote Control
+## Remote commands
 
-TUI:
-
-```text
-/remote-control
-/remote-control status
-/remote-control wechat login
-/remote-control wechat start
-/remote-control wechat stop
-/remote-control wecom start
-/remote-control wecom stop
-```
-
-CLI:
-
-```cmd
-deepseekcode --wechat-login --project D:\code\DeepSeekTest
-deepseekcode --wechat --project D:\code\DeepSeekTest --model deepseek-v4-flash
-deepseekcode --wecom --project D:\code\DeepSeekTest --model deepseek-v4-flash
-```
-
-WeChat / WeCom:
+Personal WeChat and WeCom share the same command vocabulary:
 
 ```text
-/help
-/status
-/status full
-/ask <question>
-/project
-/project <path>
 /run <task>
 /continue
-/stop
+/status
+/status full
+/ask <read-only question>
 /artifacts
 /usage
-/shell on
-/shell off
+/stop
 ```
 
-Personal WeChat approval replies:
+Normal chat is allowed. If no local work is needed, the runtime answers normally instead of forcing a task-result template.
 
-```text
-1 allow once
-2 allow for this session
-3 reject
-4 stop task
-```
+## Environment variables
 
-## Skills
-
-```text
-/skills
-/skills list
-/skills search <query>
-/skills install <source> [name]
-/skills install-all <source>
-/skills update <name>
-/skills validate [name]
-/skills uninstall <name>
-/skills run <name> <task>
-```
-
-Examples:
-
-```text
-/skills install greensock/gsap-skills
-/skills install-all greensock/gsap-skills
-/skills search gsap
-/skills run gsap-core "给当前网页加滚动动画"
-```
-
-The model can auto-call skills through native `search_skills` and `invoke_skill`. `disable-model-invocation: true` disables automatic invocation for a skill.
-
-## Plugins
-
-```text
-/plugins
-/plugins list
-/plugins install <source>
-/plugins update <name>
-/plugins validate [name]
-/plugins enable <name>
-/plugins disable <name>
-/plugins uninstall <name>
-```
-
-Supported install sources include local paths, GitHub URLs, Git URLs, and `file://` Git repositories.
-
-## MCP
-
-```text
-/mcp list
-/mcp status
-/mcp add <name> <config>
-/mcp remove <name>
-/mcp call <server> <tool> <json>
-```
-
-MCP is currently exposed through unified `mcp_call`. Permissioned MCP actions must pass through the same approval service as local tools.
-
-## Multi-Agent
-
-```text
-/agents
-/agents start <task>
-/agents status
-/agents message <role> <message>
-/agents stop
-/multi provider <task>
-```
-
-Native workflow tools:
-
-- `start_agent_workflow`
-- `send_agent_message`
-- `agent_status`
-- `finish_agent_workflow`
-
-The workflow uses supervisor + shared blackboard + reviewer state and is marked experimental.
-
-## Provider-Facing Tools Added In v0.2.9
-
-| Tool | Purpose |
+| Variable | Description |
 | --- | --- |
-| `verify_project` | Inspect real project files and run build/test/browser/file checks where allowed. |
-| `launch_project` | Start a project command or open an entry file and collect launch diagnostics. |
-| `browser_agent` | Optional browser automation adapter backed by built-in Playwright/CDP behavior where available. |
+| `DEEPSEEK_API_KEY` | DeepSeek API key. |
+| `DEEPSEEK_BASE_URL` | Provider base URL. |
+| `DEEPSEEK_MODEL` | Default model. |
+| `DEEPSEEKCODE_LANGUAGE` | `zh-CN` or `en`. |
+| `DEEPSEEKCODE_PROMPT_AUDIT_DIR` | Optional prompt audit output directory. Off by default. |
+| `DEEPSEEKCODE_WECHAT_OPENCLAW_ENABLED` | Enables personal WeChat OpenClaw remote. |
+| `DEEPSEEKCODE_WECHAT_ALLOWED_USERS` | Optional personal WeChat user allowlist. |
+| `DEEPSEEKCODE_WECHAT_ALLOWED_GROUPS` | Optional personal WeChat group allowlist. |
+| `DEEPSEEKCODE_WECHAT_PROJECT_ROOTS` | Allowed project roots for WeChat remote project switching. |
+| `DEEPSEEKCODE_WECOM_BOT_ID` | WeCom bot id. |
+| `DEEPSEEKCODE_WECOM_BOT_SECRET` | WeCom bot secret. |
+| `DEEPSEEKCODE_WECOM_ALLOWED_USERS` | Optional WeCom user allowlist. |
+| `DEEPSEEKCODE_WECOM_PROJECT_ROOTS` | Allowed WeCom project roots. |
 
-`run_command` also performs Windows command preflight before execution.
+## Tool names
 
-## Environment Variables
+Important runtime tools:
 
-Provider:
+- `read_file`, `write_file`, `append_file`, `apply_patch`
+- `list_files`, `glob_files`, `grep_files`
+- `run_command`
+- `validate_artifact`
+- `verify_task`
+- `verify_project`
+- `launch_project`
+- `search_skills`, `invoke_skill`
+- `mcp_call`
+- `start_agent_workflow`, `send_agent_message`, `agent_status`, `finish_agent_workflow`
+- `browser_session_start`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`
 
-```text
-DEEPSEEK_BASE_URL
-DEEPSEEK_API_KEY
-DEEPSEEK_MODEL
-DEEPSEEK_TIMEOUT_SECS
-```
-
-Remote:
-
-```text
-DEEPSEEKCODE_WECOM_BOT_ID
-DEEPSEEKCODE_WECOM_BOT_SECRET
-DEEPSEEKCODE_WECOM_ALLOWED_USERS
-DEEPSEEKCODE_WECOM_ALLOWED_GROUPS
-DEEPSEEKCODE_WECOM_PROJECT_ROOTS
-DEEPSEEKCODE_WECHAT_OPENCLAW_ENABLED
-DEEPSEEKCODE_WECHAT_ACCOUNT_ID
-DEEPSEEKCODE_WECHAT_ALLOWED_USERS
-DEEPSEEKCODE_WECHAT_ALLOWED_GROUPS
-DEEPSEEKCODE_WECHAT_PROJECT_ROOTS
-DEEPSEEKCODE_WECHAT_MENTION_NAMES
-```
-
-Debug and accounting:
-
-```text
-DEEPSEEKCODE_PROMPT_AUDIT_DIR
-DEEPSEEKCODE_TDAI_MEMORY
-DEEPSEEKCODE_PRICE_INPUT_PER_M
-DEEPSEEKCODE_PRICE_OUTPUT_PER_M
-DEEPSEEKCODE_PRICE_CACHE_HIT_PER_M
-DEEPSEEKCODE_PRICE_CACHE_MISS_PER_M
-```
+`verify_task` is the generic completion gate. It should be preferred over task-specific assumptions whenever a non-chat deliverable is produced.

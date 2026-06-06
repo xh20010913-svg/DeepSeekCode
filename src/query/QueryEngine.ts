@@ -443,6 +443,7 @@ export class QueryEngine {
     const trajectory: ActionPlanTurn[] = [];
     const artifactContract = new Map<string, ArtifactExpectation>();
     const deliveredArtifacts = new Set<string>();
+    let visibleWorkflowEnsured = false;
 
     for (let attempt = 0; attempt < maxActionTurns; attempt += 1) {
       throwIfAborted(signal);
@@ -571,6 +572,25 @@ export class QueryEngine {
         continue_work: envelope.continue_work ?? false,
         remaining_work: envelope.remaining_work ?? "",
       });
+      if (envelope.actions.some((action) => action.type === "start_agent_workflow")) {
+        visibleWorkflowEnsured = true;
+      }
+      const workflowEnvelope = this.ensureVisibleWorkflowEnvelope(
+        envelope,
+        classification,
+        userMessage,
+        visibleWorkflowEnsured,
+      );
+      if (workflowEnvelope.injected) {
+        envelope = workflowEnvelope.envelope;
+        visibleWorkflowEnsured = true;
+        this.state.appendEvent(runId, "agent_workflow_runtime_seeded", {
+          attempt: attempt + 1,
+          task_kind: classification.task_kind,
+          action_count: envelope.actions.length,
+          reason: "multi_agent classified but no workflow tool was planned",
+        });
+      }
       recordArtifactExpectations(
         artifactContract,
         artifactExpectationsFromEnvelope(envelope, this.config.projectPath),
@@ -693,9 +713,9 @@ export class QueryEngine {
         detail: summarizeActionTypes(envelope.actions),
       });
       let report = await executeEnvelope(this.config.projectPath, envelope, executionOptions);
-      const validationEnvelope = this.autoValidationEnvelope(userMessage, report);
-      let validationTrajectoryTurn: ActionPlanTurn | undefined;
+      const validationTrajectoryTurns: ActionPlanTurn[] = [];
       let combinedReport = report;
+      const validationEnvelope = this.autoValidationEnvelope(userMessage, report);
       if (validationEnvelope) {
         onEvent?.({
           type: "status",
@@ -705,20 +725,38 @@ export class QueryEngine {
         });
         const validationReport = await executeEnvelope(this.config.projectPath, validationEnvelope, executionOptions);
         combinedReport = mergeReports(report, validationReport);
-        validationTrajectoryTurn = {
+        validationTrajectoryTurns.push({
           attempt: attempt + 10_001,
           assistantEnvelope: validationEnvelope,
           toolReport: compactActionReport(validationReport),
           note: "Runtime artifact validation.",
           reasoning: "DeepSeekCode scheduled artifact validation after the model-created artifact.",
-        };
+        });
+      }
+      const taskVerificationEnvelope = this.autoTaskVerificationEnvelope(envelope, combinedReport, artifactContract);
+      if (taskVerificationEnvelope) {
+        onEvent?.({
+          type: "status",
+          phase: "validating",
+          text: "Verifying task completion",
+          detail: summarizeActionTypes(taskVerificationEnvelope.actions),
+        });
+        const taskVerificationReport = await executeEnvelope(this.config.projectPath, taskVerificationEnvelope, executionOptions);
+        combinedReport = mergeReports(combinedReport, taskVerificationReport);
+        validationTrajectoryTurns.push({
+          attempt: attempt + 20_001,
+          assistantEnvelope: taskVerificationEnvelope,
+          toolReport: compactActionReport(taskVerificationReport),
+          note: "Runtime task verification.",
+          reasoning: "DeepSeekCode verified the task contract and real outputs before accepting completion.",
+        });
       }
       throwIfAborted(signal);
       const compactReport = compactActionReport(report);
-      const compactCombinedReport = validationTrajectoryTurn ? compactActionReport(combinedReport) : compactReport;
+      const compactCombinedReport = validationTrajectoryTurns.length ? compactActionReport(combinedReport) : compactReport;
       const pushTrajectory = (note?: string) => {
         trajectory.push({ attempt: attempt + 1, assistantEnvelope: envelope, toolReport: compactReport, note, reasoning: nonStreamReasoning });
-        if (validationTrajectoryTurn) trajectory.push(validationTrajectoryTurn);
+        trajectory.push(...validationTrajectoryTurns);
       };
       this.persistToolResultSummary(runId, attempt + 1, compactCombinedReport);
       this.saveRunProgressCheckpoint(runId, attempt + 1, envelope, compactCombinedReport);
@@ -918,7 +956,7 @@ export class QueryEngine {
       }
 
       pushTrajectory("Tool report failed; retry with feedback.");
-      feedback = compactCombinedReport;
+      feedback = repairFailureFeedback(compactCombinedReport);
     }
 
     this.state.updateRunStatus(runId, "failed", finalMessage || "action loop failed");
@@ -1185,6 +1223,105 @@ export class QueryEngine {
         path: target.path,
         expected_kind: target.expected_kind,
       })),
+    };
+  }
+
+  private autoTaskVerificationEnvelope(
+    envelope: ActionEnvelope,
+    report: ActionExecutionReport,
+    artifactContract: Map<string, ArtifactExpectation>,
+  ): ActionEnvelope | undefined {
+    if (report.status !== "succeeded" || envelope.continue_work) return undefined;
+    if (envelope.actions.some((action) => action.type === "verify_task")) return undefined;
+    if (report.results.some((result) => result.action_type === "verify_task")) return undefined;
+
+    const implementationExpected = expectsImplementation(envelope);
+    const hasProgress = hasImplementationProgress(report);
+    const expectedArtifacts = uniqueStrings([
+      ...[...artifactContract.values()].map((artifact) => artifact.path),
+      ...report.results
+        .filter((result) => result.status === "succeeded" && result.path)
+        .filter((result) => artifactProducingResultTypes.has(result.action_type) || Boolean(result.artifact_kind))
+        .map((result) => normalizeProjectRelativePath(this.config.projectPath, result.path!)),
+    ]).slice(0, 30);
+
+    if (!implementationExpected && !hasProgress && expectedArtifacts.length === 0) return undefined;
+
+    const acceptance = uniqueStrings([
+      ...(envelope.acceptance_criteria ?? []),
+      ...expectedArtifacts.map((artifact) => `expected artifact exists and validates: ${artifact}`),
+    ]).slice(0, 20);
+
+    return {
+      task_kind: "validation",
+      needs_local_tools: true,
+      acceptance_criteria: acceptance.length ? acceptance : ["task outputs are discoverable and valid"],
+      final_message: "Runtime task verification completed.",
+      actions: [{
+        type: "verify_task",
+        path: "",
+        objective: envelope.final_message || envelope.remaining_work || "Verify the current task completion.",
+        contract: {
+          goal: envelope.final_message || envelope.remaining_work || "Verify the current task completion.",
+          expected_artifacts: expectedArtifacts,
+          acceptance_criteria: acceptance,
+          verifiable_behaviors: [],
+          user_constraints: [],
+        },
+        mode: "auto",
+        install_dependencies: true,
+        run_build: true,
+        run_tests: true,
+        launch: true,
+        capture_preview: true,
+        timeout_ms: 45_000,
+      }],
+    };
+  }
+
+  private ensureVisibleWorkflowEnvelope(
+    envelope: ActionEnvelope,
+    classification: TurnClassification,
+    userMessage: string,
+    alreadyEnsured: boolean,
+  ): { envelope: ActionEnvelope; injected: boolean } {
+    if (alreadyEnsured || classification.task_kind !== "multi_agent") {
+      return { envelope, injected: false };
+    }
+    if (envelope.actions.some((action) =>
+      action.type === "start_agent_workflow" ||
+      action.type === "send_agent_message" ||
+      action.type === "agent_status" ||
+      action.type === "finish_agent_workflow"
+    )) {
+      return { envelope, injected: false };
+    }
+
+    const acceptance = uniqueStrings([
+      ...(envelope.acceptance_criteria ?? []),
+      "Planner, Builder, Tester, and Reviewer roles are visible in the project workflow status.",
+      "Reviewer verifies the task against the generic completion contract before the workflow is finished.",
+    ]).slice(0, 20);
+    const hasPlannedWork = envelope.needs_local_tools && envelope.actions.length > 0;
+    return {
+      injected: true,
+      envelope: {
+        ...envelope,
+        needs_local_tools: true,
+        acceptance_criteria: acceptance,
+        actions: [
+          {
+            type: "start_agent_workflow",
+            objective: userMessage,
+            roles: [],
+            acceptance_criteria: acceptance,
+            max_steps: 12,
+          },
+          ...envelope.actions,
+        ],
+        continue_work: envelope.continue_work ?? !hasPlannedWork,
+        remaining_work: envelope.remaining_work || "Continue the visible multi-agent workflow with concrete role work and generic verification.",
+      },
     };
   }
 
@@ -1488,13 +1625,16 @@ function hasImplementationProgress(report: ActionExecutionReport): boolean {
         "run_command",
         "ssh_write_file",
         "validate_artifact",
+        "verify_task",
         "browser_screenshot",
         "create_docx",
         "create_pptx",
+        "create_xlsx",
         "create_pdf",
         "invoke_skill",
+        "mcp_call",
       ].includes(result.action_type) ||
-      (Boolean(result.path) && ["file", "html", "markdown", "docx", "pptx", "pdf", "image", "screenshot"].includes(result.artifact_kind ?? ""))
+      (Boolean(result.path) && ["file", "html", "markdown", "docx", "pptx", "xlsx", "pdf", "image", "screenshot"].includes(result.artifact_kind ?? ""))
     ));
 }
 
@@ -1516,7 +1656,19 @@ function hasCompletionSignal(finalMessage: string, report: ActionExecutionReport
 }
 
 function expectsImplementation(envelope: { task_kind?: string; acceptance_criteria?: string[] }): boolean {
-  if (envelope.task_kind === "file_change" || envelope.task_kind === "document" || envelope.task_kind === "browser") {
+  if ([
+    "file_change",
+    "document",
+    "browser",
+    "command",
+    "code",
+    "data",
+    "automation",
+    "multi_agent",
+    "plugin",
+    "skill",
+    "mcp",
+  ].includes(envelope.task_kind ?? "")) {
     return true;
   }
   const criteria = (envelope.acceptance_criteria ?? []).join("\n").toLowerCase();
@@ -1757,6 +1909,36 @@ function userDecisionFeedback(
   };
 }
 
+function repairFailureFeedback(report: ActionExecutionReport): ActionExecutionReport {
+  const text = [
+    report.final_message,
+    ...report.results.map((result) => `${result.action_type} ${result.status} ${result.message ?? ""}`),
+  ].join("\n").toLowerCase();
+  const guidance: string[] = [];
+  if (/native_dependency_build_failed|node-gyp|visual studio|msvs|better-sqlite3|prebuild-install/.test(text)) {
+    guidance.push("Native dependency build failed. Do not retry the same npm install loop. Prefer a pure JavaScript dependency, browser/localStorage/file mock, SQLite via a pure-JS adapter, JSON/CSV storage, or explain the exact system build tools required.");
+    guidance.push("If this is an app or automation task, change package.json and implementation to remove the native dependency, then run verify_task again.");
+  }
+  if (/windows_shell_incompatible|powershell|mkdir -p|rm -rf|cat |grep /.test(text)) {
+    guidance.push("A shell command was incompatible with Windows PowerShell. Use PowerShell-safe commands, npm.cmd/node commands, or runtime file tools before retrying.");
+  }
+  if (/verify_task|expected_artifact|task_outputs|artifact_validation|html_assets|html_content|json_artifact|data_artifact/.test(text)) {
+    guidance.push("Runtime task verification failed. Repair the concrete file, command, data, document, or artifact issue reported by verify_task, then call verify_task again.");
+  }
+  if (/blank page|console error|resource 404|launch_project|verify_project|startup|port conflict|eaddrinuse/i.test(text)) {
+    guidance.push("The runnable artifact did not pass startup or preview checks. Fix the entry point, build script, server command, resource path, or port issue, then verify again.");
+  }
+  if (guidance.length === 0) return report;
+  return {
+    ...report,
+    final_message: [
+      report.final_message,
+      "Repair guidance:",
+      ...guidance.map((item) => `- ${item}`),
+    ].filter(Boolean).join("\n"),
+  };
+}
+
 function actionForApprovalGate(envelope: ActionEnvelope, gate: ApprovalGateRecord): ActionRequest | undefined {
   if (gate.subjectType !== "tool_action") return undefined;
   return envelope.actions.find((action) => toolApprovalSubjectId(action) === gate.subjectId);
@@ -1767,7 +1949,11 @@ function asksForArtifactValidation(userMessage: string): boolean {
 }
 
 function shouldValidateArtifactKind(kind: string): boolean {
-  return ["markdown", "html", "docx", "pptx", "pdf", "image", "screenshot"].includes(kind);
+  return ["markdown", "html", "docx", "pptx", "xlsx", "pdf", "image", "screenshot"].includes(kind);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
 }
 
 function normalizeProjectRelativePath(projectPath: string, target: string): string {

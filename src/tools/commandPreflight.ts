@@ -140,5 +140,43 @@ function powershellSuggestion(command: string): string | undefined {
 }
 
 function quotePowerShellArgs(value: string): string {
-  return value.trim();
+  const args = splitShellArgs(value);
+  if (args.length === 0) return "''";
+  if (args.length === 1) return quotePowerShellString(args[0]!);
+  return `@(${args.map(quotePowerShellString).join(", ")})`;
+}
+
+function quotePowerShellString(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function splitShellArgs(value: string): string[] {
+  const args: string[] = [];
+  let current = "";
+  let quote: "'" | "\"" | undefined;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index]!;
+    if (quote) {
+      if (char === quote) {
+        quote = undefined;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === "'" || char === "\"") {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current) {
+        args.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+  if (current) args.push(current);
+  return args;
 }

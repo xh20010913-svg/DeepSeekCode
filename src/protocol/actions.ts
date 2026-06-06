@@ -6,6 +6,7 @@ export const ArtifactKindSchema = z.enum([
   "markdown",
   "docx",
   "pptx",
+  "xlsx",
   "pdf",
   "image",
   "screenshot",
@@ -173,6 +174,28 @@ export const ValidateArtifactActionSchema = z.object({
   type: z.literal("validate_artifact"),
   path: z.string().min(1),
   expected_kind: ArtifactKindSchema.optional(),
+});
+
+export const TaskCompletionContractSchema = z.object({
+  goal: z.string().min(1).optional(),
+  expected_artifacts: z.array(z.string().min(1)).default([]),
+  acceptance_criteria: z.array(z.string().min(1)).default([]),
+  verifiable_behaviors: z.array(z.string().min(1)).default([]),
+  user_constraints: z.array(z.string().min(1)).default([]),
+});
+
+export const VerifyTaskActionSchema = z.object({
+  type: z.literal("verify_task"),
+  path: z.string().default(""),
+  objective: z.string().optional(),
+  contract: TaskCompletionContractSchema.optional(),
+  mode: z.enum(["auto", "quick", "full"]).default("auto"),
+  install_dependencies: z.boolean().default(true),
+  run_build: z.boolean().default(true),
+  run_tests: z.boolean().default(true),
+  launch: z.boolean().default(true),
+  capture_preview: z.boolean().default(true),
+  timeout_ms: z.number().int().min(1000).max(180_000).default(45_000),
 });
 
 export const VerifyProjectActionSchema = z.object({
@@ -346,6 +369,7 @@ export const ActionRequestSchema = z.discriminatedUnion("type", [
   AskUserQuestionActionSchema,
   ExitPlanModeActionSchema,
   ValidateArtifactActionSchema,
+  VerifyTaskActionSchema,
   VerifyProjectActionSchema,
   LaunchProjectActionSchema,
   BrowserAgentActionSchema,
@@ -440,6 +464,7 @@ export function artifactKindFromPath(path: string): ArtifactKind {
   if (lower.endsWith(".html") || lower.endsWith(".htm")) return "html";
   if (lower.endsWith(".docx")) return "docx";
   if (lower.endsWith(".pptx")) return "pptx";
+  if (lower.endsWith(".xlsx")) return "xlsx";
   if (lower.endsWith(".pdf")) return "pdf";
   if (
     lower.endsWith(".png") ||

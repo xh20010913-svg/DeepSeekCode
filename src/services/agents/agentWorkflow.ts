@@ -266,9 +266,10 @@ function normalizeRoles(roles: AgentRoleSpec[] | undefined, objective: string): 
       name: "Tester",
       responsibility: `Run relevant checks for the objective, collect failures, and feed actionable results back to Builder: ${objective}`,
       skills: ["testing", "browser-verification"],
-      tools: ["run_command", "verify_project", "launch_project", "browser_agent", "read_file", "grep_files"],
+      tools: ["run_command", "verify_task", "verify_project", "launch_project", "validate_artifact", "browser_agent", "read_file", "grep_files"],
       acceptance: [
-        "Build/test/start or artifact verification has been attempted when applicable.",
+        "The task has been checked against the generic completion contract when applicable.",
+        "Build/test/start, script execution, document/data validation, or artifact verification has been attempted when applicable.",
         "Failures are summarized with commands, paths, and likely causes.",
       ],
     },
@@ -282,15 +283,16 @@ function ensureAcceptanceReviewerRole(roles: AgentRoleSpec[], acceptanceCriteria
     ...roles,
     {
       name: "Reviewer",
-      responsibility: "Verify the final result, confirm requested artifacts exist, check obvious failures, and summarize remaining issues.",
-      skills: ["acceptance-review", "artifact-review"],
-      tools: ["read_file", "list_files", "glob_files", "validate_artifact", "verify_project", "launch_project", "browser_screenshot"],
+      responsibility: "Verify the final result against the task contract, confirm requested artifacts or behaviors exist, check obvious failures, and summarize remaining issues.",
+      skills: ["acceptance-review", "artifact-review", "runtime-verification"],
+      tools: ["read_file", "list_files", "glob_files", "validate_artifact", "verify_task", "verify_project", "launch_project", "browser_screenshot"],
       acceptance: acceptanceCriteria.length
         ? acceptanceCriteria
         : [
-          "Final artifacts exist.",
-          "Runnable projects have an entry point and verification result.",
-          "Blank pages, console errors, install failures, or startup failures are reported and repaired when possible.",
+          "Final artifacts, files, data outputs, documents, or executable behaviors required by the user exist.",
+          "verify_task has been used when the task produced non-chat deliverables.",
+          "Runnable projects, scripts, documents, datasets, Office/PDF files, browser artifacts, skills, plugins, and MCP outputs are validated with the relevant generic checker.",
+          "Blank pages, console errors, install failures, native dependency failures, startup failures, malformed documents, invalid data, or missing outputs are reported and repaired when possible.",
           "The result matches the user request.",
           "Known limitations are reported honestly.",
         ],
@@ -305,12 +307,12 @@ function ensureReviewerRole(roles: AgentRoleSpec[], acceptanceCriteria: string[]
     ...roles,
     {
       name: "reviewer",
-      responsibility: "Verify the final result, confirm requested artifacts exist, check obvious failures, and summarize remaining issues.",
+      responsibility: "Verify the final result against the task contract, confirm requested artifacts or behaviors exist, check obvious failures, and summarize remaining issues.",
       skills: [],
-      tools: ["read_file", "list_files", "glob_files", "validate_artifact", "browser_screenshot"],
+      tools: ["read_file", "list_files", "glob_files", "validate_artifact", "verify_task", "browser_screenshot"],
       acceptance: acceptanceCriteria.length
         ? acceptanceCriteria
-        : ["Final artifacts exist.", "The result matches the user request.", "Known limitations are reported honestly."],
+        : ["Required outputs or behaviors exist.", "verify_task has checked non-chat deliverables.", "The result matches the user request.", "Known limitations are reported honestly."],
     },
   ];
 }
