@@ -1,12 +1,14 @@
 # DeepSeekCode CLI Reference
 
-DeepSeekCode installs one public command:
+Package: `@xh12312/deepseekcode`
+
+Public command:
 
 ```cmd
 deepseekcode
 ```
 
-The package name is `@xh12312/deepseekcode`. It does not install a `deepseek` alias.
+The package does not install a `deepseek` alias.
 
 ## Install
 
@@ -40,7 +42,7 @@ Examples:
 deepseekcode
 deepseekcode --project D:\code\DeepSeekTest
 deepseekcode --project D:\code\DeepSeekTest --model deepseek-v4-flash
-deepseekcode --project D:\code\DeepSeekTest --continue -p "继续上一个任务"
+deepseekcode --project D:\code\DeepSeekTest --continue -p "继续上一轮任务"
 deepseekcode --doctor
 ```
 
@@ -50,26 +52,27 @@ deepseekcode --doctor
 | --- | --- |
 | `/help` | Show help. |
 | `/status` | Show concise runtime status. |
-| `/status full` | Show detailed run/task/remote status where available. |
+| `/status full` | Show detailed run/task/remote status. |
 | `/doctor` | Diagnose provider, tools, state, remote, memory, skills, and permissions. |
 | `/tools` | List provider-facing tools and status. |
 | `/model` | Open model selector. |
 | `/model flash` | Switch to flash model. |
 | `/model pro` | Switch to pro model. |
-| `/language zh` | Switch to Chinese. |
-| `/language en` | Switch to English. |
+| `/language zh` / `/language en` | Switch TUI language. |
 | `/shell on` / `/shell off` | Toggle shell for this session. |
 | `/browser on` / `/browser off` | Toggle browser bridge. |
 | `/permissions` | Show permission profile and current grants. |
-| `/cache` | Show cache readiness and prompt profile. |
-| `/usage` / `/cost` | Show token and estimated cost. |
+| `/cache` | Show cache readiness. |
+| `/cache report` | Show provider telemetry, stable prefix, low-hit reasons, and advice. |
+| `/usage` / `/cost` | Show tokens and estimated cost. |
 | `/runs` | List persisted runs. |
 | `/trace <run>` | Show action and artifact trace. |
 | `/events <run>` | Show event log. |
 | `/artifacts` | Show recent artifacts. |
+| `/ask <question>` | Ask a read-only side question during an active long task. |
 | `/stop` | Stop current run when supported. |
 
-## Remote Control Commands
+## Remote Control
 
 TUI:
 
@@ -118,7 +121,7 @@ Personal WeChat approval replies:
 4 stop task
 ```
 
-## Skills Commands
+## Skills
 
 ```text
 /skills
@@ -141,9 +144,9 @@ Examples:
 /skills run gsap-core "给当前网页加滚动动画"
 ```
 
-The model can auto-call skills through native `search_skills` and `invoke_skill` tools. `disable-model-invocation: true` disables automatic invocation for a skill.
+The model can auto-call skills through native `search_skills` and `invoke_skill`. `disable-model-invocation: true` disables automatic invocation for a skill.
 
-## Plugins Commands
+## Plugins
 
 ```text
 /plugins
@@ -158,7 +161,7 @@ The model can auto-call skills through native `search_skills` and `invoke_skill`
 
 Supported install sources include local paths, GitHub URLs, Git URLs, and `file://` Git repositories.
 
-## MCP Commands
+## MCP
 
 ```text
 /mcp list
@@ -170,7 +173,7 @@ Supported install sources include local paths, GitHub URLs, Git URLs, and `file:
 
 MCP is currently exposed through unified `mcp_call`. Permissioned MCP actions must pass through the same approval service as local tools.
 
-## Multi-Agent Commands
+## Multi-Agent
 
 ```text
 /agents
@@ -188,17 +191,17 @@ Native workflow tools:
 - `agent_status`
 - `finish_agent_workflow`
 
-The workflow is experimental and uses supervisor + shared blackboard + reviewer state.
+The workflow uses supervisor + shared blackboard + reviewer state and is marked experimental.
 
-## Async Ask
+## Provider-Facing Tools Added In v0.2.9
 
-```text
-/ask 现在做到哪了？
-/ask 生成了哪些文件？
-/ask 这个项目为什么卡住？
-```
+| Tool | Purpose |
+| --- | --- |
+| `verify_project` | Inspect real project files and run build/test/browser/file checks where allowed. |
+| `launch_project` | Start a project command or open an entry file and collect launch diagnostics. |
+| `browser_agent` | Optional browser automation adapter backed by built-in Playwright/CDP behavior where available. |
 
-`/ask` is read-only. It can inspect current run state and recent events, but it must not write files, run shell, call browser, or mutate the active task.
+`run_command` also performs Windows command preflight before execution.
 
 ## Environment Variables
 

@@ -48,7 +48,7 @@ export class AgentWorkflowService {
   }): AgentWorkflowRecord {
     const now = Date.now();
     const id = `workflow_${randomUUID()}`;
-    const roles = ensureReviewerRole(normalizeRoles(input.roles, input.objective), input.acceptanceCriteria ?? []);
+    const roles = ensureAcceptanceReviewerRole(normalizeRoles(input.roles, input.objective), input.acceptanceCriteria ?? []);
     const record: AgentWorkflowRecord = {
       id,
       runId: input.runId,
@@ -170,6 +170,7 @@ export class AgentWorkflowService {
 
   formatStatus(workflowId?: string): string {
     const { record, tasks, messages } = this.status(workflowId);
+    const taskByAgent = new Map(tasks.map((task) => [task.agent, task]));
     const counts = {
       total: tasks.length,
       done: tasks.filter((task) => task.status === "succeeded").length,
@@ -178,13 +179,24 @@ export class AgentWorkflowService {
       failed: tasks.filter((task) => task.status === "failed").length,
     };
     return [
-      `workflow=${record.id}`,
-      `status=${record.status}`,
-      `objective=${record.objective}`,
-      `roles=${record.roles.map((role) => role.name).join(", ")}`,
-      `tasks=${counts.done}/${counts.total} done, running=${counts.running}, pending=${counts.pending}, failed=${counts.failed}`,
-      record.acceptanceCriteria.length ? `acceptance=${record.acceptanceCriteria.join(" | ")}` : "",
-      messages.length ? `last_message=${messages.at(-1)?.from} -> ${messages.at(-1)?.to}: ${messages.at(-1)?.message}` : "",
+      "DeepSeekCode agent workflow",
+      `status: ${record.status}`,
+      `objective: ${record.objective}`,
+      `progress: ${counts.done}/${counts.total} done, running=${counts.running}, pending=${counts.pending}, failed=${counts.failed}`,
+      "",
+      "roles:",
+      ...record.roles.map((role) => {
+        const task = taskByAgent.get(role.name);
+        return [
+          `- ${role.name} [${task?.status ?? "defined"}]: ${role.responsibility}`,
+          role.skills.length ? `  skills: ${role.skills.join(", ")}` : "",
+          role.tools.length ? `  tools: ${role.tools.join(", ")}` : "",
+          role.acceptance.length ? `  acceptance: ${role.acceptance.join(" | ")}` : "",
+        ].filter(Boolean).join("\n");
+      }),
+      record.acceptanceCriteria.length ? `\nworkflow acceptance: ${record.acceptanceCriteria.join(" | ")}` : "",
+      messages.length ? `latest message: ${messages.at(-1)?.from} -> ${messages.at(-1)?.to}: ${messages.at(-1)?.message}` : "",
+      "next: Reviewer must verify artifacts, startup, visible output, and reported failures before finish_agent_workflow.",
     ].filter(Boolean).join("\n");
   }
 
@@ -231,18 +243,57 @@ function normalizeRoles(roles: AgentRoleSpec[] | undefined, objective: string): 
   }
   return [
     {
-      name: "planner",
+      name: "Planner",
       responsibility: `Clarify the work plan, break down tasks, and keep the workflow aligned with the objective: ${objective}`,
-      skills: [],
-      tools: ["TodoWrite", "read_file", "list_files", "grep_files"],
-      acceptance: ["Task plan is clear and actionable."],
+      skills: ["project-planning"],
+      tools: ["TodoWrite", "read_file", "list_files", "grep_files", "search_skills"],
+      acceptance: [
+        "Task plan is clear and actionable.",
+        "Deliverables and acceptance checks are explicit before implementation.",
+      ],
     },
     {
-      name: "builder",
+      name: "Builder",
       responsibility: `Implement the concrete project work required by the objective: ${objective}`,
-      skills: [],
-      tools: ["read_file", "write_file", "append_file", "apply_patch", "invoke_skill", "mcp_call"],
-      acceptance: ["Requested artifacts or code changes exist in the project."],
+      skills: ["implementation", "ui-ux", "documents", "presentations", "spreadsheets", "pdf"],
+      tools: ["read_file", "write_file", "append_file", "apply_patch", "invoke_skill", "mcp_call", "run_command"],
+      acceptance: [
+        "Requested artifacts or code changes exist in the project.",
+        "Implementation follows the project structure instead of dumping unrelated files.",
+      ],
+    },
+    {
+      name: "Tester",
+      responsibility: `Run relevant checks for the objective, collect failures, and feed actionable results back to Builder: ${objective}`,
+      skills: ["testing", "browser-verification"],
+      tools: ["run_command", "verify_project", "launch_project", "browser_agent", "read_file", "grep_files"],
+      acceptance: [
+        "Build/test/start or artifact verification has been attempted when applicable.",
+        "Failures are summarized with commands, paths, and likely causes.",
+      ],
+    },
+  ];
+}
+
+function ensureAcceptanceReviewerRole(roles: AgentRoleSpec[], acceptanceCriteria: string[]): AgentRoleSpec[] {
+  const hasReviewer = roles.some((role) => /review|reviewer|验收|验证|测试|qa|test/i.test(role.name));
+  if (hasReviewer) return roles;
+  return [
+    ...roles,
+    {
+      name: "Reviewer",
+      responsibility: "Verify the final result, confirm requested artifacts exist, check obvious failures, and summarize remaining issues.",
+      skills: ["acceptance-review", "artifact-review"],
+      tools: ["read_file", "list_files", "glob_files", "validate_artifact", "verify_project", "launch_project", "browser_screenshot"],
+      acceptance: acceptanceCriteria.length
+        ? acceptanceCriteria
+        : [
+          "Final artifacts exist.",
+          "Runnable projects have an entry point and verification result.",
+          "Blank pages, console errors, install failures, or startup failures are reported and repaired when possible.",
+          "The result matches the user request.",
+          "Known limitations are reported honestly.",
+        ],
     },
   ];
 }

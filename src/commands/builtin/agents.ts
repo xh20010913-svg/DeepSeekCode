@@ -137,7 +137,7 @@ export const agentsCommand: Command = {
           };
         });
         const message = [
-          `workflow ${status.record.id} ${status.record.status}`,
+          `agent workflow ${status.record.status}`,
           `objective: ${status.record.objective}`,
           `roles: ${status.record.roles.map((role) => role.name).join(", ")}`,
           `tasks: ${counts.done}/${counts.total} done, running=${counts.running}, failed=${counts.failed}`,
@@ -152,8 +152,6 @@ export const agentsCommand: Command = {
               subtitle: status.record.objective,
               rows,
               preview: [
-                `workflow: ${status.record.id}`,
-                `run: ${status.record.runId}`,
                 `status: ${status.record.status}`,
                 ...status.messages.slice(-6).map((item) => `${item.from} -> ${item.to}: ${item.message}`),
               ],

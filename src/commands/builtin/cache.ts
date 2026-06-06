@@ -57,9 +57,20 @@ import { resolveRunId } from "../runSelection.js";
 export const cacheCommand: Command = {
   name: "cache",
   description: "Show DeepSeek cache telemetry.",
-  usage: "[guard <goal>|guard policy|guard strict on|off|guard min-hit <percent>|guard reset|guard path|prepare <goal>|preflight <goal>|plan <goal>|profile list|profile audit|profile clean [--apply]|profile forecast <goal>|profile match <goal>|profile auto <goal>|profile save <name> <goal>|profile prepare <name>|profile show <name>|profile remove <name>|profile path [name]|shapes [limit]|shapes clear|doctor [run-id|attached|current]|pin list|pin audit|pin apply [goal]|pin suggest [goal]|pin from <file> [name]|pin add <name> <content>|pin show <name>|pin remove <name>|pin path [name]]",
+  usage: "[report|guard <goal>|guard policy|guard strict on|off|guard min-hit <percent>|guard reset|guard path|prepare <goal>|preflight <goal>|plan <goal>|profile list|profile audit|profile clean [--apply]|profile forecast <goal>|profile match <goal>|profile auto <goal>|profile save <name> <goal>|profile prepare <name>|profile show <name>|profile remove <name>|profile path [name]|shapes [limit]|shapes clear|doctor [run-id|attached|current]|pin list|pin audit|pin apply [goal]|pin suggest [goal]|pin from <file> [name]|pin add <name> <content>|pin show <name>|pin remove <name>|pin path [name]]",
   execute(args, context) {
     const trimmed = args.trim();
+    if (trimmed === "report") {
+      const runs = context.state.listRuns(50);
+      const telemetry = summarizeCacheTelemetry(runs);
+      const pinAudit = auditCachePins(context.config.projectPath);
+      const shapes = new CacheShapeHistoryService(context.config.projectPath).list(20);
+      const readiness = buildCacheReadinessReport({ telemetry, pinAudit, shapes });
+      return {
+        message: formatCacheReport(readiness),
+        display: React.createElement(CacheReadinessPanel, { model: buildCacheReadinessPanelModel(readiness) }),
+      };
+    }
     if (trimmed === "profile" || trimmed.startsWith("profile ")) {
       return handleCacheProfile(trimmed.slice("profile".length).trim(), context);
     }
@@ -253,6 +264,35 @@ function buildGoalCachePlan(context: CommandContext, goal: string) {
   const stability = buildCacheStabilityReport(plan);
   const shapeObservation = new CacheShapeHistoryService(context.config.projectPath).record(stability);
   return { inference, plan, stability, shapeObservation };
+}
+
+function formatCacheReport(report: ReturnType<typeof buildCacheReadinessReport>): string {
+  const totalCacheTokens = report.telemetry.hitTokens + report.telemetry.missTokens;
+  const hitRate = totalCacheTokens > 0
+    ? Math.round((report.telemetry.hitTokens / totalCacheTokens) * 100)
+    : 0;
+  const stableSignal = report.pinCount > 0 ? `${report.pinCount} pins / ${report.totalPinChars} chars` : "no stable pins";
+  const shapeSignal = report.totalShapes > 0
+    ? `${report.repeatedShapes}/${report.totalShapes} repeated shapes, ${report.riskyShapes} risky`
+    : "no recorded prompt shapes";
+  const diagnosis = [
+    totalCacheTokens === 0 ? "No provider cache telemetry has been recorded yet." : "",
+    hitRate < 35 && totalCacheTokens > 0 ? "Cache hit rate is cold; dynamic context is likely shifting before reusable blocks." : "",
+    report.pinCount === 0 ? "Stable project facts are not pinned, so reusable prefix blocks are thin." : "",
+    report.repeatedShapes === 0 && report.totalShapes > 0 ? "Recent prompt shapes are not repeating; similar tasks are not reusing the same prefix layout." : "",
+    report.riskyShapes > 0 ? "Some recorded prompt shapes have medium/high churn risk." : "",
+  ].filter(Boolean);
+  return [
+    "DeepSeek cache report",
+    `status: ${report.status} score=${report.score}`,
+    `provider telemetry: hit=${report.telemetry.hitTokens} miss=${report.telemetry.missTokens} rate=${report.telemetry.rate} observed_runs=${report.telemetry.observedRuns}`,
+    `stable prefix: ${stableSignal}`,
+    `prompt shapes: ${shapeSignal}`,
+    "likely causes:",
+    ...(diagnosis.length ? diagnosis.map((item) => `- ${item}`) : ["- Cache layout looks healthy for the recent runs."]),
+    "actions:",
+    ...report.recommendations.map((item) => `- ${item}`),
+  ].join("\n");
 }
 
 function handleCacheProfile(args: string, context: CommandContext) {

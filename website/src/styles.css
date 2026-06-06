@@ -456,7 +456,7 @@ h1 em {
 
 .metric-strip div {
   min-width: 0;
-  padding: 30px 18px 0;
+  padding: 28px 14px 0;
   border-right: 1px solid var(--line);
   text-align: center;
 }
@@ -468,13 +468,14 @@ h1 em {
 .metric-strip strong {
   display: block;
   font-family: var(--mono);
-  font-size: clamp(24px, 2.2vw, 36px);
+  font-size: clamp(18px, 1.5vw, 27px);
   font-style: normal;
   font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.12;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
 }
 
 .metric-strip strong span {

@@ -60,6 +60,13 @@ interface TraceArtifact {
   kind?: string;
 }
 
+interface ExistingArtifact {
+  path: string;
+  fullPath: string;
+  kind?: string;
+  stat: fs.Stats;
+}
+
 export interface WeChatOpenClawRemoteControlOptions {
   baseConfig: RuntimeConfig;
   baseState: StateStore;
@@ -121,7 +128,9 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
   async start(): Promise<void> {
     if (this.controller) return;
     this.ensureInitialized();
-    if (!this.remoteConfig!.enabled) throw new Error("WeChat OpenClaw remote control is disabled by environment.");
+    if (!this.remoteConfig!.enabled) {
+      throw new Error("WeChat OpenClaw remote control is disabled by environment.");
+    }
     this.controller = new AbortController();
     try {
       if (!this.client!.currentAccount()) {
@@ -138,12 +147,15 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
       this.updateStatus("disconnected");
       return;
     }
+
     this.updateStatus("connected");
     void this.client!.poll(async (message) => {
-      void this.handleIncoming(message).catch((error) => {
-        this.updateStatus(`message handling failed: ${errorMessage(error)}`);
-      });
-    }, this.controller.signal).finally(() => {
+      await this.handleIncoming(message);
+    }, this.controller.signal).catch((error) => {
+      if (!this.controller?.signal.aborted) {
+        this.updateStatus(`polling failed: ${errorMessage(error)}`);
+      }
+    }).finally(() => {
       if (this.controller?.signal.aborted) return;
       this.updateStatus("disconnected");
       this.controller = undefined;
@@ -164,7 +176,7 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
       try {
         runtime.state.close();
       } catch {
-        // ignore shutdown races
+        // Ignore shutdown races.
       }
     }
     this.runtimes.clear();
@@ -215,10 +227,10 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
   private async handleIncoming(raw: OpenClawMessage): Promise<void> {
     const message = await this.remoteMessage(raw);
     if (message.text.trim()) {
-      this.remoteUserListener?.(remoteTranscriptText(message.text));
+      this.remoteUserListener?.(`[wechat] ${remoteTranscriptText(message.text)}`);
     }
-    const approvalHandled = await this.tryHandleNumericApproval(message);
-    if (approvalHandled) return;
+
+    if (await this.tryHandleNumericApproval(message)) return;
 
     const decision = this.accessPolicy?.canReceive(message) ?? { allowed: false, reason: "not_initialized" };
     if (!decision.allowed) {
@@ -230,38 +242,15 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
 
     const command = parseRemoteCommand(message.text, this.remoteConfig?.mentionNames ?? []);
     try {
-      if (command.kind === "help") {
-        await this.sendText(message, helpText());
-        return;
-      }
-      if (command.kind === "status") {
-        await this.sendText(message, this.statusReply(message.chatId));
-        return;
-      }
-      if (command.kind === "ask") {
-        await this.answerSideQuestion(message, command.arg);
-        return;
-      }
-      if (command.kind === "project") {
-        await this.handleProjectCommand(message, command.arg);
-        return;
-      }
-      if (command.kind === "artifacts") {
-        await this.sendText(message, this.artifactsReply(message.chatId));
-        return;
-      }
-      if (command.kind === "usage") {
-        await this.sendText(message, this.usageReply(message.chatId));
-        return;
-      }
-      if (command.kind === "shell") {
-        await this.handleShellCommand(message, command.arg);
-        return;
-      }
-      if (command.kind === "stop") {
-        await this.stopRun(message);
-        return;
-      }
+      if (command.kind === "help") return await this.sendText(message, helpText());
+      if (command.kind === "status") return await this.sendText(message, this.statusReply(message.chatId));
+      if (command.kind === "ask") return await this.answerSideQuestion(message, command.arg);
+      if (command.kind === "project") return await this.handleProjectCommand(message, command.arg);
+      if (command.kind === "artifacts") return await this.sendText(message, this.artifactsReply(message.chatId));
+      if (command.kind === "usage") return await this.sendText(message, this.usageReply(message.chatId));
+      if (command.kind === "shell") return await this.handleShellCommand(message, command.arg);
+      if (command.kind === "stop") return await this.stopRun(message);
+
       const prompt = command.kind === "continue"
         ? "继续上一轮任务。先读取当前项目状态和最近产物，再继续完成未完成工作。"
         : command.arg;
@@ -276,6 +265,7 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
     if (!approval) return false;
     const value = message.text.trim();
     if (!["1", "2", "3", "4"].includes(value)) return false;
+
     const runtime = this.runtimeFor(approval.projectPath);
     if (value === "4") {
       this.activeRuns.get(message.chatId)?.engine.cancelActiveRun("cancelled from WeChat");
@@ -284,6 +274,7 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
       await this.sendText(message, "已停止当前任务。");
       return true;
     }
+
     if (value === "2") {
       this.sessionShellGrants.add(sessionGrantKey(message.chatId, approval.projectPath));
       const active = this.activeRuns.get(message.chatId);
@@ -292,6 +283,7 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
         active.permissions.profile = "custom";
       }
     }
+
     const status = value === "3" ? "rejected" : "approved";
     new ApprovalService(runtime.state).decide(approval.gateId, status, `wechat-openclaw:${value}`);
     this.pendingApprovals.delete(message.chatId);
@@ -299,7 +291,7 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
       message,
       status === "approved"
         ? "权限已允许，任务会继续执行。"
-        : "权限已拒绝，任务会收到拒绝结果并继续判断下一步。",
+        : "权限已拒绝，任务会收到拒绝结果并判断下一步。",
     );
     return true;
   }
@@ -313,7 +305,7 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
     if (running) {
       await this.sendText(message, [
         "当前任务仍在运行。",
-        "发送 /status 查看进度，发送 /ask <问题> 进行旁路问答，发送 /stop 停止任务。",
+        "发送 /status 查看进度，发送 /ask <问题> 做旁路问答，发送 /stop 停止任务。",
         "",
         this.statusReply(message.chatId),
       ].join("\n"));
@@ -380,8 +372,10 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
           : event.type === "tool_start" || event.type === "tool_result" || event.type === "error" || event.type === "command"
             ? event.text
             : active.lastEventText;
+
         const progress = active.renderer.accept(event);
         await this.maybeSendApproval(message, active, runtime.state, sentGates);
+
         const now = Date.now();
         if (progress && (lastProgressAt === 0 || now - lastProgressAt > 8000)) {
           await this.sendText(message, progress);
@@ -394,6 +388,7 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
           }
         }
       }
+
       active.runId = active.runId ?? runtime.state.listRuns(1)[0]?.id;
       const final = active.renderer.final({
         stateStore: runtime.state,
@@ -405,12 +400,12 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
         await this.sendArtifactsAndSummary(message, runtime, active.runId, final);
       }
     } catch (error) {
-      const messageText = errorMessage(error);
+      const text = errorMessage(error);
       await this.sendText(
         message,
-        /cancelled|stopped/i.test(messageText)
+        /cancelled|stopped/i.test(text)
           ? "任务已停止。"
-          : `任务异常：${compactOneLine(messageText, 1000)}`,
+          : `任务异常：${compactOneLine(text, 1000)}`,
       );
     }
   }
@@ -458,9 +453,8 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
       return;
     }
     const active = this.activeRuns.get(message.chatId);
-    const fallbackRun = runtime.state.listRuns(1)[0]?.id;
-    const runId = active?.runId ?? fallbackRun;
-    await this.sendText(message, "收到，我用只读上下文快速回答，不会打断当前任务。");
+    const runId = active?.runId ?? runtime.state.listRuns(1)[0]?.id;
+    await this.sendText(message, "收到。我用只读上下文快速回答，不会打断当前任务。");
     const result = await answerAsyncQuestion({
       question: trimmed,
       config: runtime.config,
@@ -516,8 +510,7 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
   }
 
   private currentProject(chatId: string): string {
-    if (!this.projectBinding) return path.resolve(this.options.baseConfig.projectPath);
-    return this.projectBinding.current(chatId);
+    return this.projectBinding?.current(chatId) ?? path.resolve(this.options.baseConfig.projectPath);
   }
 
   private runtimeFor(projectPath: string): RuntimeBundle {
@@ -587,12 +580,14 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
     const runtime = this.runtimeFor(this.currentProject(chatId));
     const run = runtime.state.listRuns(1)[0];
     if (!run) return "暂无任务产物。";
-    const artifacts = artifactPaths(runtime, run.id).map((artifact) => `- ${artifact.path}${artifact.kind ? ` (${artifact.kind})` : ""}`);
+    const artifacts = artifactPaths(runtime, run.id)
+      .map((artifact) => artifact.path ? `- ${briefFile(artifact.path)}${artifact.kind ? ` (${artifact.kind})` : ""}` : "")
+      .filter(Boolean);
     if (!artifacts.length) return "最近任务没有记录到产物。";
     return [
       "📦 最近产物",
       `共 ${artifacts.length} 个。这里只列文件名，避免刷屏。`,
-      ...artifacts.slice(-8).map((line) => `- ${briefFile(line)}`),
+      ...artifacts.slice(-8),
     ].join("\n");
   }
 
@@ -600,12 +595,17 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
     const runtime = this.runtimeFor(this.currentProject(chatId));
     const run = runtime.state.listRuns(1)[0];
     const usage = run ? runtime.state.usageTotals(run.id) : runtime.state.usageTotals();
+    const total = usage.inputTokens + usage.outputTokens;
+    const cacheTotal = usage.cacheHitTokens + usage.cacheMissTokens;
+    const cacheRate = cacheTotal > 0 ? `${Math.round((usage.cacheHitTokens / cacheTotal) * 100)}%` : "n/a";
     return [
       "💰 使用量",
       `输入：${usage.inputTokens}`,
       `输出：${usage.outputTokens}`,
       `缓存命中：${usage.cacheHitTokens}`,
       `缓存未命中：${usage.cacheMissTokens}`,
+      `缓存率：${cacheRate}`,
+      `总 token：${total}`,
       `快照：${usage.snapshots}`,
     ].join("\n");
   }
@@ -672,9 +672,8 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
     }
 
     let sentFiles = 0;
-    for (const artifact of delivery.files.slice(0, 3)) {
-      if (artifact.fullPath === visual) continue;
-      if (await this.trySendMedia(message, artifact.fullPath, `产物文件：${path.basename(artifact.fullPath)}`)) {
+    for (const artifact of delivery.files.slice(0, 2)) {
+      if (await this.trySendMedia(message, artifact.fullPath, `可预览文件：${path.basename(artifact.fullPath)}`)) {
         sentFiles += 1;
       }
     }
@@ -683,9 +682,8 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
       const summaryPath = this.writeRemoteSummary(runtime, runId, final.markdown);
       await this.sendText(message, [
         "📄 暂时没有微信可直接预览的产物。",
-        "我已把完成情况保存到本机项目状态里。",
         `本地摘要：${path.basename(summaryPath)}`,
-        "发送 /artifacts 可以查看最近产物文件名。",
+        "发送 /artifacts 可查看最近产物文件名。",
       ].join("\n"));
     }
   }
@@ -696,19 +694,24 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
 
     const html = artifacts.find((artifact) => artifact.deliveryKind === "html" || isHtmlPath(artifact.fullPath));
     if (!html) return undefined;
+    const previewDir = path.join(runtime.config.dataDir, "remote", "previews");
+    try {
+      const fallback = await captureHtmlWithHeadlessBrowser({
+        htmlPath: html.fullPath,
+        outputDir: previewDir,
+      });
+      if (fallback?.path) return fallback.path;
+    } catch {
+      // Fall through to CDP.
+    }
     try {
       const bytes = await captureBrowserScreenshot(pathToFileURL(html.fullPath).href, false);
-      const previewDir = path.join(runtime.config.dataDir, "remote", "previews");
       fs.mkdirSync(previewDir, { recursive: true });
       const target = path.join(previewDir, `${safeFilename(path.basename(html.fullPath, path.extname(html.fullPath)))}-${Date.now()}.png`);
       fs.writeFileSync(target, bytes);
       return target;
     } catch {
-      const fallback = await captureHtmlWithHeadlessBrowser({
-        htmlPath: html.fullPath,
-        outputDir: path.join(runtime.config.dataDir, "remote", "previews"),
-      });
-      return fallback?.path;
+      return undefined;
     }
   }
 
@@ -742,7 +745,7 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
     const contextToken = active?.contextToken || String(raw?.context_token ?? "");
     const output = redactRemoteText(text, 4500);
     await this.client?.sendText(target, output, contextToken);
-    this.remoteAssistantListener?.(remoteTranscriptText(output));
+    this.remoteAssistantListener?.(`[wechat] ${remoteTranscriptText(output)}`);
   }
 }
 
@@ -794,11 +797,11 @@ function stripMention(text: string, mentionNames: string[]): string {
 
 function helpText(): string {
   return [
-    "🤖 DeepSeekCode 个人微信远程控制",
+    "🛰️ DeepSeekCode 个人微信远程控制",
     "可用命令：",
     "- /status 查看状态",
-    "- /status full 查看更详细状态",
-    "- /ask <问题> 在长任务运行中旁路问答",
+    "- /status full 查看详细状态",
+    "- /ask <问题> 在长任务运行中做旁路问答",
     "- /project 查看当前项目",
     "- /project D:\\code\\Project 切换项目",
     "- /run <任务> 执行任务",
@@ -841,13 +844,6 @@ function artifactPaths(runtime: RuntimeBundle, runId: string): TraceArtifact[] {
   return trace.artifacts ?? [];
 }
 
-interface ExistingArtifact {
-  path: string;
-  fullPath: string;
-  kind?: string;
-  stat: fs.Stats;
-}
-
 function existingArtifacts(runtime: RuntimeBundle, runId: string): ExistingArtifact[] {
   const existing: ExistingArtifact[] = [];
   for (const artifact of artifactPaths(runtime, runId)) {
@@ -870,13 +866,13 @@ function deliverySummary(existing: ExistingArtifact[], candidates: RemoteDeliver
   }
   const typeSummary = [...counts.entries()]
     .map(([kind, count]) => `${deliveryKindLabel(kind)} ${count}`)
-    .join("；");
+    .join("，");
   return [
     "📦 产物已生成",
     `共 ${existing.length} 个文件。${typeSummary ? `类型：${typeSummary}` : ""}`,
     preview ? `预览：${path.basename(preview.fullPath)}，将优先发送图片快照。` : "",
-    files.length ? `微信可直接打开：${files.slice(0, 3).map((file) => path.basename(file.fullPath)).join("；")}` : "微信可直接打开的文件：暂无",
-    "不会自动发送 HTML/CSS/JS/MD 等微信不易预览的原始文件。",
+    files.length ? `微信可直接打开：${files.slice(0, 2).map((file) => path.basename(file.fullPath)).join("，")}` : "微信可直接打开的文件：暂无",
+    "不会自动发送 HTML/CSS/JS/MD 等源码文件。",
   ].filter(Boolean).join("\n");
 }
 

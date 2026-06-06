@@ -79,8 +79,8 @@ export function buildRemoteStatus(input: RemoteStatusInput): string {
     `连接：${compactOneLine(input.connection, 90)}`,
     `项目：${briefPath(input.projectPath)}`,
     `模型：${input.model}  shell：${input.shellAllowed ? "on" : "off"}`,
-    run ? `任务：${activeState}  ${shortRunId(run.id)}  耗时：${formatDuration(Date.now() - run.createdAtMs)}` : "任务：空闲",
-    run ? `活动：${formatAge(activityAgeMs)}前  actions ${run.actionCount}  产物 ${run.artifactCount}` : "",
+    run ? `任务：${activeState}  耗时：${formatDuration(Date.now() - run.createdAtMs)}` : "任务：空闲",
+    run ? `活动：${formatAge(activityAgeMs)}前  工具批次 ${run.actionCount}  产物 ${run.artifactCount}` : "",
     counts.total ? `计划：完成 ${counts.completed}/${counts.total}，进行中 ${counts.inProgress}，待做 ${counts.pending}` : "",
     `阶段：${compactOneLine(phase, 120)}`,
     tool ? `最近：${compactOneLine(tool, 120)}` : "",
@@ -93,6 +93,8 @@ export function buildRemoteStatus(input: RemoteStatusInput): string {
 
   const todoLines = todoDetailLines(todos);
   if (todoLines.length) lines.push(...todoLines);
+  const recentLines = recentEventLines(events);
+  if (recentLines.length) lines.push("最近事件：", ...recentLines);
   return lines.join("\n");
 }
 
@@ -141,12 +143,8 @@ function phaseFromEvents(events: EventRecord[]): string | undefined {
     ].includes(candidate.kind));
   if (!event) return undefined;
   const payload = event.payload as Record<string, unknown>;
-  if (event.kind === "provider_call_timing") {
-    return `模型调用 ${String(payload.kind ?? "provider")} ${String(payload.status ?? "")}`.trim();
-  }
-  if (event.kind === "native_tool_plan_received") {
-    return `规划工具批次 ${String(payload.attempt ?? "?")}，动作 ${String(payload.action_count ?? "?")} 个`;
-  }
+  if (event.kind === "provider_call_timing") return `模型调用 ${String(payload.kind ?? "provider")} ${String(payload.status ?? "")}`.trim();
+  if (event.kind === "native_tool_plan_received") return `规划工具批次 ${String(payload.attempt ?? "?")}，动作 ${String(payload.action_count ?? "?")} 个`;
   if (event.kind === "native_tool_plan_failed") return "模型工具规划失败，正在重试";
   if (event.kind === "action_report_recorded") return `工具批次完成：${String(payload.status ?? "")}`;
   if (event.kind === "run_status_updated") return `任务状态更新：${String(payload.status ?? "")}`;
@@ -203,17 +201,17 @@ function firstIssue(input: {
   stale: boolean;
   activityAgeMs: number;
 }): string {
-  if (input.approvals.length) return "等待你回复数字审批权限。";
+  if (input.approvals.length) return "等待你回复 1/2/3/4 审批权限。";
   if (input.renderErrors.length) return compactOneLine(input.renderErrors.at(-1) ?? "", 130);
   if (input.run?.status === "paused") return compactOneLine(input.run.message || "任务暂停，需要 /continue 或继续给指令。", 140);
-  if (input.run?.status === "failed") return compactOneLine(input.run.message || "任务失败，发送 /status 查看最近工具和问题。", 140);
+  if (input.run?.status === "failed") return compactOneLine(input.run.message || "任务失败，发送 /status full 查看最近工具和问题。", 140);
   if (input.stale) return `超过 ${formatDuration(input.activityAgeMs)} 没有新事件，可能在等待模型 API、外部工具或网络。`;
   return "";
 }
 
 function nextActionHint(run: RunRecord | undefined, active: boolean, pendingApprovalCount: number): string {
   if (pendingApprovalCount) return "回复 1/2/3/4 处理权限。";
-  if (active) return "发送 /status 刷新；发送 /ask <问题> 旁路问答；发送 /stop 停止。";
+  if (active) return "发送 /status full 刷新；发送 /ask <问题> 旁路问答；发送 /stop 停止。";
   if (run?.status === "paused") return "发送 /continue 继续暂停任务，或发送新任务。";
   return "可以发送新任务，或 /artifacts 查看最近产物。";
 }
@@ -227,8 +225,8 @@ function todoDetailLines(todos: RemoteTodoItem[]): string[] {
   return lines;
 }
 
-function shortRunId(runId: string): string {
-  return runId.replace(/^run_/, "").slice(0, 8);
+function recentEventLines(events: EventRecord[]): string[] {
+  return events.slice(0, 5).map((event) => `- ${formatAge(Date.now() - event.createdAtMs)}前 ${event.kind}`);
 }
 
 function formatAge(ms: number): string {

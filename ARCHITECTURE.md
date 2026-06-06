@@ -1,229 +1,137 @@
 # DeepSeekCode Architecture
 
-DeepSeekCode v0.2.8 is a local TypeScript agent runtime built around DeepSeek native tool calls, durable project state, permissioned local tools, memory, remote channels, and extension surfaces.
+Version: `v0.2.9`
 
-## Runtime Loop
+DeepSeekCode is a local runtime for DeepSeek native tool calling. Its design goal is to keep the model responsible for reasoning and task intent while the runtime owns tools, permission gates, project state, platform safety, verification, remote rendering, and resumability.
 
-```text
-src/cli/main.tsx
-  -> bootstrap config
-  -> TUI, headless prompt, WeCom, or WeChat OpenClaw mode
-  -> QueryEngine
-  -> DeepSeekClient
-  -> native tool_calls
-  -> local baseTools registry
-  -> tool_result summaries
-  -> SQLite state + session transcript
-  -> TUI/remote final rendering
-```
-
-The model-facing planning path is native tool calling. Internal `ActionRequest` / `ActionResult` objects still exist after native tool calls are converted and validated, but the provider prompt no longer asks the model to emit a large ActionEnvelope JSON plan.
-
-## Main Modules
-
-| Area | Path | Responsibility |
-| --- | --- | --- |
-| CLI | `src/cli/main.tsx` | Parse flags, configure runtime, run TUI/headless/remote modes. |
-| Config | `src/bootstrap/config.ts` | Load provider, project path, data dir, language, model, permissions. |
-| Orchestration | `src/query/QueryEngine.ts` | Build context, call provider, execute tools, record usage/events. |
-| Provider | `src/services/deepseek/` | DeepSeek-compatible client, native tools schema, prompt audit, retry/errors. |
-| Tools | `src/tools/registry.ts` | Real provider-facing local tool registry. |
-| Tool execution | `src/tools/executor.ts` | Validate args, apply permissions, execute, emit hooks/events. |
-| State | `src/state/sqlite.ts` | Runs, actions, artifacts, events, gates, usage, checkpoints. |
-| Sessions | `src/services/session/` | Transcripts, resume, recent context, compact tool summaries, session hub. |
-| Run event bus | `src/services/runs/runEventBus.ts` | Publishes persisted events to TUI/remote observers. |
-| Long-term memory | `src/services/memory/` + `src/vendor/tencentdb-agent-memory/` | TencentDB-Agent-Memory runtime integration. |
-| Skills | `src/skills/`, `src/services/skills/` | `SKILL.md` discovery, install, validation, search, invocation. |
-| Plugins | `src/plugins/`, `src/services/plugins/` | Plugin manifest loading, install/update/uninstall, commands, hooks, skills. |
-| MCP | `src/services/mcp/` | MCP configuration and unified `mcp_call` execution. |
-| Hooks | `src/hooks/`, `src/services/hooks/` | PreToolUse/PostToolUse and related hook execution. |
-| Multi-agent | `src/services/agents/` | Role specs, blackboard messages, reviewer state, workflow checkpoints. |
-| Remote | `src/remote/` | WeCom / WeChat OpenClaw bridges, policies, approvals, reply rendering, delivery. |
-| UI | `src/components/` | Ink TUI panels, transcript, selectors, gates, status. |
-| Website | `website/` | Static public manual site. |
-
-The release tree keeps only connected runtime paths and user-facing documentation. It is not a mirror of Claude Code source layout.
-
-## Provider And Tools
-
-`DeepSeekClient` sends:
-
-- stable system/runtime messages;
-- dynamic context;
-- `tools` converted from the local registry;
-- `tool_choice: "auto"`.
-
-Expected provider response:
+## Runtime Chain
 
 ```text
-assistant message
-  -> tool_calls[]
-  -> local validation/execution
-  -> tool result messages
-  -> next provider request
+TUI / CLI / WeChat / WeCom
+  -> command router or QueryEngine
+  -> prompt planner
+  -> DeepSeek provider with native tools[]
+  -> tool_calls
+  -> local tool registry
+  -> hooks + permission gate + platform preflight
+  -> tool execution
+  -> compact tool_result
+  -> next provider turn / repair / verification / final answer
 ```
 
-Failure behavior:
+The provider-facing loop no longer depends on model-emitted ActionEnvelope JSON. Internal JSON, Zod schemas, and SQLite records remain for validation, configuration, state, and reports.
 
-| Failure | Behavior |
+## Major Subsystems
+
+| Subsystem | Responsibility |
 | --- | --- |
-| Model or gateway lacks tool calling | Clear error; no JSON fallback. |
-| Provider rejects schema | Clear error with provider context. |
-| Tool args fail local schema | Validation feedback returned to model. |
-| Network / 429 / retryable 5xx | Limited retry. |
-| 400 / 401 / 403 / 404 | No retry unless marked retryable. |
+| QueryEngine | Builds messages, calls the provider, executes tool calls, records usage and events. |
+| Tool registry | Exposes file, shell, browser, Office, skills, MCP, verification, and workflow tools. |
+| Permission service | Gates shell, browser, MCP, SSH, and risky actions across TUI and remote channels. |
+| State store | Persists sessions, runs, events, tasks, artifacts, approvals, usage, and checkpoints. |
+| Memory | Integrates TencentDB-Agent-Memory with local SQLite recall/capture. |
+| Skills/plugins | Installs, validates, searches, and invokes local or Git-backed skills/plugins. |
+| MCP | Provides unified `mcp_call`; native per-tool schema expansion is planned. |
+| Remote channels | WeCom and personal WeChat OpenClaw share the same QueryEngine and state. |
+| Agent workflow | Supervisor + role specs + shared blackboard + Reviewer acceptance. |
+| Artifact delivery | Plans readable remote previews based on real file type and manifest. |
 
-## Permission Architecture
+## Windows Preflight
 
-Permission gates are centralized:
+`run_command` performs a platform preflight before shell execution. The preflight only checks whether a command is executable on Windows; it does not infer task intent.
 
-```text
-tool request
-  -> permission policy
-  -> ApprovalService gate
-  -> TUI / WeCom / WeChat decision surface
-  -> approved tool execution or rejected tool_result
-```
+Detected classes:
 
-Shell, browser, MCP, SSH, and user/plan gates follow the same pattern. The runtime does not infer permission from user prompt keywords.
+- POSIX commands: `mkdir -p`, `cat`, `touch`, `rm -rf`, `cp -r`, `ls -la`.
+- bash-only syntax: heredoc, `/dev/null`, known bash fragments.
+- failure classification after execution: `node-gyp`, Visual Studio toolchain, Node version mismatch, port conflicts, npm install failures, command not found.
 
-## Context And Cache
+The result is returned to the model as tool feedback so it can repair the command or choose a simpler dependency.
 
-Context is layered for cache stability:
+## Project Verification
 
-| Layer | Purpose |
-| --- | --- |
-| Stable runtime prompt | Tool-use and safety policy, kept deterministic. |
-| Tool schema | Native function definitions. |
-| Memory recall | Relevant TencentDB-Agent-Memory facts. |
-| Repository map | Bounded project orientation. |
-| Recent conversation | Latest useful turns. |
-| Rolling summary | Older goals, constraints, paths, failures, remaining work. |
-| Tool result summary | Compact stdout/diff/error/artifact summaries. |
-| Runtime run state | Tasks, gates, artifacts, usage, checkpoints. |
+`verify_project` and `launch_project` are generic tools.
 
-Usage snapshots record input, output, cache hit/miss, and estimated cost when available.
+They inspect real files:
 
-## Memory
+- `package.json`: install/build/test/start/dev scripts when shell is allowed.
+- HTML: browser open, screenshot, blank-page detection, local asset checks.
+- Services: launch command, port and health checks where possible.
+- Office/PDF: existence, file size, previewability.
+- Multi-file projects: entry, manifest, screenshot, and launch command summary.
 
-TencentDB-Agent-Memory is vendored as an MIT runtime:
-
-```text
-before prompt build
-  -> recall memory
-  -> inject bounded memory context
-  -> native tool loop
-  -> final answer
-  -> capture/extract memory
-```
-
-Default behavior is local SQLite. Embeddings and Tencent Cloud VectorDB are optional. Without those settings, the product presents itself as local memory rather than full semantic vector memory.
+Failures are not final answers. They are tool results that the model should use to repair and verify again within budget.
 
 ## Remote Control
 
-Remote channels share the main runtime:
+Remote channels are not separate agents. They send messages into the same runtime:
 
 ```text
-WeCom WS or WeChat OpenClaw message
-  -> RemoteAccessPolicy
-  -> RemoteProjectBinding
+WeChat / WeCom message
+  -> access policy
+  -> project binding
   -> QueryEngine
-  -> normal permission/tool/memory/skill path
+  -> event stream
   -> RemoteReplyRenderer
-  -> concise progress, approvals, final summary, artifact delivery
+  -> RemoteDeliveryPlan
 ```
 
-Adapters:
+Remote output is concise by design:
 
-- `wecom`: Enterprise WeChat intelligent bot via `@wecom/aibot-node-sdk`.
-- `wechat-openclaw`: personal WeChat via Tencent `@tencent-weixin/openclaw-weixin@2.4.4`.
-
-Session scope includes channel, account/chat id, and project path. This prevents different projects or chats from sharing raw transcript state while allowing the same project runtime to publish status to TUI and remote surfaces.
-
-Remote replies intentionally avoid console logs. They should show current phase, plan/todo state, recent tool, blockers, token/cost, and useful artifact summaries.
-
-## Artifact Delivery
-
-`RemoteDeliveryPlan` classifies produced files:
-
-| Artifact | Remote behavior |
-| --- | --- |
-| HTML/HTM | Browser screenshot when available, plus entry path summary. |
-| DOCX/PPTX/XLSX | Send original file; optional PDF/image preview when conversion exists. |
-| PDF | Send PDF; optional first-page preview. |
-| Image | Send image. |
-| Markdown/text | Send short summary; file only on request. |
-| Multi-file project | Send summary, entry file, screenshot, manifest-style list. |
-
-The model can suggest important outputs, but the runtime decides delivery based on real artifacts.
-
-## Skills, Plugins, MCP, Hooks
-
-Skills and plugins are extension surfaces:
-
-- project/user/plugin skill discovery;
-- `.claude` compatibility discovery;
-- `.deepseekcode` install targets;
-- local path, GitHub URL, Git URL, and `file://` Git installs;
-- manifest/BOM/path traversal checks;
-- automatic skill candidates through `search_skills` and `invoke_skill`.
-
-MCP is currently exposed through `mcp_call`. Future work can expand individual MCP tools directly into native function schemas.
-
-Hooks run around local tools. PreToolUse may block or ask. PostToolUse records summaries. Hook errors are events unless the hook explicitly blocks.
+- Ordinary chat returns a normal assistant answer.
+- Tasks show progress, permissions, status, and final summary.
+- `/ask` runs a read-only side question.
+- Artifact delivery prefers screenshots or previewable files instead of source-file spam.
 
 ## Multi-Agent Workflow
 
-v0.2.8 includes a project-scoped workflow service:
+The first production shape is centrally orchestrated:
 
 ```text
-main agent
-  -> start_agent_workflow(goal, roles)
-  -> role specs persisted
-  -> shared blackboard messages
-  -> reviewer role records acceptance gaps
-  -> finish_agent_workflow(summary, artifacts, issues)
+Supervisor
+  -> Role specs
+  -> Independent role summaries/checkpoints
+  -> Shared blackboard
+  -> Reviewer acceptance
+  -> Main-session summary
 ```
 
-Users may define roles in natural language. If they do not, the main model designs role specs and adds a reviewer. This is still experimental: it provides structured role state and messages, not a fully independent background model worker pool.
+Default roles are Planner, Builder, Tester, and Reviewer. Complex projects may add Frontend, Backend, DB, QA, Docs, or domain-specific roles. Reviewer acceptance must cover artifacts, startup, blank pages, console errors, build/test status, and the original requirement.
 
-## Async Side Questions
+The workflow is experimental. It is designed for traceability and future dashboard visualization rather than fully unconstrained agent-to-agent chatter.
 
-`/ask` gives a read-only answer while a run continues:
+## Context And Cache
 
-```text
-/ask
-  -> current run snapshot
-  -> recent events and artifacts
-  -> provider answer without write/shell/browser tools
-  -> side-channel answer
-```
+DeepSeek context caching works best when prefix blocks remain stable. DeepSeekCode keeps these blocks ordered:
 
-This is designed for questions like "what is it doing now?" or "what files has it changed?" without interrupting the active task.
+1. System/runtime rules.
+2. Provider/tool compatibility notes.
+3. Stable tool schemas sorted by tool name.
+4. Skills/plugin index summaries.
+5. Project rules and memory summary.
+6. Recent task context.
+7. Rolling summary, run state, artifacts, and compact tool results.
+
+Long stdout, diffs, logs, and screenshots are not repeatedly injected verbatim. They are stored as events/artifacts and summarized as paths, status, key error, and manifest entries.
+
+`/cache report` explains provider telemetry, stable prefix pins, prompt-shape repetition, and low-hit causes.
 
 ## Capability Status
 
 | Capability | Status |
 | --- | --- |
-| Native tool calling | verified |
-| File tools | verified |
-| Shell tools | permissioned |
-| Browser CDP | partial |
-| MCP | partial |
-| Hooks | verified |
-| Skills/plugins | verified |
-| DOCX/PPTX | partial |
-| TencentDB-Agent-Memory | verified |
-| WeCom remote control | experimental / testable |
-| Personal WeChat OpenClaw | experimental / testable |
-| Remote artifact preview | partial |
-| Multi-agent workflow | experimental / testable |
-| Async `/ask` | verified |
-| Personal WeChat hook | reserved |
-| PDF | experimental |
-| Long-running worker pool | partial |
-| `computer_use` | reserved |
+| Native DeepSeek tools | Verified |
+| File tools | Verified |
+| Windows preflight | Verified |
+| Project verification | Partial |
+| Browser/CDP | Partial |
+| Skills/plugins | Verified |
+| MCP | Partial |
+| WeCom remote | Experimental |
+| Personal WeChat OpenClaw | Experimental |
+| Multi-agent workflow | Experimental |
+| Computer use | Reserved |
 
 ## Release Boundary
 
-Published files are runtime source, public assets, website, and user manuals. The release excludes prompt audits, test artifacts, local `.env`, runtime databases, generated reports, login state, node_modules, handoff notes, and unconnected upstream source mirrors.
+The GitHub release tree is `.release`. It includes source, website, README, user manuals, public assets, and package metadata. It must not include test outputs, prompt audits, runtime databases, login state, generated reports, `node_modules`, or npm tarballs.

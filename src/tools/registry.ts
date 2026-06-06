@@ -13,6 +13,7 @@ import {
   ApplyPatchActionSchema,
   AskUserQuestionActionSchema,
   BrowserClickActionSchema,
+  BrowserAgentActionSchema,
   artifactKindFromPath,
   BrowserScreenshotActionSchema,
   BrowserSessionStartActionSchema,
@@ -26,6 +27,7 @@ import {
   AppendFileActionSchema,
   InvokeAgentActionSchema,
   InvokeSkillActionSchema,
+  LaunchProjectActionSchema,
   ListFilesActionSchema,
   McpCallActionSchema,
   PlannedComputerUseActionSchema,
@@ -44,6 +46,7 @@ import {
   TdaiMemorySearchActionSchema,
   TodoWriteActionSchema,
   ValidateArtifactActionSchema,
+  VerifyProjectActionSchema,
   WriteFileActionSchema,
   type ActionRequest,
 } from "../protocol/actions.js";
@@ -64,7 +67,9 @@ import { summarizeValidation, validateArtifact } from "./artifact.js";
 import { startBrowserSession } from "./browser.js";
 import { appendFile, applyTextPatch, globFiles, grepFiles, listFiles, readFileForTool, writeFile } from "./fs.js";
 import { createDocxArtifact, createPptxArtifact } from "./officeArtifacts.js";
+import { classifyCommandFailure, formatFailureDiagnosis, formatPreflightFailure, preflightCommand } from "./commandPreflight.js";
 import { safeJoin } from "./pathSafety.js";
+import { formatProjectVerificationReport, launchProject, verifyProject } from "./projectVerification.js";
 import { defaultShellPolicy, runCommand, summarizeCommand, type CommandOutput } from "./shell.js";
 
 export const baseTools: Tools = [
@@ -240,8 +245,8 @@ export const baseTools: Tools = [
   }),
   buildTool({
     name: "run_command",
-    displayName: "Bash",
-    description: "Run a shell command in the project after explicit shell permission. On Windows this uses PowerShell, not cmd.exe.",
+    displayName: "Shell",
+    description: "Run a shell command in the project after explicit shell permission. On Windows this uses PowerShell, not cmd.exe; bash-only commands are rejected with repair guidance.",
     inputSchema: RunCommandActionSchema,
     concurrencySafe: false,
     destructive: true,
@@ -255,20 +260,82 @@ export const baseTools: Tools = [
       return { behavior: "allow" };
     },
     async run(input, context) {
+      const preflight = preflightCommand(input.command);
+      if (!preflight.ok) {
+        const message = formatPreflightFailure(input.command, preflight);
+        return {
+          data: { preflight },
+          result: {
+            action_type: input.type,
+            status: "failed",
+            path: input.cwd ?? "",
+            message,
+            context: message,
+          },
+        };
+      }
       const output = await runCommand(context.root, input.command, input.cwd ?? "", input.timeout_ms ?? 30_000, {
         ...defaultShellPolicy,
         allowShell: context.allowShell || hasApprovedParsedToolAction(context, input),
       }, {
         signal: context.abortSignal,
       });
+      const diagnosis = classifyCommandFailure(output);
+      const detail = formatFailureDiagnosis(diagnosis);
       return {
-        data: output,
+        data: { ...output, diagnosis },
         result: {
           action_type: input.type,
           status: output.exitCode === 0 && !output.timedOut ? "succeeded" : "failed",
           path: output.cwd,
-          message: summarizeCommand(output),
-          context: commandContext(output),
+          message: [summarizeCommand(output), detail].filter(Boolean).join("\n"),
+          context: [commandContext(output), detail].filter(Boolean).join("\n"),
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "verify_project",
+    displayName: "Verify Project",
+    description: "Inspect generated project artifacts, run available build/test checks when allowed, and capture previews for HTML/Office/PDF outputs.",
+    inputSchema: VerifyProjectActionSchema,
+    readOnly: true,
+    concurrencySafe: false,
+    destructive: false,
+    async run(input, context) {
+      const report = await verifyProject(context.root, input, context);
+      return {
+        data: report,
+        result: {
+          action_type: input.type,
+          status: report.status,
+          path: report.previewPath ?? report.root,
+          message: formatProjectVerificationReport(report),
+          context: formatProjectVerificationReport(report),
+          artifact_kind: report.previewPath ? "screenshot" : undefined,
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "launch_project",
+    displayName: "Launch Project",
+    description: "Launch or preview a generated project and return a smoke-test report. Prefer this near the end of app/site/code tasks.",
+    inputSchema: LaunchProjectActionSchema,
+    readOnly: false,
+    concurrencySafe: false,
+    destructive: false,
+    async run(input, context) {
+      const report = await launchProject(context.root, input, context);
+      return {
+        data: report,
+        result: {
+          action_type: input.type,
+          status: report.status,
+          path: report.previewPath ?? report.root,
+          message: formatProjectVerificationReport(report),
+          context: formatProjectVerificationReport(report),
+          artifact_kind: report.previewPath ? "screenshot" : undefined,
         },
       };
     },
@@ -901,6 +968,58 @@ export const baseTools: Tools = [
         });
         throw error;
       }
+    },
+  }),
+  buildTool({
+    name: "browser_agent",
+    displayName: "Browser Agent",
+    description: "Run a lightweight browser verification task with the built-in CDP/Playwright-compatible adapter. External browser agents are optional and not bundled.",
+    inputSchema: BrowserAgentActionSchema,
+    readOnly: true,
+    concurrencySafe: false,
+    permissions(input, context) {
+      if (input.url && !context.allowBrowser) {
+        return {
+          behavior: "deny",
+          message: "Browser agent requires browser permission when a URL is provided. Start with --allow-browser or run /browser on.",
+        };
+      }
+      return { behavior: "allow" };
+    },
+    async run(input, context) {
+      if (input.adapter === "external") {
+        return {
+          result: {
+            action_type: input.type,
+            status: "failed",
+            message: "External browser_agent adapters are not bundled. Install and configure an adapter, or use the built-in Playwright/CDP browser tools.",
+          },
+        };
+      }
+      if (!input.url) {
+        return {
+          result: {
+            action_type: input.type,
+            status: "succeeded",
+            message: "No URL was provided. Use browser_agent with a URL after launch_project or browser_session_start.",
+          },
+        };
+      }
+      const snapshot = await captureBrowserSnapshot(input.url);
+      return {
+        data: snapshot,
+        result: {
+          action_type: input.type,
+          status: snapshot.text.trim().length ? "succeeded" : "failed",
+          path: snapshot.url,
+          message: [
+            `task=${input.task}`,
+            `title=${snapshot.title}`,
+            snapshot.text.trim().length ? "page_text_detected=true" : "page_text_detected=false; possible blank page",
+            snapshot.text.slice(0, 1600),
+          ].join("\n"),
+        },
+      };
     },
   }),
   buildTool({

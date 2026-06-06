@@ -41,10 +41,7 @@ export function planRemoteDelivery(artifacts: RemoteDeliveryArtifact[]): RemoteD
     ?? candidates.find((candidate) => candidate.deliveryKind === "pdf")
     ?? candidates.find((candidate) => candidate.deliveryKind === "office");
   const files = uniqueByPath([
-    ...candidates.filter((candidate) => ["office", "pdf", "html", "archive"].includes(candidate.deliveryKind)),
-    ...candidates.filter((candidate) => candidate.deliveryKind === "image"),
-    ...candidates.filter((candidate) => candidate.deliveryKind === "text"),
-    ...candidates.filter((candidate) => candidate.deliveryKind === "file" || candidate.deliveryKind === "code"),
+    ...candidates.filter((candidate) => ["office", "pdf"].includes(candidate.deliveryKind)),
   ]).filter((candidate) => candidate.canSendFile);
   return {
     candidates,
@@ -59,27 +56,27 @@ export function classifyDeliveryArtifact(artifact: RemoteDeliveryArtifact): Remo
   const ext = path.extname(lower);
   const kind = artifact.kind?.toLowerCase();
   if (kind === "image" || kind === "screenshot" || [".png", ".jpg", ".jpeg", ".webp"].includes(ext)) {
-    return candidate(artifact, "image", 100, true);
+    return candidate(artifact, "image", 100, true, false);
   }
   if (kind === "html" || ext === ".html" || ext === ".htm") {
-    return candidate(artifact, "html", 95, true);
+    return candidate(artifact, "html", 95, true, false);
   }
   if (kind === "pptx" || kind === "docx" || [".docx", ".pptx", ".xlsx"].includes(ext)) {
-    return candidate(artifact, "office", 90, true);
+    return candidate(artifact, "office", 90, true, true);
   }
   if (kind === "pdf" || ext === ".pdf") {
-    return candidate(artifact, "pdf", 88, true);
+    return candidate(artifact, "pdf", 88, true, true);
   }
   if ([".zip", ".7z", ".tar", ".gz"].includes(ext)) {
-    return candidate(artifact, "archive", 75, false);
+    return candidate(artifact, "archive", 75, false, false);
   }
   if (kind === "markdown" || [".md", ".markdown", ".txt"].includes(ext)) {
-    return candidate(artifact, "text", 65, false);
+    return candidate(artifact, "text", 65, false, false);
   }
   if ([".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".go", ".rs", ".css", ".json", ".yaml", ".yml"].includes(ext)) {
-    return candidate(artifact, "code", 55, false);
+    return candidate(artifact, "code", 55, false, false);
   }
-  return candidate(artifact, "file", 40, false);
+  return candidate(artifact, "file", 40, false, false);
 }
 
 function candidate(
@@ -87,6 +84,7 @@ function candidate(
   deliveryKind: RemoteDeliveryKind,
   priority: number,
   canPreview: boolean,
+  canSendOriginal: boolean,
 ): RemoteDeliveryCandidate {
   return {
     ...artifact,
@@ -96,6 +94,7 @@ function candidate(
     wechatPreviewable: canOpenInWeChat(artifact.fullPath, deliveryKind),
     canSendFile: artifact.sizeBytes > 0 &&
       artifact.sizeBytes <= 30 * 1024 * 1024 &&
+      canSendOriginal &&
       canOpenInWeChat(artifact.fullPath, deliveryKind),
   };
 }

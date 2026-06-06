@@ -1,6 +1,8 @@
 # DeepSeekCode API Reference
 
-This document describes public commands, runtime interfaces, and integration surfaces in the release build.
+Version: `v0.2.9`
+
+This document describes public and internal extension surfaces that are stable enough to document.
 
 ## CLI
 
@@ -8,64 +10,88 @@ This document describes public commands, runtime interfaces, and integration sur
 deepseekcode [options]
 ```
 
-| Option | Description |
-| --- | --- |
-| `--project <path>` | Project root. Defaults to the current directory. |
-| `--data-dir <path>` | Runtime data directory. Defaults to `<project>\.deepseekcode`. |
-| `--model <name>` | Model name, for example `deepseek-v4-flash` or `deepseek-v4-pro`. |
-| `--continue` | Continue the current session context. |
-| `--resume <session>` | Resume a saved session id. |
-| `--doctor` | Print provider, tools, memory, remote, and permission diagnostics. |
-| `--allow-shell` | Enable shell for this process. Tool gates still apply. |
-| `--allow-browser` | Enable browser/CDP bridge for this process. |
-| `--permission-profile <name>` | `safe`, `dev`, `browser`, or `open`. |
-| `--wecom` | Start Enterprise WeChat remote control without opening the TUI. |
-| `--wechat-login` | Login personal WeChat OpenClaw account. |
-| `--wechat` | Start personal WeChat OpenClaw remote control without opening the TUI. |
-| `-p, --prompt <text>` | Run one prompt and exit. |
-
-Examples:
-
-```cmd
-deepseekcode
-deepseekcode --project D:\code\DeepSeekTest
-deepseekcode --project D:\code\DeepSeekTest --model deepseek-v4-flash
-deepseekcode --wechat --project D:\code\DeepSeekTest
-```
+| Option | Type | Meaning |
+| --- | --- | --- |
+| `--project` | path | Project root, default current directory. |
+| `--data-dir` | path | Runtime data dir, default `<project>\.deepseekcode`. |
+| `--model` | string | Provider model. |
+| `--continue` | flag | Continue latest session. |
+| `--resume` | session id | Resume a known session. |
+| `--doctor` | flag | Print diagnostics and exit. |
+| `--allow-shell` | flag | Enable shell for this process. |
+| `--allow-browser` | flag | Enable browser bridge for this process. |
+| `--permission-profile` | string | Permission profile such as `safe`, `dev`, `browser`, `open`. |
+| `--wecom` | flag | Start WeCom remote mode. |
+| `--wechat-login` | flag | Login personal WeChat OpenClaw. |
+| `--wechat` | flag | Start personal WeChat OpenClaw remote mode. |
+| `-p, --prompt` | string | Run one prompt and exit. |
 
 ## Slash Commands
 
-| Command | Description |
-| --- | --- |
-| `/help` | Show command help. |
-| `/doctor` | Diagnose provider, tools, memory, remote, and permission configuration. |
-| `/status` | Show runtime status. |
-| `/status full` | Show detailed run/remote/task status where supported. |
-| `/ask <question>` | Read-only side-channel answer using the current project/run state. |
-| `/tools` | List registered local tools and support status. |
-| `/model` | Open model selector. |
-| `/model flash` | Switch to configured flash model. |
-| `/model pro` | Switch to configured pro model. |
-| `/language zh` / `/language en` | Switch TUI language. |
-| `/permissions` | Inspect runtime permission profile. |
-| `/shell on\|off` | Toggle shell for current process/session. |
-| `/browser on\|off` | Toggle browser bridge for current process/session. |
-| `/skills ...` | List, search, install, validate, update, uninstall, and run skills. |
-| `/plugins ...` | Manage local plugin bundles. |
-| `/mcp ...` | Configure and call MCP servers. |
-| `/agents ...` | Manage reusable agent definitions and workflow status. |
-| `/multi provider <task>` | Run Planner/Builder/Tester/Reviewer style flow. |
-| `/runs` | List persisted runs. |
-| `/trace <run>` | Show action and artifact trace. |
-| `/events <run>` | Show event log. |
-| `/artifacts` | Show recent artifacts. |
-| `/usage` / `/cost` | Show token and estimated cost usage. |
-| `/remote-control ...` | Start/stop/status WeCom and personal WeChat remote channels. |
-| `/stop` | Stop current run when supported by the surface. |
+Core:
+
+```text
+/help
+/status
+/status full
+/doctor
+/tools
+/model
+/language zh
+/shell on
+/browser on
+/permissions
+/cache
+/cache report
+/usage
+/cost
+/runs
+/trace <run>
+/events <run>
+/artifacts
+/ask <question>
+/stop
+```
+
+Remote:
+
+```text
+/remote-control
+/remote-control status
+/remote-control wechat login
+/remote-control wechat start
+/remote-control wechat stop
+/remote-control wecom start
+/remote-control wecom stop
+```
+
+Skills/plugins/MCP:
+
+```text
+/skills install <source> [name]
+/skills install-all <source>
+/skills search <query>
+/skills validate [name]
+/skills run <name> <task>
+/plugins install <source>
+/plugins validate [name]
+/mcp list
+/mcp status
+/mcp call <server> <tool> <json>
+```
+
+Agent workflow:
+
+```text
+/agents start <task>
+/agents status
+/agents message <role> <message>
+/agents stop
+```
 
 ## Remote Commands
 
-Remote commands work in WeCom and personal WeChat unless noted.
+WeChat/WeCom text commands:
 
 ```text
 /help
@@ -83,227 +109,110 @@ Remote commands work in WeCom and personal WeChat unless noted.
 /shell off
 ```
 
-Natural language can start a task when there is no active run. If a run is active, task-like messages return current status and instructions. Use `/ask` for read-only questions while the active task continues.
+Approval menu for personal WeChat:
 
-## Remote Permission Decisions
-
-Personal WeChat OpenClaw numeric decisions:
-
-| Reply | Meaning |
-| --- | --- |
-| `1` | Allow once. |
-| `2` | Allow for this remote session. |
-| `3` | Reject. |
-| `4` | Stop current task. |
-
-WeCom uses template cards where the SDK/channel supports them.
-
-## Native Workflow Tools
-
-The provider receives registered local tools as DeepSeek-compatible function calling tools.
-
-| Tool group | Examples |
-| --- | --- |
-| File tools | `read_file`, `write_file`, `append_file`, `apply_patch`, `list_files`, `grep_files`, `glob_files` |
-| Shell/browser | `run_command`, `browser_session_start`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_screenshot` |
-| Office/artifacts | `create_docx`, `create_pptx`, `create_pdf`, `validate_artifact` |
-| Skills | `search_skills`, `invoke_skill` |
-| MCP | `mcp_call` |
-| Memory | `tdai_memory_search`, `tdai_conversation_search` |
-| Multi-agent workflow | `start_agent_workflow`, `send_agent_message`, `agent_status`, `finish_agent_workflow` |
-
-Reserved or experimental tools may appear with status metadata but should not be documented as complete until verified.
-
-## Multi-Agent Workflow
-
-### `start_agent_workflow`
-
-Starts a tracked workflow for the current run.
-
-Fields:
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `goal` | string | User-visible workflow goal. |
-| `roles` | array | Optional role specs. If omitted, the model designs roles. |
-| `mode` | string | Optional orchestration mode, currently supervisor-style. |
-| `notes` | string | Optional context. |
-
-Role spec example:
-
-```json
-{
-  "name": "frontend",
-  "responsibility": "Build the UI",
-  "tools": ["read_file", "write_file", "browser_screenshot"],
-  "skills": ["gsap-core", "ui"],
-  "acceptance": ["HTML entry exists", "browser screenshot renders"],
-  "notes": "Use current project conventions"
-}
+```text
+1 allow once
+2 allow for this session
+3 reject
+4 stop task
 ```
 
-### `send_agent_message`
+## Provider-Facing Tool Registry
 
-Adds a blackboard message between roles.
+Tool arguments are Zod-validated. Important tools include:
 
-Fields: `workflow_id`, `from`, `to`, `message`, `kind`.
+| Tool | Status | Purpose |
+| --- | --- | --- |
+| `read_file` | supported | Read project files. |
+| `write_file` | supported | Write files after read/permission checks. |
+| `append_file` | supported | Append content. |
+| `apply_patch` | supported | Structured patch editing. |
+| `list_files` | supported | List directory contents. |
+| `grep_files` | supported | Search file contents. |
+| `glob_files` | supported | Find files by pattern. |
+| `run_command` | permissioned | Execute shell with Windows preflight and failure classification. |
+| `verify_project` | partial | Inspect and validate real project artifacts. |
+| `launch_project` | partial | Start/open project entry and collect diagnostics. |
+| `browser_agent` | partial | Browser automation adapter backed by built-in browser tooling where available. |
+| `create_docx` | partial | Generate DOCX. |
+| `create_pptx` | partial | Generate PPTX. |
+| `create_pdf` | experimental | PDF generation/preview support is conservative. |
+| `search_skills` | supported | Search installed skills. |
+| `invoke_skill` | supported | Run a named skill. |
+| `mcp_call` | partial | Call configured MCP server tools. |
+| `start_agent_workflow` | experimental | Start role-based workflow. |
+| `send_agent_message` | experimental | Send message to workflow role/blackboard. |
+| `agent_status` | experimental | Inspect workflow state. |
+| `finish_agent_workflow` | experimental | Finish workflow and summarize acceptance. |
 
-### `agent_status`
+## Run Events
 
-Returns workflow status, role specs, todo counts, issues, and recent messages.
-
-Fields: `workflow_id` optional.
-
-### `finish_agent_workflow`
-
-Marks workflow succeeded, failed, or cancelled and records summary, artifacts, and issues.
-
-Fields: `workflow_id`, `status`, `summary`, `artifacts`, `issues`.
-
-## Async Question Interface
-
-`/ask` uses a read-only side-channel.
-
-Inputs:
-
-- question;
-- runtime config;
-- state store;
-- provider;
-- optional run id.
-
-Allowed context:
-
-- latest run status;
-- recent events;
-- task list;
-- usage totals;
-- trace artifacts;
-- bounded file snippets if required.
-
-The service must not call local write tools, shell, browser, or MCP write operations. It may record usage and a side-answer event.
-
-## Run Event Bus
-
-`RunEventBus` publishes every persisted `StateStore.appendEvent()` call.
+Run events should be compact and useful for both TUI and remote:
 
 ```ts
-interface RunEventBusEvent {
-  runId: string | null;
-  projectPath?: string;
-  kind: string;
-  payload: unknown;
-  createdAtMs: number;
-}
+type RunProgressSnapshot = {
+  phase: string;
+  elapsedMs: number;
+  lastModelCall?: string;
+  lastTool?: string;
+  pendingGate?: string;
+  todoCounts?: { pending: number; inProgress: number; completed: number };
+  artifactCounts?: Record<string, number>;
+  usage?: { input: number; output: number; cacheHit?: number; cacheMiss?: number; costUsd?: number };
+  staleReason?: string;
+};
 ```
 
-Subscribers can filter by run or project. Subscriber errors are swallowed so they cannot break persistence.
+Avoid exposing internal run ids, approval ids, raw JSON, or secrets in user-facing renderers.
 
-## Session Hub
+## RemoteDeliveryPlan
 
-`SessionHub` tracks:
+The runtime decides what to send remotely from actual artifacts:
 
-- latest run per project;
-- last event kind and timestamp;
-- remote channel status per project;
-- active remote account/channel metadata.
-
-It is the convergence point for desktop TUI, WeCom, and personal WeChat status surfaces.
-
-## Remote Delivery Plan
-
-`planRemoteDelivery()` classifies real artifact files by extension and metadata.
-
-| Type | Preview | File send |
-| --- | --- | --- |
-| image | send image | send image |
-| html | render screenshot when available | do not send raw HTML automatically |
-| office | optional preview future work | send DOCX/PPTX/XLSX |
-| pdf | optional page preview future work | send PDF |
-| text/markdown | chat summary | file only on request |
-| code | summary/manifest | do not send every file |
-| archive | no preview | send only if within size limit |
-
-## Skill Interfaces
-
-Skill discovery reads `SKILL.md` files from built-in, project, user, plugin cache, and compatibility `.claude` paths.
-
-Commands:
-
-```text
-/skills list
-/skills search <query>
-/skills install <source> [name]
-/skills install-all <source>
-/skills update <name>
-/skills validate [name]
-/skills uninstall <name>
-/skills run <name> <task>
+```ts
+type RemoteDeliveryPlan = {
+  summary: string;
+  previewImages: string[];
+  files: string[];
+  entrypoints: string[];
+  manifest: Array<{ path: string; kind: string; size?: number }>;
+  warnings: string[];
+};
 ```
 
-Native tools:
+Rules:
 
-- `search_skills`: find relevant installed skills by semantic text and metadata.
-- `invoke_skill`: run a selected skill in a bounded forked context.
+- HTML gets screenshots first.
+- Office/PDF can be sent as files.
+- Images are sent as images.
+- Markdown/text are summarized unless requested.
+- Source files in multi-file projects are not spammed into chat.
 
-`disable-model-invocation: true` removes a skill from automatic candidates but keeps manual commands available.
+## Agent Workflow
 
-## MCP Interface
-
-MCP is exposed through `mcp_call`:
-
-```json
-{
-  "server": "local-docs",
-  "tool": "search",
-  "arguments": {
-    "query": "cache policy"
-  }
-}
+```ts
+type AgentRoleSpec = {
+  name: string;
+  purpose: string;
+  tools: string[];
+  skills: string[];
+  inputs: string[];
+  outputs: string[];
+  acceptance: string[];
+};
 ```
 
-MCP tool results must be summarized before prompt replay. Permissioned MCP operations must pass through the same approval service as local tools.
+Default roles are Planner, Builder, Tester, and Reviewer. Reviewer acceptance must check artifacts, startup, blank pages, build/test, and original requirements.
 
-## Environment Variables
+## Cache Report
 
-Provider:
+`/cache report` combines:
 
-```text
-DEEPSEEK_BASE_URL
-DEEPSEEK_API_KEY
-DEEPSEEK_MODEL
-DEEPSEEK_TIMEOUT_SECS
-```
+- provider telemetry hit/miss rate
+- stable prefix pins
+- prompt-shape repetition
+- risky dynamic context
+- actionable recommendations
 
-Remote:
-
-```text
-DEEPSEEKCODE_WECOM_BOT_ID
-DEEPSEEKCODE_WECOM_BOT_SECRET
-DEEPSEEKCODE_WECOM_ALLOWED_USERS
-DEEPSEEKCODE_WECOM_ALLOWED_GROUPS
-DEEPSEEKCODE_WECOM_PROJECT_ROOTS
-DEEPSEEKCODE_WECHAT_OPENCLAW_ENABLED
-DEEPSEEKCODE_WECHAT_ACCOUNT_ID
-DEEPSEEKCODE_WECHAT_ALLOWED_USERS
-DEEPSEEKCODE_WECHAT_ALLOWED_GROUPS
-DEEPSEEKCODE_WECHAT_PROJECT_ROOTS
-DEEPSEEKCODE_WECHAT_MENTION_NAMES
-DEEPSEEKCODE_WECHAT_QR_POLL_INTERVAL_MS
-DEEPSEEKCODE_WECHAT_LONG_POLL_TIMEOUT_MS
-```
-
-Debug, memory, and cost:
-
-```text
-DEEPSEEKCODE_PROMPT_AUDIT_DIR
-DEEPSEEKCODE_TDAI_MEMORY
-DEEPSEEKCODE_TDAI_CAPTURE
-DEEPSEEKCODE_TDAI_RECALL
-DEEPSEEKCODE_TDAI_EXTRACTION
-DEEPSEEKCODE_TDAI_STORE
-DEEPSEEKCODE_PRICE_INPUT_PER_M
-DEEPSEEKCODE_PRICE_OUTPUT_PER_M
-DEEPSEEKCODE_PRICE_CACHE_HIT_PER_M
-DEEPSEEKCODE_PRICE_CACHE_MISS_PER_M
-```
+The goal is stable prefix reuse plus compact dynamic state, not blind history deletion.

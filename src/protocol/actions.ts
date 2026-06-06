@@ -175,6 +175,34 @@ export const ValidateArtifactActionSchema = z.object({
   expected_kind: ArtifactKindSchema.optional(),
 });
 
+export const VerifyProjectActionSchema = z.object({
+  type: z.literal("verify_project"),
+  path: z.string().default(""),
+  mode: z.enum(["auto", "quick", "full"]).default("auto"),
+  install_dependencies: z.boolean().default(false),
+  run_build: z.boolean().default(true),
+  run_tests: z.boolean().default(false),
+  capture_preview: z.boolean().default(true),
+  timeout_ms: z.number().int().min(1000).max(120_000).default(30_000),
+});
+
+export const LaunchProjectActionSchema = z.object({
+  type: z.literal("launch_project"),
+  path: z.string().default(""),
+  command: z.string().optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+  capture_preview: z.boolean().default(true),
+  timeout_ms: z.number().int().min(1000).max(120_000).default(20_000),
+});
+
+export const BrowserAgentActionSchema = z.object({
+  type: z.literal("browser_agent"),
+  task: z.string().min(1),
+  url: z.string().optional(),
+  adapter: z.enum(["playwright", "external"]).default("playwright"),
+  timeout_ms: z.number().int().min(1000).max(120_000).default(30_000),
+});
+
 export const BrowserSessionStartActionSchema = z.object({
   type: z.literal("browser_session_start"),
   url: z.string().min(1),
@@ -318,6 +346,9 @@ export const ActionRequestSchema = z.discriminatedUnion("type", [
   AskUserQuestionActionSchema,
   ExitPlanModeActionSchema,
   ValidateArtifactActionSchema,
+  VerifyProjectActionSchema,
+  LaunchProjectActionSchema,
+  BrowserAgentActionSchema,
   BrowserSessionStartActionSchema,
   BrowserSnapshotActionSchema,
   BrowserScreenshotActionSchema,

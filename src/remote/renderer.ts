@@ -72,9 +72,8 @@ export class RemoteReplyRenderer {
       this.state.lastTool = line;
       this.state.tools.push(line);
       this.mergeTodos(parseTodos(event.text));
-      const artifact = extractArtifactPath(event.text);
-      if (artifact) this.state.artifacts.push(artifact);
-      return this.progress({ important: Boolean(artifact) || event.text.includes("TodoWrite") });
+      for (const artifact of extractArtifactPaths(event.text)) this.state.artifacts.push(artifact);
+      return this.progress({ important: Boolean(this.state.artifacts.length) || event.text.includes("TodoWrite") });
     }
     if (event.type === "assistant_delta") {
       this.state.assistant += event.text;
@@ -99,7 +98,7 @@ export class RemoteReplyRenderer {
   progress(input: { important?: boolean } = {}): string | undefined {
     if (!input.important && !this.state.todos.length && !this.state.errors.length) return undefined;
     const text = this.renderProgressCard();
-    const fingerprint = compactOneLine(text, 800);
+    const fingerprint = compactOneLine(text, 900);
     if (fingerprint === this.lastProgressFingerprint) return undefined;
     this.lastProgressFingerprint = fingerprint;
     return text;
@@ -112,18 +111,20 @@ export class RemoteReplyRenderer {
       ...this.state.artifacts,
       ...traceArtifacts.map((artifact) => artifact.path ? formatArtifact(artifact) : ""),
     ]);
-    const assistant = redactRemoteText(this.state.assistant.trim(), 1000);
+    const assistant = redactRemoteText(this.state.assistant.trim(), 1200);
     const cost = estimateUsageCost(usage, priceConfigFromEnv(process.env, this.model));
     const counts = todoCounts(this.state.todos);
     const hasErrors = this.state.errors.length > 0;
     const unfinished = this.state.todos.filter((todo) => todo.status !== "completed");
+
     if (!this.isTaskLike(artifacts)) {
       return {
-        text: assistant || "我在。",
+        text: assistant || "我在。你可以直接说任务，也可以发送 /help 查看远程命令。",
         markdown: assistant || "我在。",
         artifacts: [],
       };
     }
+
     const text = this.renderFinalChat({
       artifacts,
       assistant,
@@ -169,7 +170,7 @@ export class RemoteReplyRenderer {
       this.state.todos.length ||
       artifacts.length ||
       this.state.errors.length ||
-      /approval|permission|tool|artifact|validation|plan gate/i.test(this.state.phase ?? ""),
+      /approval|permission|tool|artifact|validation|plan gate|权限|工具|产物|验收/i.test(this.state.phase ?? ""),
     );
   }
 
@@ -181,11 +182,10 @@ export class RemoteReplyRenderer {
       counts.total
         ? `计划：完成 ${counts.completed}/${counts.total}，进行中 ${counts.inProgress}，待做 ${counts.pending}`
         : "计划：正在拆解任务",
-      this.state.lastTool ? `最近工具：${this.state.lastTool}` : "",
+      this.state.lastTool ? `最近工具：${compactOneLine(this.state.lastTool, 100)}` : "",
       this.state.usage ? usageLine(this.state.usage, undefined, "USD") : "",
-      this.renderTodoChatSection("进行中", "in_progress", 2),
+      this.renderTodoChatSection("正在做", "in_progress", 2),
       this.renderTodoChatSection("待做", "pending", 3),
-      this.renderTodoChatSection("已完成", "completed", 3),
       this.state.artifacts.length
         ? ["产物", ...unique(this.state.artifacts).slice(-3).map((item) => `- ${briefPath(item)}`)].join("\n")
         : "",
@@ -201,12 +201,7 @@ export class RemoteReplyRenderer {
     this.state.todos = next;
   }
 
-  private renderTodoSection(
-    title: string,
-    status: RemoteTodoStatus,
-    limit: number,
-    includeInProgress = false,
-  ): string {
+  private renderTodoSection(title: string, status: RemoteTodoStatus, limit: number, includeInProgress = false): string {
     const items = this.state.todos.filter((todo) => {
       if (includeInProgress) return todo.status === "pending" || todo.status === "in_progress";
       return todo.status === status;
@@ -233,7 +228,7 @@ export class RemoteReplyRenderer {
     usage: UsageTotals;
   }): string {
     const lines = [
-      input.hasErrors ? "⚠️ DeepSeekCode 任务需要处理" : "✅ DeepSeekCode 任务完成",
+      input.hasErrors ? "⚠️ DeepSeekCode 需要处理" : "✅ DeepSeekCode 任务完成",
       `项目：${briefPath(input.projectPath)}`,
       input.counts.total
         ? `计划：完成 ${input.counts.completed}/${input.counts.total}，进行中 ${input.counts.inProgress}，待做 ${input.counts.pending}`
@@ -246,9 +241,9 @@ export class RemoteReplyRenderer {
         : "产物：本轮没有记录到文件",
       input.hasErrors && this.state.errors.length ? `问题：${compactOneLine(this.state.errors[0] ?? "", 120)}` : "",
       !input.hasErrors && input.unfinished.length
-        ? `还需跟进：${input.unfinished.slice(0, 2).map((item) => item.title).join("；")}`
+        ? `仍需跟进：${input.unfinished.slice(0, 2).map((item) => item.title).join("；")}`
         : "",
-      input.assistant ? `回复：${compactOneLine(input.assistant, 180)}` : "",
+      input.assistant ? `回复：${compactOneLine(input.assistant, 220)}` : "",
     ].filter(Boolean);
     return lines.slice(0, 10).join("\n");
   }
@@ -267,7 +262,7 @@ export class RemoteReplyRenderer {
     const lines = [
       "## DeepSeekCode 任务结果",
       "",
-      `**状态**：${input.hasErrors ? "有错误需要处理" : "已完成"}`,
+      `**状态**：${input.hasErrors ? "有问题需要处理" : "已完成"}`,
       `**项目**：${input.projectPath}`,
       this.state.phase ? `**最后阶段**：${compactOneLine(this.state.phase, 140)}` : "",
       input.counts.total
@@ -305,9 +300,9 @@ function formatMoney(value: number, currency: string): string {
   return `${currency} ${value.toFixed(6)}`;
 }
 
-function extractArtifactPath(text: string): string | undefined {
-  const match = text.match(/\b([A-Za-z]:\\[^\s]+|[\w./\\-]+\.(?:html|htm|md|markdown|docx|pptx|pdf|png|jpg|jpeg|webp|xlsx|zip))\b/i);
-  return match?.[1];
+function extractArtifactPaths(text: string): string[] {
+  const matches = text.matchAll(/\b([A-Za-z]:\\[^\s]+|[\w./\\-]+\.(?:html|htm|md|markdown|docx|pptx|pdf|png|jpg|jpeg|webp|xlsx|zip))\b/gi);
+  return [...matches].map((match) => match[1] ?? "").filter(Boolean);
 }
 
 function firstLine(text: string): string {
