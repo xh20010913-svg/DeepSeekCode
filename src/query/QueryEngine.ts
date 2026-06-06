@@ -25,6 +25,7 @@ import { summarizeCacheTelemetry } from "../services/cache/telemetry.js";
 import { buildResonixPromptPlan } from "../services/cache/resonixPolicy.js";
 import { HookService } from "../services/hooks/hookService.js";
 import { toolRunEventPayload, toolRunEventToHookEvent } from "../services/hooks/toolHookBridge.js";
+import { AgentWorkflowService } from "../services/agents/agentWorkflow.js";
 import type { ToolRunEvent } from "../services/tools/toolOrchestration.js";
 import { InferenceSettingsService, type InferenceBudget } from "../services/inference/inferenceSettingsService.js";
 import { OutputStyleService } from "../services/outputStyles/outputStyleService.js";
@@ -253,9 +254,12 @@ export class QueryEngine {
         systemText: "classify user turn",
         userText: this.classificationInput(trimmed, memoryRecall),
       }));
+      const workflowContinuation = this.continueActiveWorkflowIfNeeded(runId, trimmed, classification);
+      classification = workflowContinuation.classification;
       this.state.appendEvent(runId, "turn_classified", classification);
-      if (classification.task_kind === "multi_agent") {
-        const dashboardMessage = await this.openAgentDashboardForRun(runId, {
+      const dashboardRunId = workflowContinuation.dashboardRunId ?? (classification.task_kind === "multi_agent" ? runId : undefined);
+      if (dashboardRunId) {
+        const dashboardMessage = await this.openAgentDashboardForRun(dashboardRunId, {
           openBrowser: true,
           share: false,
           writeTrace: true,
@@ -1004,6 +1008,57 @@ export class QueryEngine {
     }
   }
 
+  private continueActiveWorkflowIfNeeded(
+    runId: string,
+    userMessage: string,
+    classification: TurnClassification,
+  ): { classification: TurnClassification; dashboardRunId?: string } {
+    const trimmed = userMessage.trim();
+    if (!trimmed || trimmed.startsWith("/")) return { classification };
+    try {
+      const service = new AgentWorkflowService(this.state, this.config.projectPath);
+      const status = service.status();
+      if (status.record.status !== "running") return { classification };
+
+      service.message({
+        runId: status.record.runId,
+        workflowId: status.record.id,
+        from: "user",
+        to: "supervisor",
+        message: trimmed,
+      });
+      this.state.appendEvent(status.record.runId, "agent_workflow_followup_received", {
+        source_run_id: runId,
+        workflow_id: status.record.id,
+        classified_task_kind: classification.task_kind,
+        classified_needs_local_tools: classification.needs_local_tools,
+        message: trimmed,
+      });
+      this.state.appendEvent(runId, "agent_workflow_followup_attached", {
+        workflow_run_id: status.record.runId,
+        workflow_id: status.record.id,
+      });
+
+      if (!classification.needs_local_tools) {
+        return { classification, dashboardRunId: status.record.runId };
+      }
+      return {
+        dashboardRunId: status.record.runId,
+        classification: {
+          ...classification,
+          task_kind: "multi_agent",
+          needs_local_tools: true,
+          reason: [
+            classification.reason,
+            "An active multi-agent workflow is still running; task-bearing follow-up turns must continue that workflow until the user stops it or the reviewer finishes it.",
+          ].filter(Boolean).join(" "),
+        },
+      };
+    } catch {
+      return { classification };
+    }
+  }
+
   private buildChatMessages(userMessage: string, memoryRecall?: TencentMemoryRecall): ChatMessage[] {
     const memoryBlock = formatTencentMemoryRecall(memoryRecall);
     const system: ChatMessage = {
@@ -1344,6 +1399,33 @@ export class QueryEngine {
       "Reviewer verifies the task against the generic completion contract before the workflow is finished.",
     ]).slice(0, 20);
     const hasPlannedWork = envelope.needs_local_tools && envelope.actions.length > 0;
+    const activeWorkflow = this.activeRunningAgentWorkflow();
+    if (activeWorkflow) {
+      return {
+        injected: true,
+        envelope: {
+          ...envelope,
+          needs_local_tools: true,
+          acceptance_criteria: acceptance,
+          actions: [
+            {
+              type: "send_agent_message",
+              workflow_id: activeWorkflow.id,
+              from: "user",
+              to: "supervisor",
+              message: userMessage,
+            },
+            {
+              type: "agent_status",
+              workflow_id: activeWorkflow.id,
+            },
+            ...envelope.actions,
+          ],
+          continue_work: envelope.continue_work ?? !hasPlannedWork,
+          remaining_work: envelope.remaining_work || "Continue the existing visible multi-agent workflow with concrete role work and generic verification.",
+        },
+      };
+    }
     return {
       injected: true,
       envelope: {
@@ -1364,6 +1446,16 @@ export class QueryEngine {
         remaining_work: envelope.remaining_work || "Continue the visible multi-agent workflow with concrete role work and generic verification.",
       },
     };
+  }
+
+  private activeRunningAgentWorkflow(): { id: string; runId: string } | undefined {
+    try {
+      const status = new AgentWorkflowService(this.state, this.config.projectPath).status();
+      if (status.record.status !== "running") return undefined;
+      return { id: status.record.id, runId: status.record.runId };
+    } catch {
+      return undefined;
+    }
   }
 
   private currentOutputStylePrompt(): string {

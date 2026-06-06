@@ -3,12 +3,18 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { captureBrowserScreenshot } from "../bridge/cdpClient.js";
 import { artifactKindFromPath } from "../protocol/actions.js";
-import { captureHtmlWithHeadlessBrowser } from "../remote/preview.js";
+import { captureHtmlWithHeadlessBrowser, captureUrlWithHeadlessBrowser } from "../remote/preview.js";
 import { type ToolExecutionContext } from "../Tool.js";
 import { summarizeValidation, validateArtifact } from "./artifact.js";
 import { classifyCommandFailure, formatFailureDiagnosis } from "./commandPreflight.js";
 import { safeOptionalJoin } from "./pathSafety.js";
-import { defaultShellPolicy, runCommand, summarizeCommand } from "./shell.js";
+import {
+  defaultShellPolicy,
+  runCommand,
+  runLongRunningCommand,
+  summarizeCommand,
+  summarizeLongRunningCommand,
+} from "./shell.js";
 
 export interface VerifyProjectInput {
   path?: string;
@@ -50,6 +56,7 @@ export interface ProjectVerificationReport {
   artifacts: string[];
   previewPath?: string;
   startCommand?: string;
+  launched?: LaunchedProcess[];
 }
 
 export interface ProjectCheck {
@@ -62,6 +69,15 @@ export interface PackageInfo {
   dir: string;
   relativeDir: string;
   scripts: Record<string, string>;
+}
+
+export interface LaunchedProcess {
+  pid?: number;
+  command: string;
+  cwd: string;
+  url?: string;
+  ready: boolean;
+  running: boolean;
 }
 
 const GENERIC_ARTIFACT_EXTENSIONS = [
@@ -94,6 +110,8 @@ export async function verifyTask(
   const checks: ProjectCheck[] = [];
   const artifacts: string[] = [];
   let previewPath: string | undefined;
+  let startCommand: string | undefined;
+  const launched: LaunchedProcess[] = [];
 
   const contract = input.contract;
   const goal = contract?.goal ?? input.objective;
@@ -123,6 +141,8 @@ export async function verifyTask(
   checks.push(...projectReport.checks);
   artifacts.push(...projectReport.artifacts);
   previewPath = projectReport.previewPath;
+  startCommand = projectReport.startCommand;
+  if (projectReport.launched?.length) launched.push(...projectReport.launched);
 
   if (input.launch !== false) {
     const launchPackages = findPackageJsons(root).slice(0, input.mode === "full" ? 4 : 2);
@@ -136,16 +156,25 @@ export async function verifyTask(
         });
         continue;
       }
-      await runPackageCommand(
+      const launchReport = await launchProject(
         root,
-        pkg,
-        "launch_smoke",
-        launchCommand,
-        Math.min(input.timeout_ms ?? 12_000, 15_000),
+        {
+          path: pkg.relativeDir,
+          command: launchCommand,
+          capture_preview: input.capture_preview,
+          timeout_ms: Math.min(input.timeout_ms ?? 20_000, 25_000),
+        },
         context,
-        checks,
-        { longRunningOk: true },
       );
+      checks.push(...launchReport.checks.map((check) => ({
+        ...check,
+        name: `launch_${check.name}`,
+        detail: `${pkg.relativeDir || "."}: ${check.detail}`,
+      })));
+      artifacts.push(...launchReport.artifacts);
+      if (!previewPath) previewPath = launchReport.previewPath;
+      if (!startCommand) startCommand = launchReport.startCommand;
+      if (launchReport.launched?.length) launched.push(...launchReport.launched);
     }
   }
 
@@ -186,7 +215,8 @@ export async function verifyTask(
     checks,
     artifacts: uniqueStrings(artifacts),
     previewPath,
-    startCommand: projectReport.startCommand,
+    startCommand,
+    launched,
   };
 }
 
@@ -273,8 +303,12 @@ export async function launchProject(
   const root = safeOptionalJoin(projectRoot, input.path ?? "");
   const checks: ProjectCheck[] = [];
   const artifacts: string[] = [];
+  const launched: LaunchedProcess[] = [];
   const htmlFiles = findFiles(root, [".html", ".htm"], 20).slice(0, 3);
-  if (input.command) {
+  const packageInfo = findPackageJsons(root)[0];
+  const command = input.command ?? (packageInfo ? chooseLaunchCommand(packageInfo) : undefined);
+  const commandCwd = packageInfo && !input.command ? packageInfo.relativeDir : path.relative(projectRoot, root);
+  if (command) {
     if (!context.allowShell) {
       checks.push({
         name: "launch_command",
@@ -282,21 +316,54 @@ export async function launchProject(
         detail: "Shell permission is disabled; runtime cannot launch a local process.",
       });
     } else {
-      const output = await runCommand(projectRoot, input.command, path.relative(projectRoot, root), input.timeout_ms ?? 20_000, {
+      const output = await runLongRunningCommand(projectRoot, command, commandCwd, input.timeout_ms ?? 20_000, {
         ...defaultShellPolicy,
         allowShell: context.allowShell,
-      }, { signal: context.abortSignal });
-      const diagnosis = classifyCommandFailure(output);
+        maxTimeoutMs: Math.max(defaultShellPolicy.maxTimeoutMs, input.timeout_ms ?? 20_000),
+      }, {
+        signal: context.abortSignal,
+        port: input.port,
+      });
+      launched.push({
+        pid: output.pid,
+        command,
+        cwd: output.cwd,
+        url: output.url,
+        ready: output.ready,
+        running: output.running,
+      });
+      const diagnosis = output.running ? undefined : classifyCommandFailure(output);
       checks.push({
         name: "launch_command",
-        status: output.exitCode === 0 || output.timedOut ? "passed" : "failed",
-        detail: [summarizeCommand(output), formatFailureDiagnosis(diagnosis)].filter(Boolean).join("\n"),
+        status: output.running
+          ? output.ready
+            ? "passed"
+            : "warning"
+          : output.exitCode === 0
+            ? "passed"
+            : "failed",
+        detail: [summarizeLongRunningCommand(output), formatFailureDiagnosis(diagnosis)].filter(Boolean).join("\n"),
       });
+      if (output.url) {
+        const preview = input.capture_preview !== false
+          ? await captureUrlPreview(root, output.url, context.dataDir)
+          : undefined;
+        if (preview) {
+          artifacts.push(preview);
+          checks.push({ name: "service_preview", status: "passed", detail: `${output.url} -> ${preview}` });
+        } else if (input.capture_preview !== false) {
+          checks.push({ name: "service_preview", status: "warning", detail: `Service responded at ${output.url}, but no screenshot could be captured.` });
+        }
+      } else if (output.running) {
+        checks.push({ name: "service_probe", status: "warning", detail: "Process is still running, but no local URL or port was detected. Provide launch_project.port for a stronger smoke test." });
+      }
     }
   }
 
   let previewPath: string | undefined;
-  if (input.capture_preview !== false && htmlFiles.length) {
+  const servicePreview = artifacts.find((item) => item.endsWith(".png"));
+  if (servicePreview) previewPath = servicePreview;
+  if (!previewPath && input.capture_preview !== false && htmlFiles.length) {
     previewPath = await captureHtmlPreview(root, htmlFiles[0]!, context.dataDir);
     if (previewPath) {
       artifacts.push(previewPath);
@@ -312,7 +379,8 @@ export async function launchProject(
     checks,
     artifacts,
     previewPath,
-    startCommand: input.command,
+    startCommand: command,
+    launched,
   };
 }
 
@@ -320,6 +388,9 @@ export function formatProjectVerificationReport(report: ProjectVerificationRepor
   return [
     report.summary,
     report.startCommand ? `start_command=${report.startCommand}` : "",
+    report.launched?.length
+      ? `launched:\n${report.launched.map((item) => `- pid=${item.pid ?? "unknown"} ready=${item.ready} running=${item.running}${item.url ? ` url=${item.url}` : ""} command=${item.command}`).join("\n")}`
+      : "",
     report.previewPath ? `preview=${report.previewPath}` : "",
     "checks:",
     ...report.checks.slice(0, 20).map((check) => `- ${check.status} ${check.name}: ${check.detail}`),
@@ -443,7 +514,8 @@ function findPackageJsons(root: string): PackageInfo[] {
     .filter((file) => !file.includes(`${path.sep}node_modules${path.sep}`))
     .map((file) => {
       try {
-        const parsed = JSON.parse(fs.readFileSync(file, "utf-8")) as { scripts?: Record<string, string> };
+        const raw = fs.readFileSync(file, "utf-8").replace(/^\uFEFF/, "");
+        const parsed = JSON.parse(raw) as { scripts?: Record<string, string> };
         const dir = path.dirname(file);
         return {
           dir,
@@ -488,6 +560,20 @@ async function captureHtmlPreview(root: string, htmlPath: string, dataDir: strin
     return target;
   } catch {
     const fallback = await captureHtmlWithHeadlessBrowser({ htmlPath, outputDir });
+    return fallback?.path;
+  }
+}
+
+async function captureUrlPreview(root: string, url: string, dataDir: string | undefined): Promise<string | undefined> {
+  const outputDir = path.join(dataDir ?? root, ".deepseekcode", "previews");
+  try {
+    const bytes = await captureBrowserScreenshot(url, false);
+    fs.mkdirSync(outputDir, { recursive: true });
+    const target = path.join(outputDir, `service-${Date.now()}.png`);
+    fs.writeFileSync(target, bytes);
+    return target;
+  } catch {
+    const fallback = await captureUrlWithHeadlessBrowser({ url, outputDir, baseName: "service" });
     return fallback?.path;
   }
 }

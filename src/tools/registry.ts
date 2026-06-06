@@ -68,7 +68,13 @@ import { summarizeValidation, validateArtifact } from "./artifact.js";
 import { startBrowserSession } from "./browser.js";
 import { appendFile, applyTextPatch, globFiles, grepFiles, listFiles, readFileForTool, writeFile } from "./fs.js";
 import { createDocxArtifact, createPptxArtifact } from "./officeArtifacts.js";
-import { classifyCommandFailure, formatFailureDiagnosis, formatPreflightFailure, preflightCommand } from "./commandPreflight.js";
+import {
+  classifyCommandFailure,
+  detectLongRunningCommand,
+  formatFailureDiagnosis,
+  formatPreflightFailure,
+  preflightCommand,
+} from "./commandPreflight.js";
 import { safeJoin } from "./pathSafety.js";
 import { formatProjectVerificationReport, launchProject, verifyProject, verifyTask } from "./projectVerification.js";
 import { defaultShellPolicy, runCommand, summarizeCommand, type CommandOutput } from "./shell.js";
@@ -266,6 +272,26 @@ export const baseTools: Tools = [
         const message = formatPreflightFailure(input.command, preflight);
         return {
           data: { preflight },
+          result: {
+            action_type: input.type,
+            status: "failed",
+            path: input.cwd ?? "",
+            message,
+            context: message,
+          },
+        };
+      }
+      const longRunning = detectLongRunningCommand(input.command);
+      if (longRunning.detected) {
+        const message = [
+          "Command was not executed because it looks like a long-running local service.",
+          "category=long_running_process",
+          `command=${input.command}`,
+          `reason=${longRunning.reason ?? "The command is expected to keep running instead of exiting."}`,
+          `suggestion=${longRunning.suggestion ?? "Use launch_project or verify_task instead of run_command."}`,
+        ].join("\n");
+        return {
+          data: { longRunning },
           result: {
             action_type: input.type,
             status: "failed",

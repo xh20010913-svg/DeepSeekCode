@@ -11,6 +11,7 @@ import { ShellResultBlock } from "./ShellResultBlock.js";
 import { parseShellResultMessage } from "./ShellResultBlock.js";
 import { StructuredDiff, isUnifiedDiff } from "./StructuredDiff.js";
 import { toneColor } from "./design/terminalTheme.js";
+import { formatTechnicalErrorForTerminal } from "../utils/technicalErrorSummary.js";
 
 export interface ToolResultDetailInfo {
   action: string;
@@ -51,7 +52,9 @@ export function ToolResultDetail(props: {
   }
 
   const detail = parseToolResultDetail(props.title, props.body);
-  if (!detail) return <Markdown dimColor>{props.body}</Markdown>;
+  if (!detail) {
+    return <Markdown dimColor>{props.tone === "error" ? formatTechnicalErrorForTerminal(props.body, { maxRawLines: 3 }) : props.body}</Markdown>;
+  }
 
   return (
     <Box flexDirection="column">
@@ -114,7 +117,7 @@ function renderToolMessage(detail: ToolResultDetailInfo, tone: MessageTone): Rea
     return <FileToolResultBlock action={detail.action} message={detail.message ?? ""} />;
   }
   if (!detail.message) return null;
-  return <Markdown dimColor>{detail.message ?? ""}</Markdown>;
+  return <Markdown dimColor>{tone === "error" ? formatTechnicalErrorForTerminal(detail.message, { maxRawLines: 3 }) : detail.message}</Markdown>;
 }
 
 export function isQuestionAwaitingUserMessage(message: string): boolean {

@@ -8,6 +8,7 @@ import type { AddressInfo } from "node:net";
 import type { StateStore } from "../../state/sqlite.js";
 import { getRunEventBus, type RunEventBusSubscription } from "../runs/runEventBus.js";
 import { buildAgentDashboardSnapshot, serializeAgentTraceJsonl } from "./agentDashboardModel.js";
+import { dashboardHtml as renderAgentDashboardHtml } from "./agentDashboardPage.js";
 
 export interface AgentDashboardOpenResult {
   localUrl: string;
@@ -118,7 +119,7 @@ class AgentDashboardServer {
       return;
     }
     if (url.pathname.startsWith("/dashboard/")) {
-      write(res, 200, "text/html; charset=utf-8", dashboardHtml(view.runId, token));
+      write(res, 200, "text/html; charset=utf-8", renderAgentDashboardHtml(view.runId, token));
       return;
     }
     write(res, 404, "text/plain; charset=utf-8", "Not found");

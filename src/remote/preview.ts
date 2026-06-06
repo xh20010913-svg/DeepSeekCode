@@ -14,13 +14,45 @@ export async function captureHtmlWithHeadlessBrowser(input: {
   timeoutMs?: number;
   viewport?: { width: number; height: number };
 }): Promise<HeadlessScreenshotResult | undefined> {
+  return captureTargetWithHeadlessBrowser({
+    targetUrl: pathToFileURL(input.htmlPath).href,
+    baseName: path.basename(input.htmlPath, path.extname(input.htmlPath)),
+    outputDir: input.outputDir,
+    timeoutMs: input.timeoutMs,
+    viewport: input.viewport,
+  });
+}
+
+export async function captureUrlWithHeadlessBrowser(input: {
+  url: string;
+  outputDir: string;
+  timeoutMs?: number;
+  viewport?: { width: number; height: number };
+  baseName?: string;
+}): Promise<HeadlessScreenshotResult | undefined> {
+  return captureTargetWithHeadlessBrowser({
+    targetUrl: input.url,
+    baseName: input.baseName ?? "url-preview",
+    outputDir: input.outputDir,
+    timeoutMs: input.timeoutMs,
+    viewport: input.viewport,
+  });
+}
+
+async function captureTargetWithHeadlessBrowser(input: {
+  targetUrl: string;
+  outputDir: string;
+  baseName: string;
+  timeoutMs?: number;
+  viewport?: { width: number; height: number };
+}): Promise<HeadlessScreenshotResult | undefined> {
   const browser = findHeadlessBrowser();
   if (!browser) return undefined;
 
   fs.mkdirSync(input.outputDir, { recursive: true });
   const target = path.join(
     input.outputDir,
-    `${safeFilename(path.basename(input.htmlPath, path.extname(input.htmlPath)))}-${Date.now()}.png`,
+    `${safeFilename(input.baseName)}-${Date.now()}.png`,
   );
   const viewport = input.viewport ?? { width: 1440, height: 1000 };
   const args = [
@@ -32,7 +64,7 @@ export async function captureHtmlWithHeadlessBrowser(input: {
     "--disable-extensions",
     `--window-size=${viewport.width},${viewport.height}`,
     `--screenshot=${target}`,
-    pathToFileURL(input.htmlPath).href,
+    input.targetUrl,
   ];
 
   const result = await runBrowser(browser, args, input.timeoutMs ?? 15_000);

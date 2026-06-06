@@ -11,6 +11,12 @@ export interface CommandFailureDiagnosis {
   suggestions: string[];
 }
 
+export interface LongRunningCommandDetection {
+  detected: boolean;
+  reason?: string;
+  suggestion?: string;
+}
+
 export function preflightCommand(command: string): CommandPreflightResult {
   if (process.platform !== "win32") return { ok: true };
   const trimmed = command.trim();
@@ -47,6 +53,29 @@ export function preflightCommand(command: string): CommandPreflightResult {
     };
   }
   return { ok: true };
+}
+
+export function detectLongRunningCommand(command: string): LongRunningCommandDetection {
+  const normalized = command.trim().replace(/\s+/g, " ").toLowerCase();
+  if (!normalized) return { detected: false };
+  const patterns: Array<[RegExp, string]> = [
+    [/\bnpm(?:\.cmd)?\s+run\s+(dev|serve|preview)\b/, "npm dev/serve/preview scripts usually keep a local service running."],
+    [/\bnpm(?:\.cmd)?\s+(start)\b/, "npm start often launches a long-running local service."],
+    [/\bnode\s+[\w./\\-]*(server|app|index|main)\.(c?m?js|ts)\b/, "node server-style entry points often keep listening instead of exiting."],
+    [/\b(vite|next\s+dev|next\s+start|react-scripts\s+start|vue-cli-service\s+serve|astro\s+dev|svelte-kit\s+dev)\b/, "frontend and app server commands are long-running dev services."],
+    [/\b(python|py)\s+-m\s+http\.server\b/, "python -m http.server is a long-running static file server."],
+    [/\b(flask\s+run|uvicorn\s+[\w.:_-]+|streamlit\s+run)\b/, "web service commands keep running until stopped."],
+  ];
+  for (const [pattern, reason] of patterns) {
+    if (pattern.test(normalized)) {
+      return {
+        detected: true,
+        reason,
+        suggestion: "Use launch_project for long-running services so the runtime can keep the process alive, probe the URL/port, capture a preview, and return control to the model.",
+      };
+    }
+  }
+  return { detected: false };
 }
 
 export function classifyCommandFailure(output: { stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }): CommandFailureDiagnosis | undefined {

@@ -2,6 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { MessageTone } from "./MessageResponse.js";
 import { toneColor } from "./design/terminalTheme.js";
+import { formatTechnicalErrorForTerminal } from "../utils/technicalErrorSummary.js";
 
 export interface ShellResultSummary {
   exit: string;
@@ -9,7 +10,8 @@ export interface ShellResultSummary {
   timedOut: boolean;
 }
 
-const MAX_OUTPUT_LINES = 120;
+const MAX_OUTPUT_LINES = 18;
+const MAX_ERROR_LINES = 10;
 const MAX_OUTPUT_LINE_CHARS = 240;
 
 export function ShellResultBlock(props: {
@@ -18,7 +20,11 @@ export function ShellResultBlock(props: {
 }): React.ReactElement | null {
   const summary = parseShellResultMessage(props.message);
   if (!summary) return null;
-  const lines = formatShellOutput(summary.output, MAX_OUTPUT_LINES);
+  const shouldSummarize = props.tone === "error" || summary.timedOut;
+  const displayOutput = shouldSummarize
+    ? formatTechnicalErrorForTerminal(summary.output || props.message, { maxRawLines: 3 })
+    : summary.output;
+  const lines = formatShellOutput(displayOutput, shouldSummarize ? MAX_ERROR_LINES : MAX_OUTPUT_LINES);
 
   return (
     <Box flexDirection="column">

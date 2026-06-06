@@ -7,6 +7,7 @@ import { parseToolResultDetail } from "./ToolResultDetail.js";
 import { StatusIcon, type StatusIconState } from "./design/StatusIcon.js";
 import { truncateCells } from "./design/textLayout.js";
 import { toneColor } from "./design/terminalTheme.js";
+import { compactHumanIssue } from "../utils/technicalErrorSummary.js";
 
 export interface ToolActivitySourceItem {
   role: "tool" | "tool-start";
@@ -148,6 +149,9 @@ function actionCounts(records: ToolActivityRecord[]): { action: string; count: n
 }
 
 function formatToolActivityRecord(record: ToolActivityRecord, width: number): string {
-  const detail = record.detail ? ` ${record.detail}` : "";
+  const humanDetail = record.detail && record.tone === "error"
+    ? compactHumanIssue(record.detail, "zh")
+    : record.detail;
+  const detail = humanDetail ? ` ${humanDetail}` : "";
   return truncateCells(`${record.action} ${record.status}${detail}`, width);
 }
