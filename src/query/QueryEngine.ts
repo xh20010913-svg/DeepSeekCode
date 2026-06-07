@@ -223,11 +223,9 @@ export class QueryEngine {
 
     try {
       throwIfAborted(signal);
-      yield { type: "status", phase: "classifying", text: "Recalling long-term memory", detail: "TencentDB-Agent-Memory" };
-      const memoryRecall = await this.recallMemory(trimmed, runId, signal);
       yield { type: "status", phase: "classifying", text: "Classifying request", detail: this.provider.model };
       const classifyStartedAtMs = Date.now();
-      let classification = await this.provider.classifyTurn(this.classificationInput(trimmed, memoryRecall), { signal });
+      let classification = await this.provider.classifyTurn(this.classificationInput(trimmed), { signal });
       const classifyDurationMs = Date.now() - classifyStartedAtMs;
       if (!classification.needs_local_tools && explicitlyRequestsLocalTool(trimmed)) {
         classification = {
@@ -252,15 +250,26 @@ export class QueryEngine {
         model: this.provider.model,
         kind: "classification",
         systemText: "classify user turn",
-        userText: this.classificationInput(trimmed, memoryRecall),
+        userText: this.classificationInput(trimmed),
       }));
       const workflowContinuation = this.continueActiveWorkflowIfNeeded(runId, trimmed, classification);
       classification = workflowContinuation.classification;
       this.state.appendEvent(runId, "turn_classified", classification);
+      let memoryRecall: TencentMemoryRecall | undefined;
+      if (shouldRecallTencentMemory(trimmed, classification)) {
+        yield { type: "status", phase: "classifying", text: "Recalling long-term memory", detail: "TencentDB-Agent-Memory" };
+        memoryRecall = await this.recallMemory(trimmed, runId, signal);
+      } else {
+        this.state.appendEvent(runId, "tdai_memory_recall_skipped", {
+          reason: "prompt budget governor skipped memory for this turn",
+          task_kind: classification.task_kind,
+        });
+      }
       const dashboardRunId = workflowContinuation.dashboardRunId ?? (classification.task_kind === "multi_agent" ? runId : undefined);
       if (dashboardRunId) {
+        const openBrowser = !workflowContinuation.dashboardRunId && classification.task_kind === "multi_agent";
         const dashboardMessage = await this.openAgentDashboardForRun(dashboardRunId, {
-          openBrowser: true,
+          openBrowser,
           share: false,
           writeTrace: true,
         });
@@ -1716,11 +1725,13 @@ export class QueryEngine {
   private availableSkillsPrompt(): string {
     const skills = discoverSkills(this.config.projectPath, this.config.dataDir);
     if (skills.length === 0) return "(none)";
-    return skills
+    return [
+      "Short skill index only. Use search_skills, then invoke_skill to load a focused skill excerpt.",
+      ...skills
       .filter((skill) => !skill.disableModelInvocation)
-      .slice(0, 40)
-      .map((skill) => `- ${skill.name} (${skill.scope}): ${skill.description || "(no description)"}`)
-      .join("\n");
+      .slice(0, 24)
+      .map((skill) => `- ${skill.name} (${skill.scope}): ${compact(skill.description || "(no description)", 140)}`),
+    ].join("\n");
   }
 }
 
@@ -2257,6 +2268,19 @@ function topLevelSkillRouteFeedback(userMessage: string, action: ActionRequest):
       ].join(" "),
     };
   }
+  if (action.type === "create_pdf" && asksForPdfDeliverable(userMessage)) {
+    return {
+      action_type: action.type,
+      status: "failed",
+      path: action.path,
+      artifact_kind: "pdf",
+      message: [
+        "Top-level PDF requests must invoke the pdf skill before using the low-level create_pdf tool.",
+        "Call invoke_skill with name=pdf and pass the full user task, including the output path, title, and preview/validation requirements.",
+        "Inside the skill, create_pdf is allowed and validate_artifact expected_kind=pdf must run afterward.",
+      ].join(" "),
+    };
+  }
   return undefined;
 }
 
@@ -2267,6 +2291,10 @@ function asksForPresentationDeliverable(text: string): boolean {
 function asksForDocumentDeliverable(text: string): boolean {
   if (asksForPresentationDeliverable(text)) return false;
   return /docx|word|document|report|memo|brief|\u6587\u6863|\u62a5\u544a|\u603b\u7ed3|\u65b9\u6848|\u5907\u5fd8\u5f55/i.test(text);
+}
+
+function asksForPdfDeliverable(text: string): boolean {
+  return /\bpdf\b|PDF|\u53ef\u6253\u5370|\u7535\u5b50\u4e66/i.test(text);
 }
 
 function userVisibleDecisionMessage(message: string): string {
@@ -2388,24 +2416,33 @@ function formatTencentMemoryRecall(recall?: TencentMemoryRecall): string {
   if (!recall) return "";
   const parts: string[] = [];
   if (recall.appendSystemContext?.trim()) {
-    parts.push(`<system_context>\n${recall.appendSystemContext.trim()}\n</system_context>`);
+    parts.push(`<system_context>\n${compact(recall.appendSystemContext.trim(), 300)}\n</system_context>`);
   }
   if (recall.prependContext?.trim()) {
-    parts.push(`<relevant_memories>\n${recall.prependContext.trim()}\n</relevant_memories>`);
+    parts.push(`<relevant_memories>\n${compact(recall.prependContext.trim(), 260)}\n</relevant_memories>`);
   }
   if (recall.recalledL1Memories?.length) {
     parts.push([
       "<memory_hits>",
-      ...recall.recalledL1Memories.slice(0, 8).map((memory, index) =>
-        `${index + 1}. [${memory.type}; score=${Number(memory.score).toFixed(3)}] ${compact(memory.content.replace(/\s+/g, " ").trim(), 500)}`,
+      ...recall.recalledL1Memories.slice(0, 3).map((memory, index) =>
+        `${index + 1}. [${memory.type}; score=${Number(memory.score).toFixed(3)}] ${compact(memory.content.replace(/\s+/g, " ").trim(), 220)}`,
       ),
       "</memory_hits>",
     ].join("\n"));
   }
   if (recall.recalledL3Persona?.trim()) {
-    parts.push(`<persona>\n${compact(recall.recalledL3Persona.trim(), 1500)}\n</persona>`);
+    parts.push(`<persona>\n${compact(recall.recalledL3Persona.trim(), 160)}\n</persona>`);
   }
-  return parts.join("\n\n").trim();
+  return compact(parts.join("\n\n").trim(), 900);
+}
+
+function shouldRecallTencentMemory(userMessage: string, classification: TurnClassification): boolean {
+  if (explicitlyRequestsMemoryTool(userMessage)) return true;
+  if (asksForMultiAgentContinuation(userMessage)) return true;
+  if (/(继续|之前|上次|刚才|记得|历史|恢复|接着|再完善|修复|沿用|resume|continue|previous|earlier|remember|history|restore|again)/i.test(userMessage)) {
+    return true;
+  }
+  return classification.task_kind === "chat" && /(记得|历史|之前|上次|remember|history|previous)/i.test(userMessage);
 }
 
 function explicitlyRequestsLocalTool(userMessage: string): boolean {

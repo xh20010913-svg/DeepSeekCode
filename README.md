@@ -28,11 +28,11 @@
 </p>
 
 > [!IMPORTANT]
-> v0.3.2 is a local-first delivery release: plan-gated dynamic multi-agent workflows, Pixel Agents visualization, WeChat remote viewing, workflow-local skills, generic verification, Windows diagnostics, and cache reporting are designed for local acceptance before npm publish.
+> v0.3.3 is a local-first stability release: real PDF generation/validation, project process management, Windows terminal recovery, plan-gated dynamic multi-agent workflows, Pixel Agents visualization, WeChat remote viewing, workflow-local skills, generic verification, and cache reporting are designed for local acceptance before npm publish.
 
 DeepSeekCode is a DeepSeek-first local agent runtime for real project workspaces. It connects native function calling, local files, shell/browser permissions, project state, skills, plugins, MCP, WeChat remote control, multi-agent workflows, and task verification.
 
-v0.3.2 focuses on a generic execution loop: create a task contract, execute with tools, verify real outputs, feed failures back to the model, and retry with a better strategy. HTML is only one artifact type. The same `verify_task` entry point also covers code projects, CLI scripts, Office/PDF files, spreadsheets, reports, data tasks, media artifacts, MCP, plugins, and automation jobs.
+v0.3.3 focuses on a generic execution loop: create a task contract, execute with tools, verify real outputs, feed failures back to the model, and retry with a better strategy. HTML is only one artifact type. The same `verify_task` entry point also covers code projects, CLI scripts, real PDF files, Office files, spreadsheets, reports, data tasks, media artifacts, MCP, plugins, and automation jobs.
 
 ## Install
 
@@ -94,7 +94,8 @@ For non-chat work, the model and runtime operate around a `TaskCompletionContrac
 - code projects: install/build/test/start and dependency diagnostics
 - CLI/scripts: command output, exit code, and generated files
 - browser-viewable work: screenshot, blank page, console errors, missing assets
-- DOCX/PPTX/XLSX/PDF: package structure and render/openability checks
+- PDF: real `.pdf` generation, header/page structure checks, and optional preview rendering
+- DOCX/PPTX/XLSX: package structure and render/openability checks
 - markdown/reports: structure and requested sections
 - data work: CSV/XLSX/JSON/schema and result consistency
 - images/media: format, dimensions, previewability
@@ -161,6 +162,10 @@ Remote messages share the same project runtime and permission gates. WeChat rece
 | `/ask <question>` | Read-only side question while a long task runs |
 | `/status`, `/status full` | Task progress |
 | `/cache report` | Cache hit/miss and prompt-shape diagnostics |
+| `/memory doctor` | TencentDB memory recall/capture diagnostics |
+| `/project processes` | List services started by `launch_project` |
+| `/project stop latest\|<pid>\|all` | Stop launched project services without exiting the TUI |
+| `/terminal reset` | Restore Windows terminal modes if mouse/paste escape sequences leak |
 
 ## Capability Status
 
@@ -170,7 +175,8 @@ Remote messages share the same project runtime and permission gates. WeChat rece
 | Files, patches, search | Verified | Typed registry and Zod validation |
 | Windows shell diagnostics | Verified | POSIX and native dependency failures are classified |
 | Generic `verify_task` | Verified | Multiple artifact types and package/script checks |
-| Office/PDF/spreadsheets | Partial | Structure checks work; richer visual previews are still improving |
+| PDF artifacts | Verified | `create_pdf` generates real PDF files and validates `%PDF`, page count, and readable structure |
+| Office/spreadsheets | Partial | DOCX/PPTX/XLSX structure checks work; richer visual previews are still improving |
 | Skills/plugins | Partial | Install, search, invoke work; more regression tests are needed |
 | MCP | Experimental | Unified path exists; real service matrix is still growing |
 | Multi-agent workflow | Experimental | Plan gate, dynamic roles, workflow-local role skills, subtask graph, Pixel observer, and AcceptanceReviewer contract are wired; broader scenario tests continue |
@@ -190,4 +196,4 @@ Real scenario tests should be run in `D:\code\DeepSeekTest`. Do not publish `.en
 
 ## References
 
-DeepSeek Function Calling, DeepSeek Context Caching, Claude Code subagents/skills/hooks/MCP, MCP TypeScript SDK, Playwright screenshots, Pixel Agents, and browser-use informed the v0.3.2 direction.
+DeepSeek Function Calling, DeepSeek Context Caching, Claude Code subagents/skills/hooks/MCP, MCP TypeScript SDK, Playwright screenshots, Pixel Agents, and browser-use informed the v0.3.3 direction.

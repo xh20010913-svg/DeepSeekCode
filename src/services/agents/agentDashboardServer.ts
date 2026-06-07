@@ -1211,6 +1211,12 @@ function pixelMessagesFromSnapshot(snapshot: AgentDashboardSnapshot): PixelMessa
     generatedSkills: snapshot.generatedSkills,
     completionSummary: snapshot.completionSummary,
     mobileSummary: snapshot.mobileSummary,
+    connectionState: snapshot.connectionState,
+    serverHeartbeat: snapshot.serverHeartbeat,
+    processes: snapshot.processes,
+    cacheSummary: snapshot.cacheSummary,
+    tokenBudget: snapshot.tokenBudget,
+    offlineReason: snapshot.offlineReason,
   });
   messages.push({
     type: "agentDiagnostics",

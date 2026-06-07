@@ -30,7 +30,7 @@
         <span class="brand-mark" aria-hidden="true"></span>
         <span class="brand-name">DeepSeekCode</span>
         <span class="brand-dot">DS</span>
-        <span class="brand-version">v0.3.2</span>
+        <span class="brand-version">v0.3.3</span>
       </a>
       <nav class="nav-links" aria-label="Primary navigation">
         <a href="#install" data-i18n="navInstall">安装</a>
@@ -125,7 +125,7 @@ deepseekcode --model deepseek-v4-flash</code></pre>
           <span class="eyebrow">RUNTIME LOOP</span>
           <h2 data-i18n="loopTitle">从目标理解到真实验收。</h2>
           <p data-i18n="loopText">
-            模型负责理解目标和选择工具；runtime 负责权限、安全、平台诊断、产物识别、通用验收和失败回放。网页只是其中一种验证器，同一套 verify_task 也覆盖代码、脚本、Office/PDF、数据、报告、插件、MCP 和自动化任务。
+            模型负责理解目标和选择工具；runtime 负责权限、安全、平台诊断、产物识别、通用验收和失败回放。网页只是其中一种验证器，同一套 verify_task 也覆盖代码、脚本、真实 PDF、Office、数据、报告、插件、MCP 和自动化任务。
           </p>
         </div>
         <div class="cache-console reveal delay-1">
@@ -207,14 +207,14 @@ deepseekcode --model deepseek-v4-flash</code></pre>
             <span>05</span>
             <h3>Multi-agent</h3>
             <p data-i18n="featureAgents">
-              多 Agent workflow 先生成可确认计划；Planner 和 AcceptanceReviewer 固定，中间执行角色按任务动态生成，并用 Pixel cockpit 展示任务、阻塞和证据。
+              多 Agent workflow 先生成可确认计划；Planner 和 AcceptanceReviewer 固定，中间执行角色按任务动态生成，并用 Pixel cockpit 展示任务黑板、角色分工、进程、缓存、阻塞和证据。
             </p>
           </article>
           <article class="feature-card reveal">
             <span>06</span>
             <h3>Artifact delivery</h3>
             <p data-i18n="featureArtifacts">
-              远程回传按真实文件类型决定：图片预览、Office/PDF 文件、摘要、入口、manifest 和启动命令，不刷屏发送源码。
+              远程回传按真实文件类型决定：图片预览、PDF/Office 文件、摘要、入口、manifest 和启动命令，不刷屏发送源码。
             </p>
           </article>
         </div>
@@ -269,7 +269,7 @@ deepseekcode --model deepseek-v4-flash</code></pre>
         <div class="roadmap-list reveal">
           <article>
             <b data-i18n="roadVerifyTitle">通用验收</b>
-            <span data-i18n="roadVerify">继续扩大代码、Office、数据、MCP、自动化任务的真实验证覆盖。</span>
+            <span data-i18n="roadVerify">继续扩大代码、PDF、Office、数据、MCP、自动化任务的真实验证覆盖。</span>
           </article>
           <article>
             <b data-i18n="roadAgentsTitle">多 Agent</b>
@@ -281,14 +281,14 @@ deepseekcode --model deepseek-v4-flash</code></pre>
           </article>
           <article>
             <b data-i18n="roadCacheTitle">缓存成本</b>
-            <span data-i18n="roadCache">继续优化 stable prompt prefix、tool_result 摘要和 /cache report。</span>
+            <span data-i18n="roadCache">继续优化 stable prompt prefix、tool_result 摘要、/cache report 和 /memory doctor。</span>
           </article>
         </div>
       </section>
     </main>
 
     <footer class="site-footer">
-      <span>DeepSeekCode v0.3.1</span>
+      <span>DeepSeekCode v0.3.3</span>
       <span>Native tools · task contract · generic verification · remote runtime</span>
     </footer>
 

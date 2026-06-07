@@ -41,6 +41,7 @@ The npm package only installs `deepseekcode`.
 | `/status full` | Detailed run state, recent events, waiting item, and issues. |
 | `/ask <question>` | Read-only side question while a task is running. |
 | `/cache report` | Cache hit/miss, stable prefix, dynamic context, and suggestions. |
+| `/memory doctor` | TencentDB memory backend, recall/capture, inserted chars, latency, and failure diagnostics. |
 | `/skills` | List installed skills. |
 | `/skills install <source>` | Install a skill from local path, GitHub, Git URL, or `file://`. |
 | `/plugins` | List installed plugins. |
@@ -56,6 +57,9 @@ The npm package only installs `deepseekcode`.
 | `/agents dashboard trace` | Write `agent-trace.jsonl` for the selected run. |
 | `/agents dashboard close` | Close the local dashboard server. |
 | `/artifacts` | Recent artifacts and delivery summary. |
+| `/project processes` | List services started by `launch_project`. |
+| `/project stop latest\|<pid>\|all` | Stop launched project services without closing the TUI. |
+| `/terminal reset` | Restore Windows terminal modes after leaked mouse/paste escape sequences. |
 | `/stop` | Stop the current run when cancellable. |
 
 ## Remote commands

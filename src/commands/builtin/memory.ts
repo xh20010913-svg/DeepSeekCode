@@ -7,7 +7,7 @@ import { getTencentMemoryService } from "../../services/memory/tencentMemoryServ
 export const memoryCommand: Command = {
   name: "memory",
   description: "View project memory and TencentDB-Agent-Memory status/search.",
-  usage: "[add <text>|path|status|search <query>|conversation <query>]",
+  usage: "[add <text>|path|status|doctor|search <query>|conversation <query>]",
   async execute(args, context) {
     const trimmed = args.trim();
     const path = memoryFilePath(context.config.projectPath);
@@ -15,6 +15,26 @@ export const memoryCommand: Command = {
     if (trimmed === "status") {
       await tdai.initialize();
       return { message: JSON.stringify(tdai.status, null, 2) };
+    }
+    if (trimmed === "doctor") {
+      const started = Date.now();
+      await tdai.initialize();
+      const status = tdai.status;
+      const usage = context.state.usageTotals();
+      return {
+        message: [
+          "TencentDB-Agent-Memory doctor",
+          `enabled=${status.enabled} initialized=${status.initialized}`,
+          `backend=${status.config.storeBackend} embedding=${status.config.embeddingProvider}`,
+          `capture=${status.config.capture} recall=${status.config.recall} extraction=${status.config.extraction}`,
+          `tools=${status.tools.join(", ") || "none"}`,
+          `dataDir=${status.dataDir}`,
+          `latency_ms=${Date.now() - started}`,
+          status.error ? `error=${status.error}` : "",
+          `usage_snapshots=${usage.snapshots} cache_hit=${usage.cacheHitTokens} cache_miss=${usage.cacheMissTokens}`,
+          "policy=auto-minimal: classification does not need memory recall; task turns should only insert high-confidence short recall snippets.",
+        ].filter(Boolean).join("\n"),
+      };
     }
     if (trimmed.startsWith("search ")) {
       const query = trimmed.slice("search ".length).trim();

@@ -369,6 +369,18 @@ export async function launchProject(
         ready: output.ready,
         running: output.running,
       });
+      if (context.state && output.pid && output.running) {
+        context.state.upsertProjectProcess({
+          runId: context.runId ?? null,
+          projectPath: projectRoot,
+          pid: output.pid,
+          cwd: output.cwd,
+          command,
+          port: input.port ?? portFromUrl(output.url),
+          url: output.url ?? null,
+          status: "running",
+        });
+      }
       const diagnosis = output.running ? undefined : classifyCommandFailure(output);
       checks.push({
         name: "launch_command",
@@ -735,6 +747,16 @@ function chooseLaunchCommand(pkg: PackageInfo): string | undefined {
   if (scripts.serve) return "npm.cmd run serve";
   if (scripts.preview) return "npm.cmd run preview";
   return undefined;
+}
+
+function portFromUrl(url: string | undefined): number | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.port ? Number(parsed.port) : parsed.protocol === "https:" ? 443 : 80;
+  } catch {
+    return null;
+  }
 }
 
 function uniqueStrings(values: string[]): string[] {

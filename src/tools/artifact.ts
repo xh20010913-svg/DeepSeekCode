@@ -97,6 +97,12 @@ function validateContent(
   if (kind === "pdf") {
     if (bytes.subarray(0, 5).toString() === "%PDF-") checks.push("pdf_header");
     else errors.push("missing PDF header");
+    const text = bytes.toString("latin1");
+    if (/%%EOF\s*$/m.test(text) || text.includes("%%EOF")) checks.push("pdf_eof");
+    else errors.push("missing PDF EOF marker");
+    const pageObjects = (text.match(/\/Type\s*\/Page\b/g) ?? []).length;
+    if (pageObjects > 0) checks.push(`pdf_pages_hint=${pageObjects}`);
+    else errors.push("PDF has no page object hint");
     return;
   }
   if (kind === "docx" || kind === "pptx" || kind === "xlsx") {

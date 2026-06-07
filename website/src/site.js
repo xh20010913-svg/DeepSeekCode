@@ -17,7 +17,7 @@ const copy = {
     copy: "复制",
     loopTitle: "从目标理解到真实验收。",
     loopText:
-      "模型负责理解目标和选择工具；runtime 负责权限、安全、平台诊断、产物识别、通用验收和失败回放。网页只是其中一种验证器，同一套 verify_task 也覆盖代码、脚本、Office/PDF、数据、报告、插件、MCP 和自动化任务。",
+      "模型负责理解目标和选择工具；runtime 负责权限、安全、平台诊断、产物识别、通用验收和失败回放。网页只是其中一种验证器，同一套 verify_task 也覆盖代码、脚本、真实 PDF、Office、数据、报告、插件、MCP 和自动化任务。",
     shotsTitle: "真实运行截图。",
     shotsText:
       "这些截图来自本机测试：TUI 同步微信消息、个人微信远程任务结果、GSAP skill 自动参与网页动画任务。",
@@ -34,22 +34,22 @@ const copy = {
     featureSkills:
       "支持本地、GitHub、Git URL 和 file:// skill/plugin 安装。模型可通过 search_skills 与 invoke_skill 自动调用。",
     featureAgents:
-      "多 Agent workflow 先生成可确认计划；Planner 和 AcceptanceReviewer 固定，中间执行角色按任务动态生成，并用 Pixel cockpit 展示任务、阻塞和证据。",
+      "多 Agent workflow 先生成可确认计划；Planner 和 AcceptanceReviewer 固定，中间执行角色按任务动态生成，并用 Pixel cockpit 展示任务黑板、角色分工、进程、缓存、阻塞和证据。",
     featureArtifacts:
-      "远程回传按真实文件类型决定：图片预览、Office/PDF 文件、摘要、入口、manifest 和启动命令，不刷屏发送源码。",
+      "远程回传按真实文件类型决定：图片预览、PDF/Office 文件、摘要、入口、manifest 和启动命令，不刷屏发送源码。",
     remoteTitle: "电脑执行任务，微信查看进度、审批权限、接收结果。",
     remoteText:
       "推荐在桌面 TUI 里通过 /remote-control 绑定个人微信或企业微信。远程消息进入同一个 QueryEngine、同一套权限 gate 和同一份项目状态。",
     statusTitle: "能力状态。",
     roadmapTitle: "下一步。",
     roadVerifyTitle: "通用验收",
-    roadVerify: "继续扩大代码、Office、数据、MCP、自动化任务的真实验证覆盖。",
+    roadVerify: "继续扩大代码、PDF、Office、数据、MCP、自动化任务的真实验证覆盖。",
     roadAgentsTitle: "多 Agent",
     roadAgents: "继续扩大多 Agent 真实任务矩阵，打磨角色 checkpoint、通信轨迹和 Reviewer 证据链。",
     roadRemoteTitle: "远程控制",
     roadRemote: "改进 OpenClaw 网络恢复、浏览器扫码稳定性和 TUI/微信同步细节。",
     roadCacheTitle: "缓存成本",
-    roadCache: "继续优化 stable prompt prefix、tool_result 摘要和 /cache report。",
+    roadCache: "继续优化 stable prompt prefix、tool_result 摘要、/cache report 和 /memory doctor。",
   },
   en: {
     navInstall: "Install",
@@ -69,7 +69,7 @@ const copy = {
     copy: "Copy",
     loopTitle: "From intent to verified output.",
     loopText:
-      "The model understands the goal and chooses tools. The runtime owns permissions, safety, platform diagnostics, artifact typing, generic verification, and failure replay. Web pages are only one validator; the same verify_task loop also covers code, scripts, Office/PDF, data, reports, plugins, MCP, and automation tasks.",
+      "The model understands the goal and chooses tools. The runtime owns permissions, safety, platform diagnostics, artifact typing, generic verification, and failure replay. Web pages are only one validator; the same verify_task loop also covers code, scripts, real PDF, Office, data, reports, plugins, MCP, and automation tasks.",
     shotsTitle: "Real runtime screenshots.",
     shotsText:
       "These screenshots come from local tests: TUI and WeChat synchronization, personal WeChat remote results, and GSAP skill usage in an animation task.",
@@ -86,22 +86,22 @@ const copy = {
     featureSkills:
       "Install skills/plugins from local paths, GitHub, Git URLs, and file:// sources. The model can discover and invoke them with search_skills and invoke_skill.",
     featureAgents:
-      "Multi-agent workflows start with an approval plan; only Planner and AcceptanceReviewer are fixed, while task-specific roles are generated and shown in the Pixel cockpit.",
+      "Multi-agent workflows start with an approval plan; only Planner and AcceptanceReviewer are fixed, while task-specific roles are generated and shown with the task board, process/cache status, blockers, and evidence in the Pixel cockpit.",
     featureArtifacts:
-      "Remote delivery follows real artifact types: image previews, Office/PDF files, summaries, entry points, manifests, and launch commands without flooding source files.",
+      "Remote delivery follows real artifact types: image previews, PDF/Office files, summaries, entry points, manifests, and launch commands without flooding source files.",
     remoteTitle: "Run on the desktop. Review progress and results from WeChat.",
     remoteText:
       "Bind personal WeChat or WeCom from the desktop TUI with /remote-control. Remote messages enter the same QueryEngine, the same permission gates, and the same project state.",
     statusTitle: "Capability status.",
     roadmapTitle: "Next.",
     roadVerifyTitle: "Verification",
-    roadVerify: "Broaden real validation coverage for code, Office, data, MCP, and automation tasks.",
+    roadVerify: "Broaden real validation coverage for code, PDF, Office, data, MCP, and automation tasks.",
     roadAgentsTitle: "Multi-agent",
     roadAgents: "Expand real multi-agent scenario coverage and refine checkpoints, communication traces, and Reviewer evidence.",
     roadRemoteTitle: "Remote",
     roadRemote: "Improve OpenClaw recovery, browser-based login stability, and TUI/WeChat synchronization.",
     roadCacheTitle: "Cache cost",
-    roadCache: "Continue improving stable prompt prefixes, tool_result summaries, and /cache report.",
+    roadCache: "Continue improving stable prompt prefixes, tool_result summaries, /cache report, and /memory doctor.",
   },
 };
 

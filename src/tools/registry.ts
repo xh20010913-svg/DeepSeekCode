@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import { buildTool, type ToolExecutionContext, type Tools } from "../Tool.js";
 import {
@@ -7,6 +8,7 @@ import {
   clickBrowserSelector,
   typeBrowserSelector,
 } from "../bridge/cdpClient.js";
+import { resetTerminalModes } from "../components/terminalScreen.js";
 import {
   actionType,
   ActionRequestSchema,
@@ -31,6 +33,7 @@ import {
   InvokeAgentActionSchema,
   InvokeSkillActionSchema,
   LaunchProjectActionSchema,
+  ListProjectProcessesActionSchema,
   ListFilesActionSchema,
   McpCallActionSchema,
   PlannedComputerUseActionSchema,
@@ -41,6 +44,7 @@ import {
   RegenerateAgentWorkflowPlanActionSchema,
   ReviseAgentWorkflowPlanActionSchema,
   RunCommandActionSchema,
+  StopProjectProcessActionSchema,
   RunAgentWorkflowStepActionSchema,
   SearchSkillsActionSchema,
   SshReadFileActionSchema,
@@ -51,6 +55,7 @@ import {
   CancelAgentWorkflowPlanActionSchema,
   TdaiConversationSearchActionSchema,
   TdaiMemorySearchActionSchema,
+  TerminalResetActionSchema,
   TodoWriteActionSchema,
   ValidateArtifactActionSchema,
   VerifyTaskActionSchema,
@@ -81,6 +86,7 @@ import { SshProfileService } from "../services/remote/sshProfileService.js";
 import { runSshCommand, summarizeSshCommand } from "../services/remote/sshRemoteExecutor.js";
 import { TodoService, formatTodoList } from "../services/todos/todoService.js";
 import { executeToolPlan } from "../services/tools/toolOrchestration.js";
+import type { ProjectProcessRecord } from "../state/sqlite.js";
 import { discoverSkills } from "../skills/discovery.js";
 import { loadSkill } from "../skills/loader.js";
 import { buildContextBundle, contextBundlePrompt } from "../context/contextBundle.js";
@@ -89,6 +95,7 @@ import { summarizeValidation, validateArtifact } from "./artifact.js";
 import { startBrowserSession } from "./browser.js";
 import { appendFile, applyTextPatch, globFiles, grepFiles, listFiles, readFileForTool, writeFile } from "./fs.js";
 import { createDocxArtifact, createPptxArtifact } from "./officeArtifacts.js";
+import { createPdfArtifact } from "./pdfArtifact.js";
 import {
   classifyCommandFailure,
   detectLongRunningCommand,
@@ -98,7 +105,15 @@ import {
 } from "./commandPreflight.js";
 import { safeJoin } from "./pathSafety.js";
 import { formatProjectVerificationReport, launchProject, verifyProject, verifyTask } from "./projectVerification.js";
-import { defaultShellPolicy, runCommand, summarizeCommand, type CommandOutput } from "./shell.js";
+import {
+  defaultShellPolicy,
+  listBackgroundCommands,
+  runCommand,
+  stopBackgroundCommand,
+  summarizeCommand,
+  type CommandOutput,
+  type BackgroundProcessInfo,
+} from "./shell.js";
 
 export const baseTools: Tools = [
   buildTool({
@@ -406,6 +421,125 @@ export const baseTools: Tools = [
           message: formatProjectVerificationReport(report),
           context: formatProjectVerificationReport(report),
           artifact_kind: report.previewPath ? "screenshot" : undefined,
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "list_project_processes",
+    displayName: "Processes",
+    description: "List local project processes started by launch_project. Use this before stopping a dev server.",
+    inputSchema: ListProjectProcessesActionSchema,
+    readOnly: true,
+    concurrencySafe: true,
+    run(input, context) {
+      const inMemory = listBackgroundCommands();
+      const persisted = context.state?.listProjectProcesses({
+        projectPath: context.root,
+        includeStale: input.include_stale,
+      }) ?? [];
+      return {
+        data: { persisted, inMemory },
+        result: {
+          action_type: input.type,
+          status: "succeeded",
+          message: formatProjectProcesses(persisted, inMemory),
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "stop_project_process",
+    displayName: "Stop Project",
+    description: "Stop a project process previously started by launch_project. Use this when the user asks to close or stop a launched project; do not exit the TUI.",
+    inputSchema: StopProjectProcessActionSchema,
+    readOnly: false,
+    concurrencySafe: false,
+    destructive: true,
+    async run(input, context) {
+      const target = (input.target ?? "latest").trim() || "latest";
+      const timeoutMs = input.timeout_ms ?? 8_000;
+      if (target === "all") {
+        const records = context.state?.listProjectProcesses({
+          projectPath: context.root,
+          includeStale: false,
+          limit: 100,
+        }) ?? [];
+        const stopped = [];
+        for (const record of records) {
+          const killed = stopBackgroundCommand(record.pid);
+          const portReleased = input.verify_port_released && record.port
+            ? await waitForPortReleased(record.port, timeoutMs)
+            : undefined;
+          context.state?.updateProjectProcess({
+            id: record.id,
+            status: "stopped",
+            stoppedAtMs: Date.now(),
+          });
+          stopped.push({ record, killed, portReleased });
+        }
+        return {
+          data: { stopped },
+          result: {
+            action_type: input.type,
+            status: stopped.every((item) => item.killed && item.portReleased !== false) ? "succeeded" : "failed",
+            message: stopped.length
+              ? stopped.map((item) => `pid=${item.record.pid} killed=${item.killed}${item.portReleased === undefined ? "" : ` port_released=${item.portReleased}`}`).join("\n")
+              : "No running project processes recorded.",
+          },
+        };
+      }
+      const record = resolveProjectProcessTarget(context, target);
+      if (!record) {
+        return {
+          result: {
+            action_type: input.type,
+            status: "failed",
+            message: `No project process found for target=${target}. Use list_project_processes first.`,
+          },
+        };
+      }
+      const stopped = stopBackgroundCommand(record.pid);
+      const portReleased = input.verify_port_released && record.port
+        ? await waitForPortReleased(record.port, timeoutMs)
+        : undefined;
+      const updated = context.state?.updateProjectProcess({
+        id: record.id,
+        status: "stopped",
+        stoppedAtMs: Date.now(),
+      });
+      const status = stopped && portReleased !== false ? "succeeded" : "failed";
+      return {
+        data: { process: updated ?? record, stopped, portReleased },
+        result: {
+          action_type: input.type,
+          status,
+          path: record.cwd,
+          message: [
+            `stopped pid=${record.pid}`,
+            `command=${record.command}`,
+            record.url ? `url=${record.url}` : "",
+            portReleased === undefined ? "" : `port_released=${portReleased}`,
+          ].filter(Boolean).join(" | "),
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "terminal_reset",
+    displayName: "Terminal Reset",
+    description: "Reset Windows terminal modes after TUI shutdown artifacts such as mouse tracking or bracketed paste. This never exits the TUI.",
+    inputSchema: TerminalResetActionSchema,
+    readOnly: false,
+    concurrencySafe: false,
+    destructive: false,
+    run(input) {
+      resetTerminalModes();
+      return {
+        result: {
+          action_type: input.type,
+          status: "succeeded",
+          message: "Terminal reset sequence sent: styles cleared, cursor shown, mouse tracking and bracketed paste disabled.",
         },
       };
     },
@@ -1577,7 +1711,7 @@ export const baseTools: Tools = [
           },
         };
       }
-      const excerpt = skill.prompt.slice(0, 4000);
+      const excerpt = skill.prompt.slice(0, 1200);
       return {
         data: { skill, task: input.task, prompt: excerpt },
         result: {
@@ -1634,18 +1768,24 @@ export const baseTools: Tools = [
   buildTool({
     name: "create_pdf",
     displayName: "PDF",
-    description: "Reserved PDF-generation action. It fails honestly until the document bridge is wired.",
+    description: "Create a real PDF artifact from Markdown with page-count validation. Use this for explicit PDF deliverables; do not substitute DOCX or Markdown when the user asked for PDF.",
     inputSchema: PlannedPdfActionSchema,
     destructive: true,
-    run(input) {
+    async run(input, context) {
+      const created = await createPdfArtifact(context.root, input);
       return {
         result: {
           action_type: input.type,
-          status: "failed",
-          path: input.path,
-          message: "create_pdf is in the protocol; the TypeScript document bridge is not wired yet.",
+          status: "succeeded",
+          path: created.path,
+          message: [
+            `PDF created by runtime document tool with ${created.pageCount} page(s)`,
+            created.previewPath ? `preview=${created.previewPath}` : "",
+            `checks=${created.checks.join(",")}`,
+          ].filter(Boolean).join(" | "),
           artifact_kind: "pdf",
         },
+        data: created,
       };
     },
   }),
@@ -1772,7 +1912,7 @@ async function buildWorkflowPlanWithProvider(input: {
       },
     ], { signal: input.context.abortSignal });
     input.context.recordUsage?.(input.context.provider!.takeLastUsage(), "agent_workflow_plan_gate");
-    return normalizeProviderWorkflowPlan(parseJsonObject(reply.text), input.contract);
+    return normalizeProviderWorkflowPlan(parseJsonObject(reply.text), input.contract, input.objective);
   } catch (error) {
     input.context.state?.appendEvent(input.context.runId ?? null, "agent_workflow_model_plan_failed", {
       message: error instanceof Error ? error.message : String(error),
@@ -1781,7 +1921,11 @@ async function buildWorkflowPlanWithProvider(input: {
   }
 }
 
-function normalizeProviderWorkflowPlan(value: unknown, contract: ReturnType<typeof normalizeTaskCompletionContract>): WorkflowPlanParts {
+function normalizeProviderWorkflowPlan(
+  value: unknown,
+  contract: ReturnType<typeof normalizeTaskCompletionContract>,
+  objective: string,
+): WorkflowPlanParts {
   const candidate = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const now = Date.now();
   const roles = asArray(candidate.roles)
@@ -1793,6 +1937,9 @@ function normalizeProviderWorkflowPlan(value: unknown, contract: ReturnType<type
   const subtaskGraph = asArray(candidate.subtasks)
     .map((subtask, index) => subtaskFromModel(subtask, roles, contract, index, now))
     .filter((subtask): subtask is WorkflowSubtaskState => Boolean(subtask));
+  if (!providerPlanPassesQualityGate(roles, generatedSkills, subtaskGraph, contract, objective)) {
+    return {};
+  }
   return {
     rolePlan: roles.length ? {
       source: "model",
@@ -1805,6 +1952,46 @@ function normalizeProviderWorkflowPlan(value: unknown, contract: ReturnType<type
     verificationPlan: stringArray(candidate.verificationPlan),
     riskAndPermissionNotes: stringArray(candidate.riskAndPermissionNotes),
   };
+}
+
+function providerPlanPassesQualityGate(
+  roles: AgentRoleState[],
+  generatedSkills: GeneratedRoleSkill[],
+  subtaskGraph: WorkflowSubtaskState[],
+  contract: ReturnType<typeof normalizeTaskCompletionContract>,
+  objective: string,
+): boolean {
+  if (roles.length === 0) return false;
+  const requiredMiddleRoles = minimumProviderMiddleRoleCount(contract, objective);
+  if (roles.length < requiredMiddleRoles) return false;
+  if (roles.some((role) => isGenericProviderRoleName(role.role))) return false;
+  if (prefersChineseLabels(objective) && roles.some((role) => !/[\u4e00-\u9fa5]/.test(role.role))) return false;
+  const skillRoles = new Set(generatedSkills.map((skill) => safeModelName(skill.role).toLowerCase()));
+  if (roles.some((role) => !skillRoles.has(safeModelName(role.role).toLowerCase()))) return false;
+  const usefulSkills = generatedSkills.filter((skill) => skill.summary.trim() && skill.prompt.trim());
+  if (usefulSkills.length < roles.length) return false;
+  if (subtaskGraph.length < Math.min(roles.length, requiredMiddleRoles)) return false;
+  return true;
+}
+
+function minimumProviderMiddleRoleCount(contract: ReturnType<typeof normalizeTaskCompletionContract>, objective: string): number {
+  const text = `${objective}\n${contract.expectedOutputs.map((output) => `${output.kind} ${output.description}`).join("\n")}\n${contract.acceptanceCriteria.join("\n")}`.toLowerCase();
+  const requiredOutputs = contract.expectedOutputs.filter((output) => output.required).length;
+  if (/游戏|小游戏|网站|商城|前后端|后端|数据库|api|动效|动画|全栈|game|website|full.?stack|backend|database|animation|gsap/.test(text)) {
+    return 3;
+  }
+  if (requiredOutputs >= 2 || contract.acceptanceCriteria.length >= 3 || objective.length > 160) return 2;
+  return 1;
+}
+
+function isGenericProviderRoleName(role: string): boolean {
+  const normalized = safeModelName(role).toLowerCase();
+  return /^(implementationspecialist|dynamicspecialist|builder|worker|frontend|backend|tester|reviewer|coordinator|developer|engineer|coder|agent)$/i.test(normalized)
+    || /^(项目实现工程师|实现工程师|通用工程师|执行工程师|开发工程师|验证修复工程师)$/.test(role.trim());
+}
+
+function prefersChineseLabels(text: string): boolean {
+  return /[\u4e00-\u9fa5]/.test(text);
 }
 
 function roleFromModel(value: unknown): AgentRoleState | undefined {
@@ -1937,6 +2124,61 @@ function defaultAllowedToolsForRole(role: string, responsibility: string): strin
     return ["TodoWrite", "read_file", "list_files", "grep_files", "search_skills", "send_agent_message", "agent_status"];
   }
   return ["read_file", "list_files", "grep_files", "glob_files", "write_file", "append_file", "apply_patch", "run_command", "invoke_skill", "mcp_call", "validate_artifact"];
+}
+
+function formatProjectProcesses(
+  persisted: ProjectProcessRecord[],
+  inMemory: BackgroundProcessInfo[],
+): string {
+  if (persisted.length === 0 && inMemory.length === 0) return "No project processes recorded.";
+  const rows = persisted.map((process) => [
+    `${process.status} pid=${process.pid}`,
+    process.url ? `url=${process.url}` : "",
+    process.port ? `port=${process.port}` : "",
+    `cwd=${process.cwd}`,
+    `command=${process.command}`,
+  ].filter(Boolean).join(" | "));
+  const memoryOnly = inMemory
+    .filter((process) => !persisted.some((record) => record.pid === process.pid))
+    .map((process) => `running pid=${process.pid} | cwd=${process.cwd} | command=${process.command}${process.url ? ` | url=${process.url}` : ""}`);
+  return [...rows, ...memoryOnly].join("\n");
+}
+
+function resolveProjectProcessTarget(context: ToolExecutionContext, target: string): ProjectProcessRecord | undefined {
+  const trimmed = target.trim() || "latest";
+  const processes = context.state?.listProjectProcesses({
+    projectPath: context.root,
+    includeStale: true,
+    limit: 100,
+  }) ?? [];
+  if (trimmed === "latest") return processes.find((process) => process.status === "running") ?? processes[0];
+  if (trimmed === "all") return processes.find((process) => process.status === "running") ?? processes[0];
+  return context.state?.getProjectProcess(trimmed)
+    ?? processes.find((process) => process.id === trimmed || String(process.pid) === trimmed);
+}
+
+async function waitForPortReleased(port: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!(await isLocalPortOpen(port))) return true;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return !(await isLocalPortOpen(port));
+}
+
+function isLocalPortOpen(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: "127.0.0.1", port });
+    const done = (value: boolean) => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(value);
+    };
+    socket.setTimeout(650);
+    socket.once("connect", () => done(true));
+    socket.once("timeout", () => done(false));
+    socket.once("error", () => done(false));
+  });
 }
 
 interface WorkflowStepResult {
@@ -2167,21 +2409,21 @@ function workflowRolePrompt(
     .filter((candidate) => candidate.role !== role.role)
     .map((candidate) => [
       `${candidate.role} status=${candidate.status}`,
-      candidate.checkpoint ? `checkpoint=${compact(candidate.checkpoint, 500)}` : "",
-      candidate.blockedBy ? `blocked=${compact(candidate.blockedBy, 260)}` : "",
+      candidate.checkpoint ? `checkpoint=${compact(candidate.checkpoint, 220)}` : "",
+      candidate.blockedBy ? `blocked=${compact(candidate.blockedBy, 160)}` : "",
     ].filter(Boolean).join(" "))
     .filter(Boolean)
     .join("\n");
   const relevantMessages = messages
     .filter((message) => message.to === "all" || message.to === role.role || message.from === role.role || message.from === "user" || message.from === "supervisor")
-    .slice(-12)
-    .map((message) => `- ${message.from} -> ${message.to}: ${compact(message.message, 400)}`)
+    .slice(-5)
+    .map((message) => `- ${message.from} -> ${message.to}: ${compact(message.message, 220)}`)
     .join("\n");
   const generatedSkill = record.generatedSkills.find((skill) => skill.id === role.generatedSkillId || skill.role === role.role);
   const dependencySummaries = subtask.dependencies
     .map((dependency) => record.subtaskGraph.find((candidate) => candidate.id === dependency))
     .filter((candidate): candidate is WorkflowSubtaskState => Boolean(candidate))
-    .map((candidate) => `- ${candidate.id} ${candidate.status}: ${candidate.title}${candidate.evidence.length ? ` evidence=${candidate.evidence.slice(-3).join(" | ")}` : ""}`)
+    .map((candidate) => `- ${candidate.id} ${candidate.status}: ${compact(candidate.title, 120)}${candidate.evidence.length ? ` evidence=${candidate.evidence.slice(-2).map((item) => compact(item, 180)).join(" | ")}` : ""}`)
     .join("\n");
   return [
     `Workflow role: ${role.role}`,
@@ -2198,24 +2440,24 @@ function workflowRolePrompt(
     record.contract ? [
       "TaskCompletionContract:",
       `objective=${record.contract.objective}`,
-      `expectedOutputs=${record.contract.expectedOutputs.map((output) => `${output.kind}:${output.description}${output.required ? "" : " optional"}`).join(" | ") || "(none)"}`,
-      `acceptanceCriteria=${record.contract.acceptanceCriteria.join(" | ") || "(none)"}`,
+      `expectedOutputs=${compact(record.contract.expectedOutputs.map((output) => `${output.kind}:${output.description}${output.required ? "" : " optional"}`).join(" | ") || "(none)", 700)}`,
+      `acceptanceCriteria=${compact(record.contract.acceptanceCriteria.join(" | ") || "(none)", 700)}`,
       `userConstraints=${record.contract.userConstraints.join(" | ") || "(none)"}`,
       `verificationHints=${record.contract.verificationHints.join(" | ") || "(none)"}`,
     ].join("\n") : "",
     `Responsibility: ${role.responsibility}`,
     `Context scope: ${role.contextScope}`,
-    generatedSkill ? `Workflow-local role skill:\n${generatedSkill.prompt}` : "",
+    generatedSkill ? `Workflow-local role skill:\n${compact(generatedSkill.prompt, 1200)}` : "",
     `Allowed tools: ${allowedToolList(role)}`,
     `Preloaded skills: ${role.preloadedSkills.join(", ") || "(none)"}`,
     `Assigned tasks:\n${role.assignedTasks.map((task) => `- ${task}`).join("\n")}`,
     role.acceptance.length ? `Role acceptance:\n${role.acceptance.map((item) => `- ${item}`).join("\n")}` : "",
-    role.checkpoint ? `Your checkpoint:\n${role.checkpoint}` : "",
-    role.toolResultSummary.length ? `Your recent tool_result summary:\n${role.toolResultSummary.slice(-8).map((item) => `- ${compact(item, 500)}`).join("\n")}` : "",
+    role.checkpoint ? `Your checkpoint:\n${compact(role.checkpoint, 900)}` : "",
+    role.toolResultSummary.length ? `Your recent tool_result summary:\n${role.toolResultSummary.slice(-5).map((item) => `- ${compact(item, 240)}`).join("\n")}` : "",
     peerSummaries ? `Peer role summaries:\n${peerSummaries}` : "",
     relevantMessages ? `Supervisor/user/role messages:\n${relevantMessages}` : "",
-    feedback ? `Previous feedback for this role:\n${feedback.final_message}\n${feedback.results.map((result) => `- ${result.action_type}:${result.status} ${compact(result.message ?? "", 300)}`).join("\n")}` : "",
-    "Act only as this role. Use native tools for concrete local work. Keep outputs concise. If your role needs more work, set continue_work=true and state the next concrete step. If your assigned role is complete, set continue_work=false with a concise checkpoint summary.",
+    feedback ? `Previous feedback for this role:\n${compact(feedback.final_message, 600)}\n${feedback.results.slice(-5).map((result) => `- ${result.action_type}:${result.status} ${compact(result.message ?? "", 220)}`).join("\n")}` : "",
+    "Act only as this role. Do not read other role transcripts. Use native tools for concrete local work. Keep outputs concise. If your role needs more work, set continue_work=true and state the next concrete step. If your assigned role is complete, set continue_work=false with a concise checkpoint summary.",
   ].filter(Boolean).join("\n\n");
 }
 

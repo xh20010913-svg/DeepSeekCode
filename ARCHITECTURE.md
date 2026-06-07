@@ -1,6 +1,6 @@
 ﻿# DeepSeekCode Architecture
 
-Version: `v0.3.1`
+Version: `v0.3.3`
 
 DeepSeekCode is a DeepSeek-native local agent runtime. The model is responsible for understanding the user's goal and choosing tools. The runtime is responsible for tool schemas, permission gates, platform safety, project state, verification, artifact delivery, remote channels, and recovery.
 
@@ -29,7 +29,7 @@ Provider-facing execution does not rely on model-emitted `ActionEnvelope JSON`. 
 | Subsystem | Responsibility |
 | --- | --- |
 | QueryEngine | Builds messages, calls the provider, executes native tool calls, records usage/events, schedules verification, and feeds failures back. |
-| Tool registry | Exposes file, shell, browser, Office, skills, MCP, verification, and workflow tools. |
+| Tool registry | Exposes file, shell, browser, real PDF, Office, skills, MCP, project process, verification, and workflow tools. |
 | Task contract | Stores model-authored goals, expected artifacts, verifiable behavior, user constraints, and acceptance criteria. |
 | Verification | `verify_task` selects checks from real artifacts and project shape. HTML is one validator, not the center of the system. |
 | Permission service | Gates shell, browser, MCP, SSH, and risky actions across TUI and remote channels. |
@@ -39,7 +39,7 @@ Provider-facing execution does not rely on model-emitted `ActionEnvelope JSON`. 
 | MCP | Provides unified `mcp_call`; native per-tool schema expansion is an extension path. |
 | Remote channels | WeCom and personal WeChat OpenClaw share QueryEngine, state, permissions, and delivery planning. |
 | Agent workflow | Plan gate + Planner role plan + dynamic middle roles + workflow-local skills + subtask scheduler + AcceptanceReviewer evidence gate. |
-| Agent panel | Bundled Pixel Agents read-only observer with local HTTP/WebSocket/SSE snapshots, tokenized share or Quick Tunnel links, and JSONL trace output. |
+| Agent panel | Bundled Pixel Agents read-only observer with local HTTP/WebSocket/SSE snapshots, process/cache/offline state, tokenized share or Quick Tunnel links, and JSONL trace output. |
 | Artifact delivery | Sends readable previews by artifact type instead of flooding remote chat with source files. |
 
 ## Generic Completion
@@ -49,7 +49,8 @@ Provider-facing execution does not rely on model-emitted `ActionEnvelope JSON`. 
 - Code projects: package manifests, install/build/test scripts, launch smoke checks, startup errors, and dependency failures.
 - CLI/scripts: command availability, exit codes, outputs, and produced files.
 - Browser-visible outputs: page load, screenshots, blank page checks, console errors, and missing resources.
-- Office/PDF/spreadsheets: package structure, file existence, renderability or previewability where available.
+- PDF: `%PDF-` header, readable structure, page count through `pdf-lib`, and optional preview rendering when Poppler is available.
+- Office/spreadsheets: package structure, file existence, renderability or previewability where available.
 - Markdown/reports: non-empty content, expected sections, data/citation artifacts, and requested format.
 - Data tasks: CSV/TSV/JSON/XLSX presence, parseability, rows, and report consistency.
 - Media: file existence, type, size, and preview path.
@@ -83,7 +84,7 @@ Multi-agent mode is a project-scoped workflow, not a chat gimmick. It starts wit
 
 The scheduler chooses the next runnable subtask by dependency and status, not by a fixed role sequence. `run_agent_workflow_step` and `drain_agent_workflow` run role-local provider/tool loops while the supervisor layer receives only summaries, artifacts, blockers, and validation conclusions. `AcceptanceReviewer` acceptance must refer back to the task contract, subtask evidence, and the relevant validators.
 
-When a workflow starts, `AgentDashboardServer` serves the bundled Pixel Agents panel and writes `agent-trace.jsonl`. The panel is built from durable run/task/event/artifact state, not terminal scraping. It presents the plan preview, stage, dynamic roles, subtask graph, dependencies, evidence, blockers, artifacts, and a responsive phone layout for WeChat viewing. Remote channels can share the same view through `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL`; `/agents dashboard tunnel` can create a temporary Cloudflare Quick Tunnel for phone preview. Without a secure public URL the link remains local-only. The panel is read-only and never approves tools or executes commands.
+When a new workflow starts, `AgentDashboardServer` serves the bundled Pixel Agents panel and writes `agent-trace.jsonl`. Continue, repair, and refine requests reuse the same run page instead of opening another browser tab. The panel is built from durable run/task/event/artifact state, not terminal scraping. It presents the plan preview, stage, dynamic roles, subtask graph, dependencies, evidence, blockers, artifacts, process/cache summary, offline state, and a responsive phone layout for WeChat viewing. Remote channels can share the same view through `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL`; `/agents dashboard tunnel` can create a temporary Cloudflare Quick Tunnel for one tokenized run page. Without a secure public URL the link remains local-only. The panel is read-only and never approves tools or executes commands.
 
 ## Remote Runtime
 
@@ -92,7 +93,8 @@ TUI, WeChat, and WeCom are different frontends on the same runtime. Remote chann
 Remote delivery is runtime-generated from real files:
 
 - HTML/UI: screenshot plus entry summary.
-- Office/PDF: previewable file, and a preview image when conversion is available.
+- PDF: real `.pdf` file plus validation evidence; preview image when Poppler conversion is available.
+- Office: previewable file, and a preview image when conversion is available.
 - Markdown/text: short chat summary, file only when requested.
 - Multi-file project: entry, manifest, startup command, verification summary, and key preview.
 
@@ -118,7 +120,8 @@ Long stdout, diffs, logs, and raw artifacts are stored as events or files; only 
 | Local file tools and shell gate | Verified |
 | Generic `verify_task` | Verified core, expanding validators |
 | Windows command diagnostics | Verified core, expanding command patterns |
-| Office/PDF/spreadsheet artifacts | Partial |
+| PDF artifacts | Verified core, CJK font discovery and structure validation |
+| Office/spreadsheet artifacts | Partial |
 | Skills/plugins install and invoke | Partial |
 | MCP unified call | Experimental |
 | Multi-agent workflow | Experimental, plan-gated dynamic roles wired |

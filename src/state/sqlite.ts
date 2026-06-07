@@ -116,6 +116,24 @@ export interface UsageTotals {
   snapshots: number;
 }
 
+export type ProjectProcessStatus = "running" | "stopped" | "exited" | "unknown";
+
+export interface ProjectProcessRecord {
+  id: string;
+  runId: string | null;
+  projectPath: string;
+  pid: number;
+  cwd: string;
+  command: string;
+  port: number | null;
+  url: string | null;
+  status: ProjectProcessStatus;
+  startedAtMs: number;
+  updatedAtMs: number;
+  stoppedAtMs: number | null;
+  exitCode: number | null;
+}
+
 export class StateStore {
   private readonly db: DatabaseSync;
 
@@ -972,6 +990,130 @@ export class StateStore {
     this.db.prepare(`DELETE FROM ui_state WHERE scope = ? AND key = ?`).run(scope, key);
   }
 
+  upsertProjectProcess(input: {
+    id?: string;
+    runId?: string | null;
+    projectPath: string;
+    pid: number;
+    cwd: string;
+    command: string;
+    port?: number | null;
+    url?: string | null;
+    status?: ProjectProcessStatus;
+    startedAtMs?: number;
+    exitCode?: number | null;
+  }): ProjectProcessRecord {
+    const startedAtMs = input.startedAtMs ?? Date.now();
+    const id = input.id ?? `proc_${input.pid}_${startedAtMs}`;
+    const now = Date.now();
+    this.db.prepare(`
+      INSERT INTO project_processes (
+        id, run_id, project_path, pid, cwd, command, port, url, status, started_at_ms, updated_at_ms, stopped_at_ms, exit_code
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        run_id = excluded.run_id,
+        project_path = excluded.project_path,
+        pid = excluded.pid,
+        cwd = excluded.cwd,
+        command = excluded.command,
+        port = excluded.port,
+        url = excluded.url,
+        status = excluded.status,
+        updated_at_ms = excluded.updated_at_ms,
+        exit_code = excluded.exit_code
+    `).run(
+      id,
+      input.runId ?? null,
+      input.projectPath,
+      input.pid,
+      input.cwd,
+      input.command,
+      input.port ?? null,
+      input.url ?? null,
+      input.status ?? "running",
+      startedAtMs,
+      now,
+      input.exitCode ?? null,
+    );
+    this.appendEvent(input.runId ?? null, "project_process_recorded", {
+      id,
+      pid: input.pid,
+      cwd: input.cwd,
+      command: input.command,
+      port: input.port ?? null,
+      url: input.url ?? null,
+      status: input.status ?? "running",
+    });
+    return this.getProjectProcess(id)!;
+  }
+
+  listProjectProcesses(input: { projectPath?: string; includeStale?: boolean; limit?: number } = {}): ProjectProcessRecord[] {
+    const includeStale = input.includeStale ?? true;
+    const limit = input.limit ?? 50;
+    const rows = input.projectPath
+      ? this.db.prepare(`
+          SELECT * FROM project_processes
+          WHERE project_path = ? ${includeStale ? "" : "AND status = 'running'"}
+          ORDER BY updated_at_ms DESC
+          LIMIT ?
+        `).all(input.projectPath, limit)
+      : this.db.prepare(`
+          SELECT * FROM project_processes
+          ${includeStale ? "" : "WHERE status = 'running'"}
+          ORDER BY updated_at_ms DESC
+          LIMIT ?
+        `).all(limit);
+    return rows.map((row) => rowToProjectProcessRecord(row as Record<string, unknown>));
+  }
+
+  getProjectProcess(selector: string | number): ProjectProcessRecord | undefined {
+    const value = String(selector);
+    const row = /^\d+$/.test(value)
+      ? this.db.prepare(`
+          SELECT * FROM project_processes
+          WHERE pid = ?
+          ORDER BY updated_at_ms DESC
+          LIMIT 1
+        `).get(Number(value))
+      : this.db.prepare(`
+          SELECT * FROM project_processes
+          WHERE id = ?
+          LIMIT 1
+        `).get(value);
+    return row ? rowToProjectProcessRecord(row as Record<string, unknown>) : undefined;
+  }
+
+  updateProjectProcess(input: {
+    id: string;
+    status: ProjectProcessStatus;
+    stoppedAtMs?: number | null;
+    exitCode?: number | null;
+    url?: string | null;
+  }): ProjectProcessRecord | undefined {
+    const current = this.getProjectProcess(input.id);
+    if (!current) return undefined;
+    this.db.prepare(`
+      UPDATE project_processes
+      SET status = ?, stopped_at_ms = ?, exit_code = ?, url = COALESCE(?, url), updated_at_ms = ?
+      WHERE id = ?
+    `).run(
+      input.status,
+      input.stoppedAtMs ?? current.stoppedAtMs,
+      input.exitCode ?? current.exitCode,
+      input.url ?? null,
+      Date.now(),
+      input.id,
+    );
+    const updated = this.getProjectProcess(input.id);
+    this.appendEvent(updated?.runId ?? null, "project_process_updated", {
+      id: input.id,
+      status: input.status,
+      pid: updated?.pid,
+      url: updated?.url,
+    });
+    return updated;
+  }
+
   private countActions(runId: string): number {
     const row = this.db.prepare(`SELECT COUNT(*) AS count FROM actions WHERE run_id = ?`).get(runId) as
       | { count: number }
@@ -1130,11 +1272,29 @@ export class StateStore {
         PRIMARY KEY (scope, key)
       );
 
+      CREATE TABLE IF NOT EXISTS project_processes (
+        id TEXT PRIMARY KEY,
+        run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+        project_path TEXT NOT NULL,
+        pid INTEGER NOT NULL,
+        cwd TEXT NOT NULL,
+        command TEXT NOT NULL,
+        port INTEGER,
+        url TEXT,
+        status TEXT NOT NULL,
+        started_at_ms INTEGER NOT NULL,
+        updated_at_ms INTEGER NOT NULL,
+        stopped_at_ms INTEGER,
+        exit_code INTEGER
+      );
+
       CREATE INDEX IF NOT EXISTS idx_events_run_id_id ON events(run_id, id);
       CREATE INDEX IF NOT EXISTS idx_actions_run_id_step ON actions(run_id, step_index);
       CREATE INDEX IF NOT EXISTS idx_tasks_run_id_status ON tasks(run_id, status);
       CREATE INDEX IF NOT EXISTS idx_jobs_status_kind ON jobs(status, kind, updated_at_ms);
       CREATE INDEX IF NOT EXISTS idx_jobs_run_id ON jobs(run_id, updated_at_ms);
+      CREATE INDEX IF NOT EXISTS idx_project_processes_project_status ON project_processes(project_path, status, updated_at_ms);
+      CREATE INDEX IF NOT EXISTS idx_project_processes_pid ON project_processes(pid, updated_at_ms);
     `);
   }
 }
@@ -1167,6 +1327,24 @@ function rowToTaskRecord(row: Record<string, unknown>): TaskRecord {
     detail: String(row.detail ?? ""),
     createdAtMs: Number(row.created_at_ms),
     updatedAtMs: Number(row.updated_at_ms),
+  };
+}
+
+function rowToProjectProcessRecord(row: Record<string, unknown>): ProjectProcessRecord {
+  return {
+    id: String(row.id),
+    runId: row.run_id === null ? null : String(row.run_id),
+    projectPath: String(row.project_path),
+    pid: Number(row.pid),
+    cwd: String(row.cwd),
+    command: String(row.command),
+    port: optionalNumber(row.port) ?? null,
+    url: row.url === null || row.url === undefined ? null : String(row.url),
+    status: String(row.status) as ProjectProcessStatus,
+    startedAtMs: Number(row.started_at_ms),
+    updatedAtMs: Number(row.updated_at_ms),
+    stoppedAtMs: optionalNumber(row.stopped_at_ms) ?? null,
+    exitCode: optionalNumber(row.exit_code) ?? null,
   };
 }
 

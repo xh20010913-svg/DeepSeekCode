@@ -1266,7 +1266,10 @@ function roleSpecsForObjective(objective: string, contract: NormalizedTaskComple
   if (/ppt|pptx|slides?|演示|幻灯/.test(text)) {
     add("演示文稿设计师", `负责 PPTX 内容结构、版式和可打开性验证：${objective}`, ["PPTX 文件", "预览或验证 evidence"], ["presentations"], [...commonWrite, "create_pptx"], ["页数和文件可打开性必须验证。"]);
   }
-  if (/docx?|word|文档|报告|markdown|pdf/.test(text)) {
+  if (/pdf/.test(text)) {
+    add("PDF产物工程师", `负责生成真实 PDF、校验页数/结构并记录预览或解析 evidence：${objective}`, ["PDF 文件", "PDF 验证 evidence"], ["pdf", "documents", "artifact-review"], [...commonWrite, "create_pdf", "validate_artifact"], ["用户明确要求 PDF 时不得用 DOCX/Markdown 冒充完成。", "必须检查 %PDF 头、页数和文件可读性。"]);
+  }
+  if (/docx?|word|文档|报告|markdown/.test(text)) {
     add("文档产物编辑", `负责文档/PDF/Markdown 结构、内容和格式验证：${objective}`, ["文档产物", "格式验证 evidence"], ["documents", "pdf", "writing"], [...commonWrite, "create_docx"], ["结构和可读性必须验证。"]);
   }
   if (!roles.length) {
@@ -1337,7 +1340,7 @@ function roleSpecForOutput(kind: string, description: string, objective: string)
     return {
       role: "PDF产物工程师",
       responsibility: `生成或验证 PDF 产物：${objective}`,
-      tools: [...commonWrite, "validate_artifact"],
+      tools: [...commonWrite, "create_pdf", "validate_artifact"],
       skills: ["pdf", "artifact-review"],
       outputs: [],
       risks: ["验收前渲染或解析 PDF 页面。", "检查文字和版式完整性。"],
@@ -1512,7 +1515,7 @@ function normalizeSubtaskGraph(
   now: number,
 ): WorkflowSubtaskState[] {
   const roleNames = roles.map((role) => role.role);
-  const fallbackRole = roleNames.find((role) => !isPlannerRole(role) && !isAcceptanceRole(role)) ?? roleNames[0] ?? "ImplementationSpecialist";
+  const fallbackRole = roleNames.find((role) => !isPlannerRole(role) && !isAcceptanceRole(role)) ?? roleNames[0] ?? "项目实现工程师";
   const seen = new Set<string>();
   return subtasks.map((subtask, index) => {
     let id = safeSubtaskId(subtask.id || `subtask_${index + 1}`);

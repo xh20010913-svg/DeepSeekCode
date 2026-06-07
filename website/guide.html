@@ -103,10 +103,14 @@ deepseekcode --model deepseek-v4-flash
             <span class="eyebrow">04</span>
             <h2>通用任务契约和验收</h2>
             <p>v0.3 的核心是 <code>TaskCompletionContract</code> 和 <code>verify_task</code>。模型生成目标、预期产物、可验证行为和完成标准；runtime 根据真实文件、项目结构、工具结果和合约选择验证器。</p>
-            <p>支持的验证方向包括代码项目、CLI 脚本、网页/前端、DOCX/PPTX/XLSX/PDF、Markdown/研究报告、数据任务、图片媒体、skills/plugins、MCP 和自动化任务。网页只是其中一类。</p>
+            <p>支持的验证方向包括代码项目、CLI 脚本、网页/前端、真实 PDF、DOCX/PPTX/XLSX、Markdown/研究报告、数据任务、图片媒体、skills/plugins、MCP 和自动化任务。网页只是其中一类。</p>
             <pre><code>/status full
 /artifacts
-/cache report</code></pre>
+/cache report
+/memory doctor
+/project processes
+/project stop latest
+/terminal reset</code></pre>
           </article>
 
           <article id="remote" class="guide-block reveal">
@@ -127,7 +131,8 @@ deepseekcode --model deepseek-v4-flash
             <p>远程端不应该收到整屏源码。runtime 根据真实产物类型生成 <code>RemoteDeliveryPlan</code>。</p>
             <div class="command-table">
               <div><b>HTML/UI</b><span>截图 + 入口摘要。</span></div>
-              <div><b>DOCX/PPTX/XLSX/PDF</b><span>微信可预览文件；能转图时附预览图。</span></div>
+              <div><b>PDF</b><span>必须是真实 .pdf；检查页数和结构，能转图时附预览图。</span></div>
+              <div><b>DOCX/PPTX/XLSX</b><span>微信可预览文件；能转图时附预览图。</span></div>
               <div><b>Markdown/Text</b><span>短摘要；用户要求时再发文件。</span></div>
               <div><b>多文件项目</b><span>manifest、入口、启动命令、验收结果和关键预览。</span></div>
             </div>
@@ -157,13 +162,13 @@ deepseekcode --model deepseek-v4-flash
           <article id="agent-dashboard" class="guide-block reveal">
             <span class="eyebrow">08A</span>
             <h2>多 Agent Pixel 面板</h2>
-            <p>多 Agent 工作流启动时会自动打开内置 Pixel Agents 只读面板。DeepSeekCode 后端提供真实 run snapshot、WebSocket/SSE 更新和 <code>agent-trace.jsonl</code>，Pixel Agents 负责展示目标、阶段、角色职责、已分配任务、协作时间线、产物和验收结论。</p>
+            <p>新的多 Agent 工作流启动时会自动打开内置 Pixel Agents 只读面板；继续、修复、再完善会复用同一个 run 页面，不反复弹新窗口。DeepSeekCode 后端提供真实 run snapshot、WebSocket/SSE 更新和 <code>agent-trace.jsonl</code>，Pixel Agents 负责展示目标、阶段、角色职责、任务黑板、进程/缓存状态、产物、阻塞和验收结论。</p>
             <pre><code>/agents dashboard
 /agents dashboard share
 /agents dashboard tunnel
 /agents dashboard trace
 /agents dashboard close</code></pre>
-            <p>微信/企微分享可以配置 <code>DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL</code> 指向可信 HTTPS 隧道，也可以用 <code>/agents dashboard tunnel</code> 临时启动 Cloudflare Quick Tunnel。链接带短时 token，但拿到 URL 和 token 的人都能查看只读面板，所以只发给自己的微信。</p>
+            <p>微信/企微分享可以配置 <code>DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL</code> 指向可信 HTTPS 隧道，也可以用 <code>/agents dashboard tunnel</code> 临时启动 Cloudflare Quick Tunnel。链接只暴露单个 run 页面并带短时 token；拿到 URL 和 token 的人仍能查看只读面板，所以只发给自己的微信，TUI 关闭后页面会显示离线状态。</p>
           </article>
 
           <article id="testing" class="guide-block reveal">
@@ -173,14 +178,14 @@ deepseekcode --model deepseek-v4-flash
             <pre><code>npm.cmd run typecheck
 npm.cmd run build
 npm.cmd pack --dry-run</code></pre>
-            <p>真实任务建议覆盖：代码项目自修复、GSAP 动画、DOCX/PPTX/XLSX/PDF、MCP mock、微信远程、长任务和缓存报告。</p>
+            <p>真实任务建议覆盖：代码项目自修复、GSAP 动画、PDF 项目文档、DOCX/PPTX/XLSX、MCP mock、微信远程、长任务停止、终端恢复和缓存报告。</p>
           </article>
         </div>
       </section>
     </main>
 
     <footer class="site-footer">
-      <span>DeepSeekCode v0.3.1 Guide</span>
+      <span>DeepSeekCode v0.3.3 Guide</span>
       <span>General agent runtime, not a single-purpose web generator.</span>
     </footer>
 

@@ -302,18 +302,29 @@ export function listBackgroundCommands(): BackgroundProcessInfo[] {
 
 export function stopBackgroundCommand(pid: number): boolean {
   const entry = backgroundProcesses.get(pid);
-  if (!entry) return false;
-  entry.child.stdout?.removeAllListeners("data");
-  entry.child.stderr?.removeAllListeners("data");
-  entry.child.stdout?.destroy();
-  entry.child.stderr?.destroy();
+  if (entry) {
+    entry.child.stdout?.removeAllListeners("data");
+    entry.child.stderr?.removeAllListeners("data");
+    entry.child.stdout?.destroy();
+    entry.child.stderr?.destroy();
+  }
   if (process.platform === "win32") {
     spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], {
       windowsHide: true,
       stdio: "ignore",
     });
+  } else {
+    try {
+      process.kill(-pid, "SIGTERM");
+    } catch {
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {
+        // Process may already be gone.
+      }
+    }
   }
-  if (!entry.child.killed) entry.child.kill();
+  if (entry && !entry.child.killed) entry.child.kill();
   backgroundProcesses.delete(pid);
   return true;
 }

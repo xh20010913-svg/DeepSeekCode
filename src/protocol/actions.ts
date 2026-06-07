@@ -248,6 +248,22 @@ export const LaunchProjectActionSchema = z.object({
   timeout_ms: z.number().int().min(1000).max(120_000).default(20_000),
 });
 
+export const ListProjectProcessesActionSchema = z.object({
+  type: z.literal("list_project_processes"),
+  include_stale: z.boolean().default(true),
+});
+
+export const StopProjectProcessActionSchema = z.object({
+  type: z.literal("stop_project_process"),
+  target: z.string().default("latest"),
+  verify_port_released: z.boolean().default(true),
+  timeout_ms: z.number().int().min(1000).max(30_000).default(8_000),
+});
+
+export const TerminalResetActionSchema = z.object({
+  type: z.literal("terminal_reset"),
+});
+
 export const BrowserAgentActionSchema = z.object({
   type: z.literal("browser_agent"),
   task: z.string().min(1),
@@ -315,6 +331,11 @@ export const PlannedPdfActionSchema = z.object({
   path: z.string().min(1),
   markdown: z.string().optional(),
   markdown_lines: z.array(z.string()).optional(),
+  title: z.string().optional(),
+  author: z.string().optional(),
+  page_size: z.enum(["A4", "LETTER"]).default("A4"),
+  font_path: z.string().optional(),
+  render_preview: z.boolean().default(false),
 });
 
 export const PlannedComputerUseActionSchema = z.object({
@@ -458,6 +479,9 @@ export const ActionRequestSchema = z.discriminatedUnion("type", [
   VerifyTaskActionSchema,
   VerifyProjectActionSchema,
   LaunchProjectActionSchema,
+  ListProjectProcessesActionSchema,
+  StopProjectProcessActionSchema,
+  TerminalResetActionSchema,
   BrowserAgentActionSchema,
   BrowserSessionStartActionSchema,
   BrowserSnapshotActionSchema,

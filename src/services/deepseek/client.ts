@@ -383,7 +383,7 @@ export function buildNativeToolPlanningMessages(input: {
     },
   ];
 
-  const turns = (input.trajectory ?? []).slice(-6);
+  const turns = (input.trajectory ?? []).slice(-3);
   for (const turn of turns) {
     const toolCalls = envelopeActionsToToolCalls(turn);
     if (toolCalls.length === 0) {

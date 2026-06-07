@@ -1,6 +1,6 @@
 ﻿# DeepSeekCode API Reference
 
-Version: `v0.3.2`
+Version: `v0.3.3`
 
 This reference covers the public CLI, slash commands, remote commands, tools, and extension surfaces that are stable enough to document.
 
@@ -43,6 +43,7 @@ Core:
 /permissions
 /cache
 /cache report
+/memory doctor
 /usage
 /cost
 /runs
@@ -93,6 +94,9 @@ Agents:
 /agents dashboard trace
 /agents dashboard close
 /agents stop
+/project processes
+/project stop latest|<pid>|all
+/terminal reset
 ```
 
 ## Remote Commands
@@ -170,6 +174,7 @@ DeepSeekCode exposes tools through native provider `tools[]`. Important tool gro
 | Browser | `browser_session_start`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, `browser_agent` |
 | Artifacts | `validate_artifact`, `create_docx`, `create_pptx`, `create_xlsx`, `create_pdf` |
 | Verification | `verify_task`, `verify_project`, `launch_project` |
+| Project processes | `list_project_processes`, `stop_project_process`, `terminal_reset` |
 | Skills/plugins | `search_skills`, `invoke_skill`, `install_skill`, `install_plugin` |
 | MCP | `mcp_call` |
 | Agents | `invoke_agent`, `start_agent_workflow`, `approve_agent_workflow_plan`, `revise_agent_workflow_plan`, `regenerate_agent_workflow_plan`, `cancel_agent_workflow_plan`, `run_agent_workflow_step`, `drain_agent_workflow`, `send_agent_message`, `agent_status`, `finish_agent_workflow` |
@@ -246,6 +251,32 @@ interface AgentDashboardSnapshot {
     constraints: string[];
     outputFormat: string;
   }>;
+  connectionState: {
+    status: "online" | "offline";
+    serverHeartbeat: number;
+    offlineReason?: string;
+  };
+  serverHeartbeat: number;
+  processes: Array<{
+    id: string;
+    pid: number;
+    cwd: string;
+    command: string;
+    port?: number | null;
+    url?: string | null;
+    status: "running" | "stopped" | "exited" | "unknown";
+  }>;
+  cacheSummary: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheHitTokens: number;
+    cacheMissTokens: number;
+    cacheHitRate: number | null;
+    approxPromptTokens?: number;
+    droppedChars?: number;
+    lowHitReason?: string;
+  };
+  tokenBudget?: Record<string, unknown>;
   roles: Array<{
     role: string;
     responsibility: string;
@@ -390,13 +421,24 @@ Workflow tools:
 - `start_agent_workflow`: creates a Planner proposal, dynamic role plan, workflow-local role skills, subtask graph, task contract, and Pixel run. It defaults to `awaiting_approval` unless `autoApprove` is explicit.
 - `approve_agent_workflow_plan`: marks the current plan approved and moves the workflow into execution on the same Pixel run.
 - `revise_agent_workflow_plan`: sends user notes back to Planner and replaces the plan while staying in `awaiting_approval`.
-- `regenerate_agent_workflow_plan`: asks Planner/model to create a different role and subtask decomposition.
+- `regenerate_agent_workflow_plan`: asks Planner/model to create a different role and subtask decomposition, then returns to `awaiting_approval` and asks again before execution.
 - `cancel_agent_workflow_plan`: cancels an unapproved or active workflow.
 - `run_agent_workflow_step`: runs one dependency-ready subtask with the assigned role's local prompt, generated skill, checkpoint, allowed-tool policy, and summarized upstream context.
 - `drain_agent_workflow`: runs role-local steps until the workflow completes, blocks, awaits approval, or reaches the step limit.
 - `send_agent_message`: records role-to-role handoff.
 - `agent_status`: summarizes phase, approval state, role state, subtasks, latest tools, evidence, and blockers.
 - `finish_agent_workflow`: closes only after `AcceptanceReviewer` acceptance or an honest blocked/cancelled state.
+
+## `create_pdf`
+
+`create_pdf` creates a real PDF artifact from Markdown and validates the resulting file. Existing `path`, `markdown`, and `markdown_lines` inputs remain compatible. v0.3.3 adds `title`, `author`, `page_size`, `font_path`, and `render_preview`. Chinese text uses `DEEPSEEKCODE_PDF_FONT` when set, then Windows CJK font fallbacks. Explicit PDF requests must not be completed with only DOCX or Markdown.
+
+## Project Process Tools
+
+- `launch_project`: starts long-running services and persists `pid`, `cwd`, `command`, `port`, `url`, `runId`, and status in the state DB.
+- `list_project_processes`: lists persisted and in-memory services.
+- `stop_project_process`: stops `latest`, a PID/id, or `all` launched services and verifies the port is released when possible.
+- `terminal_reset`: sends the Windows terminal recovery sequence without exiting the TUI.
 
 ## Remote Delivery Plan
 
@@ -405,7 +447,8 @@ Remote channels should display concise progress and completion:
 | Artifact | Delivery |
 | --- | --- |
 | HTML/UI | screenshot and entry summary |
-| DOCX/PPTX/XLSX/PDF | previewable file, optional first-page/slide image |
+| PDF | real `.pdf` file, validation evidence, optional preview image |
+| DOCX/PPTX/XLSX | previewable file, optional first-page/slide image |
 | Markdown/text | short chat summary, file only when requested |
 | Image/media | direct image/file |
 | Multi-file project | manifest, entry, startup command, verification summary, key preview |

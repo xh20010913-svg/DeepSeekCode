@@ -56,6 +56,7 @@ import { statsCommand } from "./builtin/stats.js";
 import { statusCommand } from "./builtin/status.js";
 import { tagCommand } from "./builtin/tag.js";
 import { tasksCommand } from "./builtin/tasks.js";
+import { terminalCommand } from "./builtin/terminal.js";
 import { themeCommand } from "./builtin/theme.js";
 import { todoCommand, todosCommand } from "./builtin/todos.js";
 import { toolsCommand } from "./builtin/tools.js";
@@ -99,6 +100,7 @@ export function buildCommandCatalog(context?: CommandContext): Command[] {
     todosCommand,
     todoCommand,
     tasksCommand,
+    terminalCommand,
     tagCommand,
     eventsCommand,
     traceCommand,

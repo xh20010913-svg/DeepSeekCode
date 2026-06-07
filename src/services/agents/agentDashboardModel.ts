@@ -1,5 +1,5 @@
 ﻿import path from "node:path";
-import type { EventRecord, RunRecord, StateStore, TaskRecord, TaskStatus, ValidationGateRecord } from "../../state/sqlite.js";
+import type { EventRecord, ProjectProcessRecord, RunRecord, StateStore, TaskRecord, TaskStatus, UsageTotals, ValidationGateRecord } from "../../state/sqlite.js";
 import { issueLabel, looksLikeTechnicalIssue, summarizeTechnicalError, type TechnicalErrorSummary } from "../../utils/technicalErrorSummary.js";
 import {
   AgentWorkflowService,
@@ -120,6 +120,23 @@ export interface AgentDashboardMobileSummary {
   recentEvents: string[];
 }
 
+export interface AgentDashboardConnectionState {
+  status: "online" | "offline";
+  serverHeartbeat: number;
+  offlineReason?: string;
+}
+
+export interface AgentDashboardCacheSummary {
+  inputTokens: number;
+  outputTokens: number;
+  cacheHitTokens: number;
+  cacheMissTokens: number;
+  cacheHitRate: number | null;
+  approxPromptTokens?: number;
+  droppedChars?: number;
+  lowHitReason?: string;
+}
+
 export interface AgentDashboardSnapshot {
   run?: RunRecord;
   workflow?: AgentWorkflowRecord;
@@ -139,6 +156,12 @@ export interface AgentDashboardSnapshot {
   timeline: AgentDashboardTimelineEvent[];
   artifacts: AgentDashboardArtifact[];
   validation: AgentDashboardValidation;
+  connectionState: AgentDashboardConnectionState;
+  serverHeartbeat: number;
+  processes: ProjectProcessRecord[];
+  cacheSummary: AgentDashboardCacheSummary;
+  tokenBudget?: Record<string, unknown>;
+  offlineReason?: string;
 }
 
 export function buildAgentDashboardSnapshot(input: {
@@ -160,6 +183,7 @@ export function buildAgentDashboardSnapshot(input: {
   const usage = runId ? input.state.usageTotals(runId) : input.state.usageTotals();
   const artifacts = associatedRunIds.flatMap((id) => readArtifacts(input.state, id));
   const messages = workflowStatus?.messages ?? [];
+  const processRecords = input.state.listProjectProcesses({ projectPath: input.projectPath, includeStale: true, limit: 20 });
   const roles = buildRoles({
     roles: workflowStatus?.record.roles ?? inferRoles(tasks),
     tasks,
@@ -182,6 +206,8 @@ export function buildAgentDashboardSnapshot(input: {
   const timeline = [...eventTimeline, ...messageTimeline]
     .sort((a, b) => a.createdAtMs - b.createdAtMs)
     .slice(-180);
+  const latestCachePromptEvent = [...events].reverse().find((event) => event.kind === "cache_prompt_plan");
+  const serverHeartbeat = Date.now();
 
   return {
     run,
@@ -207,6 +233,14 @@ export function buildAgentDashboardSnapshot(input: {
     timeline,
     artifacts,
     validation: buildValidation(events, tasks, validationGates),
+    connectionState: {
+      status: "online",
+      serverHeartbeat,
+    },
+    serverHeartbeat,
+    processes: processRecords,
+    cacheSummary: buildCacheSummary(usage, latestCachePromptEvent),
+    tokenBudget: tokenBudgetFromEvent(latestCachePromptEvent),
   };
 }
 
@@ -429,7 +463,7 @@ function buildOverview(input: {
   workflow?: AgentWorkflowRecord;
   tasks: TaskRecord[];
   events: EventRecord[];
-  usage: { inputTokens: number; outputTokens: number; cacheHitTokens: number; cacheMissTokens: number };
+  usage: UsageTotals;
   projectPath: string;
 }): AgentDashboardOverview {
   const lastEvent = input.events.at(-1);
@@ -456,6 +490,41 @@ function buildOverview(input: {
     lastTool: latestTool(input.events),
     estimatedCostUsd: undefined,
     cacheHitRate: hit + miss > 0 ? hit / (hit + miss) : undefined,
+  };
+}
+
+function buildCacheSummary(usage: UsageTotals, latestCachePromptEvent?: EventRecord): AgentDashboardCacheSummary {
+  const totalCacheTokens = usage.cacheHitTokens + usage.cacheMissTokens;
+  const payload = latestCachePromptEvent ? objectPayload(latestCachePromptEvent.payload) : {};
+  const droppedChars = numberValue(payload.dropped_chars);
+  const approxPromptTokens = numberValue(payload.approx_tokens);
+  const cacheHitRate = totalCacheTokens > 0 ? usage.cacheHitTokens / totalCacheTokens : null;
+  return {
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cacheHitTokens: usage.cacheHitTokens,
+    cacheMissTokens: usage.cacheMissTokens,
+    cacheHitRate,
+    approxPromptTokens,
+    droppedChars,
+    lowHitReason: cacheHitRate !== null && cacheHitRate < 0.35
+      ? "稳定前缀命中偏低：可能是动态上下文、memory 或 skill 摘要过大。"
+      : droppedChars && droppedChars > 0
+        ? "动态 prompt 超预算，部分上下文已裁剪。"
+        : undefined,
+  };
+}
+
+function tokenBudgetFromEvent(event?: EventRecord): Record<string, unknown> | undefined {
+  if (!event) return undefined;
+  const payload = objectPayload(event.payload);
+  const blocks = Array.isArray(payload.blocks) ? payload.blocks : undefined;
+  return {
+    attempt: numberValue(payload.attempt),
+    effort: stringValue(payload.effort),
+    approxTokens: numberValue(payload.approx_tokens),
+    droppedChars: numberValue(payload.dropped_chars),
+    blockCount: blocks?.length,
   };
 }
 

@@ -46,7 +46,8 @@ Supported verification families:
 - code projects: install, build, test, start, dependency errors
 - CLI/scripts: command output, exit code, generated files
 - browser-visible outputs: screenshot, blank page, console error, missing local assets
-- DOCX/PPTX/XLSX/PDF: structure and openability checks
+- PDF: real `.pdf` structure, page count, readability, and optional preview rendering
+- DOCX/PPTX/XLSX: structure and openability checks
 - Markdown/reports: structure and requested sections
 - data tasks: CSV/TSV/JSON/XLSX checks
 - images/media: format and previewability
@@ -89,7 +90,7 @@ You can ask for a team:
 开启多 agent 协作：先生成可审查计划，我确认后再执行；中间角色按任务动态生成。
 ```
 
-DeepSeekCode first creates a Planner proposal and stops at `awaiting_approval`. You can choose `执行`, `修改：...`, `重生成`, or `取消` from the CLI prompt or by sending the same text from WeChat. `Planner` and `AcceptanceReviewer` are the only fixed roles; execution roles are generated from the task contract, output types, required tools, and verification risk. Each role keeps role-local assigned subtasks, transcript snippets, tool-result summaries, checkpoint, allowed tools, a generated workflow-local skill, risk checks, and handoff format. The bundled Pixel Agents panel opens automatically in TUI mode and shows the plan, dynamic roles, subtask graph, dependencies, evidence, blockers, artifacts, and AcceptanceReviewer conclusions. Phone viewing uses the same Pixel run with a responsive task cockpit.
+DeepSeekCode first creates a Planner proposal and stops at `awaiting_approval`. You can choose `执行`, `修改：...`, `重生成`, or `取消` from the CLI prompt or by sending the same text from WeChat. `Planner` and `AcceptanceReviewer` are the only fixed roles; execution roles are generated from the task contract, output types, required tools, and verification risk. Each role keeps role-local assigned subtasks, transcript snippets, tool-result summaries, checkpoint, allowed tools, a generated workflow-local skill, risk checks, and handoff format. The bundled Pixel Agents panel opens automatically only for a new multi-agent run; continuation/repair turns reuse the same Pixel run without opening another browser tab. The panel shows the plan, dynamic roles, subtask graph, dependencies, evidence, blockers, artifacts, process/cache summary, and AcceptanceReviewer conclusions. Phone viewing uses the same Pixel run with a responsive task cockpit.
 
 Backup commands:
 
@@ -101,7 +102,7 @@ Backup commands:
 /agents dashboard close
 ```
 
-For phone access from WeChat/WeCom, point `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` to a trusted HTTPS tunnel. Without it, the Pixel Agents panel remains local-only. For a temporary local-only-to-phone preview, install `cloudflared` and run `/agents dashboard tunnel`; DeepSeekCode starts a Cloudflare Quick Tunnel to the local panel and returns a tokenized HTTPS link. Treat that link as private.
+For phone access from WeChat/WeCom, point `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` to a trusted HTTPS tunnel. Without it, the Pixel Agents panel remains local-only. For a temporary local-only-to-phone preview, install `cloudflared` and run `/agents dashboard tunnel`; DeepSeekCode starts a Cloudflare Quick Tunnel to one tokenized run page. Treat that link as private: anyone with the URL and token can view the read-only panel until the token expires.
 
 ## 7. Remote control
 
@@ -132,9 +133,13 @@ Use:
 
 ```text
 /cache report
+/memory doctor
+/project processes
+/project stop latest
+/terminal reset
 ```
 
-DeepSeekCode keeps stable prompt blocks in a fixed order, summarizes old tool results, and records input/output/cache hit/cache miss/cost. For long tasks, `/status full` shows phase, recent tool, elapsed time, waiting item, issues, and next step.
+DeepSeekCode keeps stable prompt blocks in a fixed order, summarizes old tool results, and records input/output/cache hit/cache miss/cost. `memory doctor` shows whether TencentDB memory was skipped by the prompt budget governor, recalled, or inserted into the prompt. For long tasks, `/status full` shows phase, recent tool, elapsed time, waiting item, issues, and next step. Long-running app servers are managed separately from the TUI: use `/project processes` and `/project stop latest|<pid>|all` to stop services started by `launch_project`, and `/terminal reset` if Windows Terminal shows mouse/paste escape characters after an abnormal exit.
 
 ## 9. Testing rules
 
