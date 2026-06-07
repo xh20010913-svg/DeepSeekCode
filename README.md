@@ -1,10 +1,38 @@
-﻿# DeepSeekCode
+﻿<p align="center">
+  <img src="website/favicon.svg" alt="DeepSeekCode" width="112"/>
+</p>
 
-[中文](./README.zh-CN.md) | [Guide](./GUIDE.md) | [Architecture](./ARCHITECTURE.md) | [CLI Reference](./CLI_REFERENCE.md) | [Development](./DEVELOPMENT.md) | [API Reference](./API_REFERENCE.md) | [Website](https://xh20010913-svg.github.io/DeepSeekCode/)
+<h1 align="center">DeepSeekCode</h1>
+
+<p align="center">
+  <strong>English</strong>
+  &nbsp;·&nbsp;
+  <a href="./README.zh-CN.md">简体中文</a>
+  &nbsp;·&nbsp;
+  <a href="./GUIDE.md">Guide</a>
+  &nbsp;·&nbsp;
+  <a href="./ARCHITECTURE.md">Architecture</a>
+  &nbsp;·&nbsp;
+  <a href="./CLI_REFERENCE.md">CLI</a>
+  &nbsp;·&nbsp;
+  <a href="./API_REFERENCE.md">API</a>
+  &nbsp;·&nbsp;
+  <a href="https://xh20010913-svg.github.io/DeepSeekCode/">Website</a>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@xh12312/deepseekcode"><img src="https://img.shields.io/npm/v/@xh12312/deepseekcode.svg?style=flat-square&color=cb3837&labelColor=161b22&logo=npm&logoColor=white" alt="npm version"/></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/npm/l/@xh12312/deepseekcode.svg?style=flat-square&color=8b949e&labelColor=161b22" alt="license"/></a>
+  <img src="https://img.shields.io/badge/node-%3E%3D22-3fb950?style=flat-square&labelColor=161b22&logo=node.js&logoColor=white" alt="Node >=22"/>
+  <a href="https://github.com/xh20010913-svg/DeepSeekCode"><img src="https://img.shields.io/github/stars/xh20010913-svg/DeepSeekCode.svg?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="GitHub stars"/></a>
+</p>
+
+> [!IMPORTANT]
+> v0.3.2 is a local-first delivery release: plan-gated dynamic multi-agent workflows, Pixel Agents visualization, WeChat remote viewing, workflow-local skills, generic verification, Windows diagnostics, and cache reporting are designed for local acceptance before npm publish.
 
 DeepSeekCode is a DeepSeek-first local agent runtime for real project workspaces. It connects native function calling, local files, shell/browser permissions, project state, skills, plugins, MCP, WeChat remote control, multi-agent workflows, and task verification.
 
-v0.3.1 focuses on a generic execution loop: create a task contract, execute with tools, verify real outputs, feed failures back to the model, and retry with a better strategy. HTML is only one artifact type. The same `verify_task` entry point also covers code projects, CLI scripts, Office/PDF files, spreadsheets, reports, data tasks, media artifacts, MCP, plugins, and automation jobs.
+v0.3.2 focuses on a generic execution loop: create a task contract, execute with tools, verify real outputs, feed failures back to the model, and retry with a better strategy. HTML is only one artifact type. The same `verify_task` entry point also covers code projects, CLI scripts, Office/PDF files, spreadsheets, reports, data tasks, media artifacts, MCP, plugins, and automation jobs.
 
 ## Install
 
@@ -56,10 +84,10 @@ DeepSeekCode requires native function calling. The model emits `tool_calls`; the
 For non-chat work, the model and runtime operate around a `TaskCompletionContract`:
 
 - goal
-- expected artifacts
-- verifiable behaviors
-- user constraints
+- expected outputs with `kind`, `description`, and `required`
 - acceptance criteria
+- user constraints
+- verification hints
 
 `verify_task` is the generic completion gate. It selects checks from real files, package scripts, artifact types, and the contract:
 
@@ -86,23 +114,24 @@ MCP tools are routed through the same tool-result, permission, hook, audit, and 
 
 ### Multi-agent workflows
 
-Natural language can start a visible multi-agent workflow. User-defined roles are preserved. If no roles are supplied, DeepSeekCode creates Planner, Builder, Tester, and Reviewer roles. Reviewer uses the generic task contract rather than a web-specific checklist.
+Natural language can start a visible, plan-gated multi-agent workflow. DeepSeekCode first creates a reviewable Planner proposal, then waits for the user to choose execute, revise, regenerate, or cancel. `Planner` and `AcceptanceReviewer` are the only fixed roles; the middle execution roles are generated from the task contract, output types, tools, and verification risk. Each role keeps role-local assigned subtasks, transcript snippets, tool-result summaries, checkpoint, allowed tools, generated workflow-local skill, risk checks, and handoff format. `AcceptanceReviewer` uses the generic task contract and real evidence rather than a web-specific checklist.
 
-When a multi-agent workflow starts, DeepSeekCode serves the bundled Pixel Agents read-only panel for that run. In TUI mode it opens the local browser once; remote channels receive a tokenized link when `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` points to a secure tunnel. The panel shows:
+When a multi-agent workflow starts, DeepSeekCode serves the bundled Pixel Agents read-only panel for that run. In TUI mode it opens the local browser once; remote channels receive a tokenized link when `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` points to a secure tunnel. For temporary WeChat phone viewing, `/agents dashboard tunnel` can start a Cloudflare Quick Tunnel and print a random `trycloudflare.com` HTTPS link. The link is still reachable by anyone who has the URL and token, so do not post it publicly. The panel shows:
 
-- objective, phase, stale state, recent tool, token/cache summary
-- role cards with responsibility, current task, assigned work, blockers, skills, tools, and acceptance criteria
-- task board for queued, running, review, completed, and failed work
-- collaboration timeline with handoffs, tools, approvals, validation, and repair events
-- artifacts, entry points, validation state, and `agent-trace.jsonl`
+- objective, phase, approval state, stale state, recent tool, token/cache summary
+- dynamic role cards with responsibility, context scope, generated skill, current subtask, checkpoints, blockers, tools, risk checks, and acceptance criteria
+- Planner subtask graph with all, unfinished, running, needs-review, completed, failed, and blocked views
+- task dependencies, assignees, evidence, latest events, artifacts, and validation summaries
+- a responsive task cockpit overlay for desktop and WeChat phone viewing
 
-DeepSeekCode emits runtime snapshots, SSE updates, and Pixel-style JSONL. Pixel Agents is the presentation layer; DeepSeekCode no longer maintains a separate hand-written multi-agent dashboard UI.
+DeepSeekCode emits runtime snapshots, SSE/WebSocket updates, and Pixel-style JSONL. Pixel Agents is the presentation layer; DeepSeekCode no longer maintains a separate hand-written multi-agent dashboard UI. Labels are short by default; long prompts, stack traces, checkpoints, and role transcripts live in the snapshot/diagnostics payload.
 
 Backup commands:
 
 ```text
 /agents dashboard
 /agents dashboard share
+/agents dashboard tunnel
 /agents dashboard trace
 /agents dashboard close
 ```
@@ -144,7 +173,7 @@ Remote messages share the same project runtime and permission gates. WeChat rece
 | Office/PDF/spreadsheets | Partial | Structure checks work; richer visual previews are still improving |
 | Skills/plugins | Partial | Install, search, invoke work; more regression tests are needed |
 | MCP | Experimental | Unified path exists; real service matrix is still growing |
-| Multi-agent workflow | Experimental | Visible workflow and reviewer contract are wired; deeper role execution is next |
+| Multi-agent workflow | Experimental | Plan gate, dynamic roles, workflow-local role skills, subtask graph, Pixel observer, and AcceptanceReviewer contract are wired; broader scenario tests continue |
 | Personal WeChat OpenClaw | Experimental | Remote control works; QR/network/image-preview stability is still improving |
 | WeCom | Experimental | Kept as an enterprise remote channel |
 | computer_use | Reserved | Not advertised as complete |
@@ -161,4 +190,4 @@ Real scenario tests should be run in `D:\code\DeepSeekTest`. Do not publish `.en
 
 ## References
 
-DeepSeek Function Calling, DeepSeek Context Caching, Claude Code subagents/skills/hooks/MCP, MCP TypeScript SDK, Playwright screenshots, Pixel Agents, and browser-use informed the v0.3.1 direction.
+DeepSeek Function Calling, DeepSeek Context Caching, Claude Code subagents/skills/hooks/MCP, MCP TypeScript SDK, Playwright screenshots, Pixel Agents, and browser-use informed the v0.3.2 direction.

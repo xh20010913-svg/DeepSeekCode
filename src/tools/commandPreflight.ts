@@ -29,6 +29,41 @@ export function preflightCommand(command: string): CommandPreflightResult {
       suggestion,
     };
   }
+  if (/(^|[^&])&&([^&]|$)|\|\|/.test(trimmed)) {
+    return {
+      ok: false,
+      category: "windows_shell_incompatible",
+      reason: "The command uses bash-style && or || chaining. DeepSeekCode runs finite commands in Windows PowerShell and needs failures to be explicit.",
+      suggestion: [
+        "Split chained commands into separate run_command actions, or use a PowerShell-safe guarded form.",
+        "Example:",
+        "npm.cmd install",
+        "npm.cmd run build",
+        "For long-running services, use launch_project instead of chaining after install/build.",
+      ].join("\n"),
+    };
+  }
+  if (/[|]/.test(trimmed) && /\b(grep|sed|awk|xargs|head|tail|wc)\b/.test(trimmed)) {
+    return {
+      ok: false,
+      category: "windows_shell_incompatible",
+      reason: "The command pipes to Unix text utilities that are not reliably available in Windows PowerShell.",
+      suggestion: [
+        "Use PowerShell pipeline commands instead:",
+        "- Get-Content -Path <file> | Select-String -Pattern <pattern>",
+        "- Get-ChildItem -Recurse | Select-String -Pattern <pattern>",
+        "- Measure-Object for counts, Select-Object -First/-Last for head/tail behavior",
+      ].join("\n"),
+    };
+  }
+  if (/;\s*(mkdir\s+-p|rm\s+-rf|cat\b|touch\b|cp\s+-r|grep\b|sed\b|awk\b)/.test(trimmed)) {
+    return {
+      ok: false,
+      category: "windows_shell_incompatible",
+      reason: "The command chains Unix-style file operations after a semicolon. This is brittle in Windows PowerShell.",
+      suggestion: "Split the commands into separate tool calls or replace the Unix command with the PowerShell-native equivalent shown by the failing subcommand.",
+    };
+  }
   if (/\b(cat|grep|touch)\b/.test(trimmed) || /\brm\s+-rf\b/.test(trimmed) || /\bcp\s+-r\b/.test(trimmed)) {
     return {
       ok: false,

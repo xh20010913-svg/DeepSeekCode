@@ -25,7 +25,7 @@ import {
 export const agentsCommand: Command = {
   name: "agents",
   description: "List, show, create, validate, and run DeepSeekCode agents.",
-  usage: "[dashboard [share|trace|close] [run]|workflow|show <name>|create <name> <description>|suggest <goal>|create-smart <name> <goal>|runs|detail [attached|current]|start <name> <task>|add <attached|current> <name> <task>|step [attached|current]|drain [attached|current] [max-steps]|daemon [all|attached|current] [max-runs] [max-steps]|run <name> <task>|validate [name]|path [name]]",
+  usage: "[dashboard [share|tunnel|trace|close] [run]|workflow|show <name>|create <name> <description>|suggest <goal>|create-smart <name> <goal>|runs|detail [attached|current]|start <name> <task>|add <attached|current> <name> <task>|step [attached|current]|drain [attached|current] [max-steps]|daemon [all|attached|current] [max-runs] [max-steps]|run <name> <task>|validate [name]|path [name]]",
   async execute(args, context) {
     const trimmed = args.trim();
     const service = new AgentService(context.config.projectPath, context.config.dataDir);
@@ -36,7 +36,8 @@ export const agentsCommand: Command = {
         await closeAgentDashboardServer();
         return { message: "Agent panel closed." };
       }
-      const share = action === "share";
+      const tunnel = action === "tunnel";
+      const share = action === "share" || tunnel;
       const trace = action === "trace";
       const selector = share || trace ? parts[1] : parts[0];
       const runId = resolveDashboardRunId(selector ?? "", context);
@@ -46,6 +47,7 @@ export const agentsCommand: Command = {
           openBrowser: !share,
           share,
           writeTrace: true,
+          tunnel: tunnel ? "cloudflare" : undefined,
         });
         return { message };
       }
@@ -57,11 +59,15 @@ export const agentsCommand: Command = {
         openBrowser: !share,
         share,
         writeTrace: true,
+        tunnel: tunnel ? "cloudflare" : undefined,
       });
       return {
         message: [
           `Agent panel: ${share ? result.shareUrl : result.localUrl}`,
           result.tracePath ? `trace: ${result.tracePath}` : "",
+          tunnel && result.remoteAccess === "cloudflare-quick-tunnel"
+            ? `remote: Cloudflare Quick Tunnel active; token expires ${new Date(result.tokenExpiresAtMs).toLocaleString()}.`
+            : "",
           share && result.remoteAccess === "local-only"
             ? "remote: local-only; set DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL or a secure tunnel to share from WeChat."
             : "",

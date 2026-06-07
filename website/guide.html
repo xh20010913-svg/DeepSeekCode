@@ -147,11 +147,11 @@ deepseekcode --model deepseek-v4-flash
           <article id="agents" class="guide-block reveal">
             <span class="eyebrow">08</span>
             <h2>多 Agent</h2>
-            <p>自然语言可以触发多 Agent。用户指定角色时保留角色；未指定时默认 Planner、Builder、Tester、Reviewer。Reviewer 必须围绕通用任务契约验收，不只检查网页。</p>
+            <p>自然语言可以触发多 Agent。默认先进入 Planner 计划闸门，用户选择执行、修改、重生成或取消后才继续。固定角色只有 Planner 和 AcceptanceReviewer；中间执行角色由模型按任务契约、产物类型、工具需求和验收风险动态生成。每个角色保留 workflow-local skill、本地 transcript、tool_result 摘要和 checkpoint。AcceptanceReviewer 必须围绕通用任务契约和真实 evidence 验收，不只检查网页。</p>
             <pre><code>请开启多 agent 协作完成这个项目。
 /agents status
 /status full</code></pre>
-            <p>当前多 Agent 和可视化仍是实验能力，重点在角色状态、阻塞点和验收结论能被 TUI/远程看见。</p>
+            <p>当前多 Agent 仍按实验能力标注，但角色本地 runner、Pixel observer、阻塞点和验收结论已经接入 runtime 状态。</p>
           </article>
 
           <article id="agent-dashboard" class="guide-block reveal">
@@ -160,9 +160,10 @@ deepseekcode --model deepseek-v4-flash
             <p>多 Agent 工作流启动时会自动打开内置 Pixel Agents 只读面板。DeepSeekCode 后端提供真实 run snapshot、WebSocket/SSE 更新和 <code>agent-trace.jsonl</code>，Pixel Agents 负责展示目标、阶段、角色职责、已分配任务、协作时间线、产物和验收结论。</p>
             <pre><code>/agents dashboard
 /agents dashboard share
+/agents dashboard tunnel
 /agents dashboard trace
 /agents dashboard close</code></pre>
-            <p>微信/企微分享需要配置 <code>DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL</code> 指向安全隧道；没有隧道时只返回本机链接和状态摘要，不会假装手机可以访问本机端口。</p>
+            <p>微信/企微分享可以配置 <code>DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL</code> 指向可信 HTTPS 隧道，也可以用 <code>/agents dashboard tunnel</code> 临时启动 Cloudflare Quick Tunnel。链接带短时 token，但拿到 URL 和 token 的人都能查看只读面板，所以只发给自己的微信。</p>
           </article>
 
           <article id="testing" class="guide-block reveal">

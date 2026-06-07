@@ -7,7 +7,7 @@ import { recordUsageSnapshot } from "../cost-tracker.js";
 import { buildContextBundle, contextBundlePrompt, type ContextBundle } from "../context/contextBundle.js";
 import { readProjectMemory } from "../memdir/projectMemory.js";
 import type { ActionPlanTurn, ChatMessage, DeepSeekProviderClient, TurnClassification, UsageSnapshot } from "../protocol/provider.js";
-import { artifactKindFromPath, type ActionEnvelope, type ActionExecutionReport, type ActionRequest, type ActionResult } from "../protocol/actions.js";
+import { artifactKindFromPath, type ActionEnvelope, type ActionExecutionReport, type ActionRequest, type ActionResult, type TaskOutputKind } from "../protocol/actions.js";
 import { ApprovalService } from "../services/approval/approvalService.js";
 import { resultRequiresApproval, toolApprovalSubjectId } from "../services/approval/approvalPolicy.js";
 import { RollingSummary } from "../services/compact/rollingSummary.js";
@@ -648,6 +648,10 @@ export class QueryEngine {
         approvalPolicy,
         state: this.state,
         runId,
+        provider: this.provider!,
+        recordUsage: (usage, source) => {
+          this.recordProviderUsage(runId, usage, source, onEvent);
+        },
         onBeforeTool: (_tool, action) => topLevelSkillRouteFeedback(userMessage, action),
         skillRunner: async (skillInput) => {
           const result = await runSkillTask({
@@ -1018,7 +1022,7 @@ export class QueryEngine {
     try {
       const service = new AgentWorkflowService(this.state, this.config.projectPath);
       const status = service.status();
-      if (status.record.status !== "running") return { classification };
+      if (["succeeded", "failed", "cancelled"].includes(status.record.status)) return { classification };
 
       const explicitlyStopping = explicitlyStopsAgentWorkflow(trimmed);
       service.message({
@@ -1368,7 +1372,15 @@ export class QueryEngine {
         path: "",
         objective: envelope.final_message || envelope.remaining_work || "Verify the current task completion.",
         contract: {
-          goal: envelope.final_message || envelope.remaining_work || "Verify the current task completion.",
+          objective: envelope.final_message || envelope.remaining_work || "Verify the current task completion.",
+          expectedOutputs: expectedArtifacts.map((artifact) => ({
+            kind: taskOutputKindFromPath(artifact),
+            description: artifact,
+            required: true,
+          })),
+          acceptanceCriteria: acceptance,
+          userConstraints: [],
+          verificationHints: [],
           expected_artifacts: expectedArtifacts,
           acceptance_criteria: acceptance,
           verifiable_behaviors: [],
@@ -1394,7 +1406,8 @@ export class QueryEngine {
     if (alreadyEnsured || classification.task_kind !== "multi_agent") {
       return { envelope, injected: false };
     }
-    if (envelope.actions.some((action) =>
+    const activeWorkflow = this.activeRunningAgentWorkflow();
+    if (!activeWorkflow && envelope.actions.some((action) =>
       action.type === "start_agent_workflow" ||
       action.type === "send_agent_message" ||
       action.type === "agent_status" ||
@@ -1403,14 +1416,49 @@ export class QueryEngine {
       return { envelope, injected: false };
     }
 
-    const acceptance = uniqueStrings([
-      ...(envelope.acceptance_criteria ?? []),
-      "Planner, Builder, Tester, and Reviewer roles are visible in the project workflow status.",
-      "Reviewer verifies the task against the generic completion contract before the workflow is finished.",
+      const acceptance = uniqueStrings([
+        ...(envelope.acceptance_criteria ?? []),
+        "Planner creates a reviewable plan gate with task-specific dynamic roles before execution.",
+        "AcceptanceReviewer verifies subtasks against the generic completion contract and real evidence before the workflow is finished.",
     ]).slice(0, 20);
     const hasPlannedWork = envelope.needs_local_tools && envelope.actions.length > 0;
-    const activeWorkflow = this.activeRunningAgentWorkflow();
     if (activeWorkflow) {
+      const planDecision = workflowPlanDecisionFromMessage(userMessage);
+      const planActions: ActionRequest[] = planDecision === "approve"
+        ? [
+          {
+            type: "approve_agent_workflow_plan",
+            workflow_id: activeWorkflow.id,
+            note: userMessage,
+          },
+          {
+            type: "drain_agent_workflow",
+            workflow_id: activeWorkflow.id,
+            max_steps: 12,
+            max_turns_per_role: 2,
+          },
+        ]
+        : planDecision === "revise"
+          ? [{
+            type: "revise_agent_workflow_plan",
+            workflow_id: activeWorkflow.id,
+            instructions: workflowPlanRevisionText(userMessage) || userMessage,
+          }]
+          : planDecision === "regenerate"
+            ? [{
+              type: "regenerate_agent_workflow_plan",
+              workflow_id: activeWorkflow.id,
+              instructions: workflowPlanRevisionText(userMessage),
+            }]
+            : planDecision === "cancel"
+              ? [{
+                type: "cancel_agent_workflow_plan",
+                workflow_id: activeWorkflow.id,
+                reason: userMessage,
+              }]
+            : [];
+      const askForApprovalAgain = planDecision === "revise" || planDecision === "regenerate" || (!planDecision && activeWorkflow.phase === "awaiting_approval");
+      const appendOriginalActions = activeWorkflow.phase !== "awaiting_approval" && planActions.length === 0;
       return {
         injected: true,
         envelope: {
@@ -1418,6 +1466,7 @@ export class QueryEngine {
           needs_local_tools: true,
           acceptance_criteria: acceptance,
           actions: [
+            ...planActions,
             {
               type: "send_agent_message",
               workflow_id: activeWorkflow.id,
@@ -1429,10 +1478,23 @@ export class QueryEngine {
               type: "agent_status",
               workflow_id: activeWorkflow.id,
             },
-            ...envelope.actions,
+            ...(askForApprovalAgain ? [workflowPlanApprovalQuestion()] : []),
+            ...(planActions.length || activeWorkflow.phase === "awaiting_approval" ? [] : [{
+              type: "drain_agent_workflow" as const,
+              workflow_id: activeWorkflow.id,
+              max_steps: 12,
+              max_turns_per_role: 2,
+            }]),
+            ...(appendOriginalActions ? envelope.actions : []),
           ],
-          continue_work: envelope.continue_work ?? !hasPlannedWork,
-          remaining_work: envelope.remaining_work || "Continue the existing visible multi-agent workflow with concrete role work and generic verification.",
+          continue_work: activeWorkflow.phase === "awaiting_approval" || planActions.length > 0
+            ? false
+            : envelope.continue_work ?? !hasPlannedWork,
+          remaining_work: planDecision === "revise" || planDecision === "regenerate"
+            ? "Plan was changed and is waiting for user approval again before execution."
+            : activeWorkflow.phase === "awaiting_approval" && !planActions.length
+            ? "Waiting for user approval, plan revision, regeneration, or cancellation."
+            : envelope.remaining_work || "Continue the existing visible multi-agent workflow with concrete role work and generic verification.",
         },
       };
     }
@@ -1443,26 +1505,28 @@ export class QueryEngine {
         needs_local_tools: true,
         acceptance_criteria: acceptance,
         actions: [
-          {
-            type: "start_agent_workflow",
-            objective: userMessage,
-            roles: [],
-            acceptance_criteria: acceptance,
-            max_steps: 12,
-          },
-          ...envelope.actions,
-        ],
-        continue_work: envelope.continue_work ?? !hasPlannedWork,
-        remaining_work: envelope.remaining_work || "Continue the visible multi-agent workflow with concrete role work and generic verification.",
+            {
+              type: "start_agent_workflow",
+              objective: userMessage,
+              roles: [],
+              contract: workflowContractFromMessage(userMessage, acceptance),
+              acceptance_criteria: acceptance,
+              max_steps: 12,
+              autoApprove: false,
+            },
+            workflowPlanApprovalQuestion(),
+          ],
+        continue_work: false,
+        remaining_work: "Waiting for user approval before executing the visible multi-agent workflow.",
       },
     };
   }
 
-  private activeRunningAgentWorkflow(): { id: string; runId: string } | undefined {
+  private activeRunningAgentWorkflow(): { id: string; runId: string; phase: string; status: string } | undefined {
     try {
       const status = new AgentWorkflowService(this.state, this.config.projectPath).status();
-      if (status.record.status !== "running") return undefined;
-      return { id: status.record.id, runId: status.record.runId };
+      if (["succeeded", "failed", "cancelled"].includes(status.record.status)) return undefined;
+      return { id: status.record.id, runId: status.record.runId, phase: status.record.phase, status: status.record.status };
     } catch {
       return undefined;
     }
@@ -1824,6 +1888,78 @@ interface ArtifactExpectation {
   source: string;
 }
 
+function workflowContractFromMessage(
+  objective: string,
+  acceptanceCriteria: string[] = [],
+): NonNullable<Extract<ActionRequest, { type: "start_agent_workflow" }>["contract"]> {
+  const expectedOutputs = inferWorkflowExpectedOutputs(objective);
+  return {
+    objective,
+    expectedOutputs,
+    acceptanceCriteria: uniqueStrings(acceptanceCriteria),
+    userConstraints: [],
+    verificationHints: [
+      "Use role-local checkpoints and verify_task before final acceptance when non-chat outputs are produced.",
+    ],
+    expected_artifacts: [],
+    acceptance_criteria: uniqueStrings(acceptanceCriteria),
+    verifiable_behaviors: [],
+    user_constraints: [],
+  };
+}
+
+type WorkflowExpectedOutputKind = NonNullable<Extract<ActionRequest, { type: "start_agent_workflow" }>["contract"]>["expectedOutputs"][number]["kind"];
+
+function inferWorkflowExpectedOutputs(objective: string): Array<{ kind: WorkflowExpectedOutputKind; description: string; required: boolean }> {
+  const text = objective.toLowerCase();
+  const outputs: Array<{ kind: WorkflowExpectedOutputKind; description: string; required: boolean }> = [];
+  const add = (kind: WorkflowExpectedOutputKind, description: string) => {
+    if (!outputs.some((output) => output.kind === kind && output.description === description)) {
+      outputs.push({ kind, description, required: true });
+    }
+  };
+  if (/网站|网页|前端|浏览器|页面|html|css|react|vue|next|vite|web|商城|电商|游戏|小游戏|website|frontend|browser|page|shop|ecommerce|game/.test(text)) {
+    add("web", "可在浏览器打开的页面、入口、交互流程和响应式体验。");
+  }
+  if (/动效|动画|gsap|motion|scroll|视差|拖拽|过渡|关卡|敌机|子弹|碰撞|特效|animation|animate|level|effect/.test(text)) {
+    add("web", "可验证的动画、动效、关卡状态、交互反馈或视觉特效。");
+  }
+  if (/后端|数据库|接口|api|服务端|server|backend|express|fastify|sqlite|mysql|postgres|db|持久化/.test(text)) {
+    add("code", "后端/API/服务端逻辑、数据库初始化或持久化代码。");
+  }
+  if (/数据库|数据表|种子数据|seed|schema|sqlite|mysql|postgres|db|catalog|商品|库存/.test(text)) {
+    add("data", "数据模型、种子数据、schema、CSV/JSON/数据库内容或可验证数据结果。");
+  }
+  if (/cli|命令行|脚本|csv|批处理|terminal|command line/.test(text)) {
+    add("cli", "可执行 CLI/脚本、示例输入输出和命令验证结果。");
+  }
+  if (/pptx?|幻灯|演示|slides?|presentation/.test(text)) {
+    add("pptx", "可打开并符合要求的演示文稿文件。");
+  }
+  if (/docx?|word|文档|报告|markdown|md\b/.test(text)) {
+    add(/docx?|word/.test(text) ? "docx" : "markdown", "结构完整、内容可读并可验证的文档产物。");
+  }
+  if (/xlsx|excel|表格|spreadsheet/.test(text)) {
+    add("xlsx", "可打开、公式/数据结构可验证的表格文件。");
+  }
+  if (/pdf/.test(text)) {
+    add("pdf", "可打开、可解析或可渲染检查的 PDF 文件。");
+  }
+  if (/\bmcp\b|model context protocol/.test(text)) {
+    add("mcp", "MCP server/client 的 discover、call、失败摘要和 mock 验证。");
+  }
+  if (/plugin|插件/.test(text)) {
+    add("plugin", "插件结构、manifest、安装或调用验证。");
+  }
+  if (/自动化|automation|定时|提醒|monitor/.test(text)) {
+    add("automation", "自动化流程、触发条件、执行记录和失败处理。");
+  }
+  if (!outputs.length) {
+    add("unknown", "完成用户请求的本地产物、行为或修复，并提供真实可验证 evidence。");
+  }
+  return outputs.slice(0, 8);
+}
+
 const artifactProducingActionTypes = new Set([
   "write_file",
   "append_file",
@@ -1947,6 +2083,28 @@ function formatMissingArtifacts(missingArtifacts: ArtifactExpectation[]): string
 
 function artifactExpectationKey(expectation: Pick<ArtifactExpectation, "path" | "kind">): string {
   return `${expectation.kind}:${expectation.path.replaceAll("\\", "/")}`;
+}
+
+function taskOutputKindFromPath(target: string): TaskOutputKind {
+  const artifactKind = artifactKindFromPath(target);
+  switch (artifactKind) {
+    case "html":
+      return "web";
+    case "markdown":
+      return "markdown";
+    case "docx":
+    case "pptx":
+    case "xlsx":
+    case "pdf":
+    case "image":
+      return artifactKind;
+    case "screenshot":
+      return "image";
+    default:
+      if (/\.(csv|tsv|json|sqlite|db)$/i.test(target)) return "data";
+      if (/\.(js|ts|tsx|jsx|py|ps1|cmd|bat|sh|mjs|cjs)$/i.test(target)) return "code";
+      return "unknown";
+  }
 }
 
 function actionPath(action: ActionRequest): string | undefined {
@@ -2188,6 +2346,40 @@ function explicitlyStopsAgentWorkflow(userMessage: string): boolean {
   return /^(stop|cancel|end|finish)\s+(multi[-\s]?agent|agent\s+workflow|workflow|agents)\b/i.test(trimmed)
     || /^(停止|取消|结束|关闭)(多\s*agent|多智能体|协作|agent\s*workflow|工作流)/.test(trimmed)
     || /(停止|取消|结束|关闭).{0,12}(多\s*agent|多智能体|agent\s*workflow|协作工作流)/.test(trimmed);
+}
+
+function workflowPlanDecisionFromMessage(userMessage: string): "approve" | "revise" | "regenerate" | "cancel" | undefined {
+  const trimmed = userMessage.trim();
+  if (!trimmed) return undefined;
+  if (/^(执行|开始|开工|同意|批准|确认执行|按这个执行|approve|approved|run|execute|go)$/i.test(trimmed)) return "approve";
+  if (/^(取消|算了|停止|不要执行|cancel|stop)$/i.test(trimmed)) return "cancel";
+  if (/^(重生成|重新生成|换一版|再生成|regenerate|reroll|new plan)\b/i.test(trimmed)) return "regenerate";
+  if (/^(修改|调整|改一下| revise|revise|change|update)\s*[:：]/i.test(trimmed)) return "revise";
+  if (/^(修改|调整|改一下|revise|change|update)\b/i.test(trimmed) && trimmed.length > 4) return "revise";
+  return undefined;
+}
+
+function workflowPlanApprovalQuestion(): ActionRequest {
+  return {
+    type: "AskUserQuestion",
+    run_id: undefined,
+    questions: [{
+      header: "多Agent计划",
+      question: "Planner 已生成动态角色和任务清单。请选择下一步。",
+      options: [
+        { label: "执行", description: "批准当前计划并开始按子任务执行。" },
+        { label: "修改", description: "输入补充要求后重新生成计划。" },
+        { label: "重生成", description: "让 Planner 换一种角色拆分和任务图。" },
+        { label: "取消", description: "取消当前多 agent workflow。" },
+      ],
+    }],
+  };
+}
+
+function workflowPlanRevisionText(userMessage: string): string {
+  return userMessage
+    .replace(/^(修改|调整|改一下|重生成|重新生成|换一版|再生成|revise|change|update|regenerate|reroll|new plan)\s*[:：]?\s*/i, "")
+    .trim();
 }
 
 const READ_ONLY_TOOL_NAMES = [

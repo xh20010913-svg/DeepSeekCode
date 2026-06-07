@@ -38,8 +38,8 @@ Provider-facing execution does not rely on model-emitted `ActionEnvelope JSON`. 
 | Skills/plugins | Installs, validates, searches, and invokes local or Git-backed skills/plugins. |
 | MCP | Provides unified `mcp_call`; native per-tool schema expansion is an extension path. |
 | Remote channels | WeCom and personal WeChat OpenClaw share QueryEngine, state, permissions, and delivery planning. |
-| Agent workflow | Supervisor + role specs + shared blackboard + Tester/Reviewer acceptance. |
-| Agent panel | Bundled Pixel Agents read-only observer with local HTTP/SSE snapshots, tokenized share links, and JSONL trace output. |
+| Agent workflow | Plan gate + Planner role plan + dynamic middle roles + workflow-local skills + subtask scheduler + AcceptanceReviewer evidence gate. |
+| Agent panel | Bundled Pixel Agents read-only observer with local HTTP/WebSocket/SSE snapshots, tokenized share or Quick Tunnel links, and JSONL trace output. |
 | Artifact delivery | Sends readable previews by artifact type instead of flooding remote chat with source files. |
 
 ## Generic Completion
@@ -69,17 +69,21 @@ The runtime returns actionable guidance: use PowerShell-safe commands, switch to
 
 ## Multi-Agent Workflow
 
-Multi-agent mode is a project-scoped workflow, not a chat gimmick. The main model can create roles, preserve user-specified roles, or generate Planner/Builder/Tester/Reviewer roles. Each role has:
+Multi-agent mode is a project-scoped workflow, not a chat gimmick. It starts with a Plan Gate: `Planner` creates a reviewable role plan, subtask graph, expected artifacts, verification plan, risk notes, and workflow-local role skills. The workflow then waits for execute, revise, regenerate, or cancel. `Planner` and `AcceptanceReviewer` are the only fixed roles; middle execution roles are generated from the task contract, output types, required tools, dependencies, and verification risk. Each role has:
 
-- responsibility and task slice
-- allowed tools and disallowed tools
-- suggested skills
-- output requirements
+- responsibility and context scope
+- allowed tools
+- generated workflow-local skill
+- assigned subtasks and completed subtasks
+- transcript snippets and tool-result summary
+- checkpoint
+- status, last message, and blocker
 - acceptance criteria
+- risk checks and handoff format
 
-The workflow writes role messages to a shared blackboard and exposes `agent_status` for TUI/remote display. Reviewer acceptance must refer back to the task contract and the relevant validators.
+The scheduler chooses the next runnable subtask by dependency and status, not by a fixed role sequence. `run_agent_workflow_step` and `drain_agent_workflow` run role-local provider/tool loops while the supervisor layer receives only summaries, artifacts, blockers, and validation conclusions. `AcceptanceReviewer` acceptance must refer back to the task contract, subtask evidence, and the relevant validators.
 
-When a workflow starts, `AgentDashboardServer` serves the bundled Pixel Agents panel and writes `agent-trace.jsonl`. The panel is built from durable run/task/event/artifact state, not terminal scraping. Remote channels can share the same view through `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL`; without a secure tunnel the link remains local-only. The panel is read-only and never approves tools or executes commands.
+When a workflow starts, `AgentDashboardServer` serves the bundled Pixel Agents panel and writes `agent-trace.jsonl`. The panel is built from durable run/task/event/artifact state, not terminal scraping. It presents the plan preview, stage, dynamic roles, subtask graph, dependencies, evidence, blockers, artifacts, and a responsive phone layout for WeChat viewing. Remote channels can share the same view through `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL`; `/agents dashboard tunnel` can create a temporary Cloudflare Quick Tunnel for phone preview. Without a secure public URL the link remains local-only. The panel is read-only and never approves tools or executes commands.
 
 ## Remote Runtime
 
@@ -112,12 +116,12 @@ Long stdout, diffs, logs, and raw artifacts are stored as events or files; only 
 | --- | --- |
 | Native DeepSeek tool calling | Verified |
 | Local file tools and shell gate | Verified |
-| Generic `verify_task` | Partial, active v0.3 work |
-| Windows command diagnostics | Partial, active v0.3 work |
+| Generic `verify_task` | Verified core, expanding validators |
+| Windows command diagnostics | Verified core, expanding command patterns |
 | Office/PDF/spreadsheet artifacts | Partial |
 | Skills/plugins install and invoke | Partial |
 | MCP unified call | Experimental |
-| Multi-agent workflow | Experimental |
+| Multi-agent workflow | Experimental, plan-gated dynamic roles wired |
 | WeCom remote | Experimental |
 | Personal WeChat OpenClaw remote | Experimental |
 | Computer-use style GUI control | Reserved |

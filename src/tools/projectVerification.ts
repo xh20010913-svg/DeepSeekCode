@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { captureBrowserScreenshot } from "../bridge/cdpClient.js";
-import { artifactKindFromPath } from "../protocol/actions.js";
+import { artifactKindFromPath, type TaskOutputKind } from "../protocol/actions.js";
 import { captureHtmlWithHeadlessBrowser, captureUrlWithHeadlessBrowser } from "../remote/preview.js";
 import { type ToolExecutionContext } from "../Tool.js";
 import { summarizeValidation, validateArtifact } from "./artifact.js";
@@ -35,6 +35,15 @@ export interface LaunchProjectInput {
 }
 
 export interface TaskCompletionContract {
+  objective?: string;
+  expectedOutputs?: Array<{
+    kind?: TaskOutputKind | string;
+    description: string;
+    required?: boolean;
+  }>;
+  acceptanceCriteria?: string[];
+  userConstraints?: string[];
+  verificationHints?: string[];
   goal?: string;
   expected_artifacts?: string[];
   verifiable_behaviors?: string[];
@@ -113,18 +122,29 @@ export async function verifyTask(
   let startCommand: string | undefined;
   const launched: LaunchedProcess[] = [];
 
-  const contract = input.contract;
-  const goal = contract?.goal ?? input.objective;
+  const contract = normalizeTaskContract(input.contract, input.objective);
+  const goal = contract.objective;
   if (goal) {
     checks.push({ name: "task_contract", status: "passed", detail: goal.slice(0, 500) });
   } else {
     checks.push({ name: "task_contract", status: "warning", detail: "No explicit task goal was supplied to verify_task." });
   }
-  for (const criterion of contract?.acceptance_criteria ?? []) {
+  for (const criterion of contract.acceptanceCriteria) {
     checks.push({ name: "acceptance_criterion", status: "passed", detail: criterion.slice(0, 500) });
   }
+  for (const constraint of contract.userConstraints) {
+    checks.push({ name: "user_constraint", status: "passed", detail: constraint.slice(0, 500) });
+  }
+  for (const hint of contract.verificationHints) {
+    checks.push({ name: "verification_hint", status: "passed", detail: hint.slice(0, 500) });
+  }
 
-  const expectedArtifacts = uniqueStrings(contract?.expected_artifacts ?? []);
+  const expectedArtifacts = uniqueStrings([
+    ...(input.contract?.expected_artifacts ?? []),
+    ...contract.expectedOutputs
+      .map((output) => extractExpectedArtifactPath(output.description))
+      .filter((value): value is string => Boolean(value)),
+  ]);
   for (const expected of expectedArtifacts) {
     validateExpectedArtifact(projectRoot, expected, checks, artifacts);
   }
@@ -198,7 +218,19 @@ export async function verifyTask(
     });
   }
 
-  if (!genericFiles.length && !scripts.length && expectedArtifacts.length === 0 && projectReport.artifacts.length === 0) {
+  for (const output of contract.expectedOutputs) {
+    validateExpectedOutputEvidence({
+      root,
+      output,
+      artifacts,
+      scripts,
+      checks,
+      launched,
+      packages: findPackageJsons(root).slice(0, input.mode === "full" ? 6 : 3),
+    });
+  }
+
+  if (!genericFiles.length && !scripts.length && expectedArtifacts.length === 0 && contract.expectedOutputs.length === 0 && projectReport.artifacts.length === 0) {
     checks.push({
       name: "task_outputs",
       status: "failed",
@@ -345,6 +377,7 @@ export async function launchProject(
         detail: [summarizeLongRunningCommand(output), formatFailureDiagnosis(diagnosis)].filter(Boolean).join("\n"),
       });
       if (output.url) {
+        checks.push(...await inspectLaunchedUrl(output.url, input.timeout_ms ?? 20_000));
         const preview = input.capture_preview !== false
           ? await captureUrlPreview(root, output.url, context.dataDir)
           : undefined;
@@ -396,6 +429,125 @@ export function formatProjectVerificationReport(report: ProjectVerificationRepor
     ...report.checks.slice(0, 20).map((check) => `- ${check.status} ${check.name}: ${check.detail}`),
     report.artifacts.length ? `artifacts:\n${report.artifacts.slice(0, 12).map((item) => `- ${item}`).join("\n")}` : "",
   ].filter(Boolean).join("\n");
+}
+
+interface NormalizedTaskContract {
+  objective?: string;
+  expectedOutputs: Array<{
+    kind: string;
+    description: string;
+    required: boolean;
+  }>;
+  acceptanceCriteria: string[];
+  userConstraints: string[];
+  verificationHints: string[];
+}
+
+function normalizeTaskContract(
+  contract: TaskCompletionContract | undefined,
+  fallbackObjective: string | undefined,
+): NormalizedTaskContract {
+  const expectedOutputs = [
+    ...(contract?.expectedOutputs ?? []).map((output) => ({
+      kind: String(output.kind ?? "unknown"),
+      description: output.description,
+      required: output.required ?? true,
+    })),
+    ...(contract?.expected_artifacts ?? []).map((artifact) => ({
+      kind: taskOutputKindFromPath(artifact),
+      description: artifact,
+      required: true,
+    })),
+  ].filter((output) => output.description.trim());
+  return {
+    objective: contract?.objective ?? contract?.goal ?? fallbackObjective,
+    expectedOutputs: uniqueBy(expectedOutputs, (output) => `${output.kind}:${output.description}`),
+    acceptanceCriteria: uniqueStrings([
+      ...(contract?.acceptanceCriteria ?? []),
+      ...(contract?.acceptance_criteria ?? []),
+    ]),
+    userConstraints: uniqueStrings([
+      ...(contract?.userConstraints ?? []),
+      ...(contract?.user_constraints ?? []),
+    ]),
+    verificationHints: uniqueStrings([
+      ...(contract?.verificationHints ?? []),
+      ...(contract?.verifiable_behaviors ?? []),
+    ]),
+  };
+}
+
+function validateExpectedOutputEvidence(input: {
+  root: string;
+  output: NormalizedTaskContract["expectedOutputs"][number];
+  artifacts: string[];
+  scripts: string[];
+  packages: PackageInfo[];
+  launched: LaunchedProcess[];
+  checks: ProjectCheck[];
+}): void {
+  const evidence = expectedOutputEvidence(input);
+  const required = input.output.required;
+  input.checks.push({
+    name: "expected_output",
+    status: evidence ? "passed" : required ? "failed" : "skipped",
+    detail: evidence
+      ? `${input.output.kind}: ${input.output.description} -> ${evidence}`
+      : `${input.output.kind}: ${input.output.description} has no matching local evidence`,
+  });
+}
+
+function expectedOutputEvidence(input: {
+  root: string;
+  output: NormalizedTaskContract["expectedOutputs"][number];
+  artifacts: string[];
+  scripts: string[];
+  packages: PackageInfo[];
+  launched: LaunchedProcess[];
+}): string | undefined {
+  const kind = input.output.kind.toLowerCase();
+  const descriptionPath = extractExpectedArtifactPath(input.output.description);
+  if (descriptionPath) {
+    const target = safeOptionalJoin(input.root, descriptionPath);
+    if (fs.existsSync(target)) return `${descriptionPath} exists`;
+  }
+  const artifacts = uniqueStrings(input.artifacts.map((artifact) => artifact.replace(/\\/g, "/")));
+  const byExt = (extensions: string[]) => artifacts.find((artifact) => extensions.some((ext) => artifact.toLowerCase().endsWith(ext)));
+  switch (kind) {
+    case "web":
+      return byExt([".html", ".htm"]) ?? input.launched.find((item) => item.url && item.running)?.url ?? input.packages.find((pkg) => chooseLaunchCommand(pkg))?.relativeDir;
+    case "docx":
+      return byExt([".docx"]);
+    case "pptx":
+      return byExt([".pptx"]);
+    case "xlsx":
+      return byExt([".xlsx", ".xls"]);
+    case "pdf":
+      return byExt([".pdf"]);
+    case "markdown":
+      return byExt([".md", ".markdown"]);
+    case "data":
+      return byExt([".csv", ".tsv", ".json", ".xlsx", ".xls", ".sqlite", ".db"]);
+    case "image":
+      return byExt([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
+    case "cli":
+      return input.scripts.length ? rel(input.root, input.scripts[0]!) : input.packages.find((pkg) => Object.keys(pkg.scripts).length)?.relativeDir;
+    case "code":
+      return input.scripts.length ? rel(input.root, input.scripts[0]!) : findFiles(input.root, [".ts", ".tsx", ".js", ".jsx", ".py", ".ps1", ".cmd"], 5)[0];
+    case "mcp":
+      return findFiles(input.root, [".json", ".ts", ".js", ".md"], 5)
+        .map((file) => rel(input.root, file))
+        .find((file) => /mcp|modelcontextprotocol/i.test(file));
+    case "plugin":
+      return findFiles(input.root, [".json", ".ts", ".js", ".md"], 5)
+        .map((file) => rel(input.root, file))
+        .find((file) => /plugin|\.codex-plugin/i.test(file));
+    case "automation":
+      return input.packages.find((pkg) => Object.keys(pkg.scripts).some((script) => /automation|schedule|worker|job/i.test(script)))?.relativeDir
+        ?? input.scripts.find((script) => /automation|schedule|worker|job/i.test(script));
+    default:
+      return artifacts[0] ?? (input.scripts.length ? rel(input.root, input.scripts[0]!) : input.packages[0]?.relativeDir);
+  }
 }
 
 function validateExpectedArtifact(
@@ -509,6 +661,48 @@ function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+function uniqueBy<T>(values: T[], key: (value: T) => string): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const value of values) {
+    const id = key(value);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(value);
+  }
+  return out;
+}
+
+function extractExpectedArtifactPath(value: string): string | undefined {
+  const trimmed = value.trim().replace(/^["'`]+|["'`.,，。]+$/g, "");
+  if (!trimmed) return undefined;
+  if (/^[\w./\\\-\u4e00-\u9fa5 ]+\.[a-z0-9]{1,8}$/i.test(trimmed)) return trimmed;
+  const match = trimmed.match(/([\w./\\\-\u4e00-\u9fa5 ]+\.(?:html?|md|markdown|docx|pptx|xlsx|xls|pdf|png|jpe?g|webp|gif|csv|tsv|json|js|ts|tsx|jsx|py|ps1|cmd|bat|sh))/i);
+  return match?.[1]?.trim();
+}
+
+function taskOutputKindFromPath(target: string): TaskOutputKind {
+  const artifactKind = artifactKindFromPath(target);
+  switch (artifactKind) {
+    case "html":
+      return "web";
+    case "markdown":
+      return "markdown";
+    case "docx":
+    case "pptx":
+    case "xlsx":
+    case "pdf":
+    case "image":
+      return artifactKind;
+    case "screenshot":
+      return "image";
+    default:
+      if (/\.(csv|tsv|json|sqlite|db)$/i.test(target)) return "data";
+      if (/\.(js|ts|tsx|jsx|py|ps1|cmd|bat|sh|mjs|cjs)$/i.test(target)) return "code";
+      return "unknown";
+  }
+}
+
 function findPackageJsons(root: string): PackageInfo[] {
   return findFiles(root, ["package.json"], 3)
     .filter((file) => !file.includes(`${path.sep}node_modules${path.sep}`))
@@ -575,6 +769,58 @@ async function captureUrlPreview(root: string, url: string, dataDir: string | un
   } catch {
     const fallback = await captureUrlWithHeadlessBrowser({ url, outputDir, baseName: "service" });
     return fallback?.path;
+  }
+}
+
+async function inspectLaunchedUrl(url: string, timeoutMs: number): Promise<ProjectCheck[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.min(timeoutMs, 10_000));
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    const contentType = response.headers.get("content-type") ?? "";
+    const text = contentType.includes("text") || contentType.includes("html") || contentType.includes("json")
+      ? await response.text()
+      : "";
+    const checks: ProjectCheck[] = [{
+      name: "service_http",
+      status: response.status >= 400 ? "failed" : "passed",
+      detail: `${url} -> HTTP ${response.status} ${response.statusText}`.trim(),
+    }];
+    if (contentType.includes("html")) {
+      const visibleText = text
+        .replace(/<script[\s\S]*?<\/script>/gi, "")
+        .replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/<[^>]+>/g, "")
+        .replace(/\s+/g, "")
+        .trim();
+      checks.push({
+        name: "service_blank_page",
+        status: visibleText.length >= 5 || /id=["']root["']|id=["']app["']|<canvas|<svg/i.test(text) ? "passed" : "warning",
+        detail: visibleText.length >= 5
+          ? `visible_text_chars=${visibleText.length}`
+          : "HTML response has very little visible text; possible blank page unless client rendering fills it.",
+      });
+      const missingLocalAsset = [...text.matchAll(/\b(?:src|href)=["']([^"']+)["']/gi)]
+        .map((match) => match[1] ?? "")
+        .filter((ref) => ref && !/^(https?:|data:|#|mailto:|tel:)/i.test(ref))
+        .find((ref) => /(?:undefined|null|\s)/i.test(ref));
+      if (missingLocalAsset) {
+        checks.push({
+          name: "service_asset_reference",
+          status: "failed",
+          detail: `Suspicious local asset reference: ${missingLocalAsset}`,
+        });
+      }
+    }
+    return checks;
+  } catch (error) {
+    return [{
+      name: "service_http",
+      status: "warning",
+      detail: `Could not inspect ${url}: ${error instanceof Error ? error.message : String(error)}`,
+    }];
+  } finally {
+    clearTimeout(timer);
   }
 }
 

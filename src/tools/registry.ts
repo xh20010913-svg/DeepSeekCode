@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { buildTool, type Tools } from "../Tool.js";
+import { buildTool, type ToolExecutionContext, type Tools } from "../Tool.js";
 import {
   captureBrowserScreenshot,
   captureBrowserSnapshot,
@@ -8,8 +8,10 @@ import {
   typeBrowserSelector,
 } from "../bridge/cdpClient.js";
 import {
+  actionType,
   ActionRequestSchema,
   AgentStatusActionSchema,
+  ApproveAgentWorkflowPlanActionSchema,
   ApplyPatchActionSchema,
   AskUserQuestionActionSchema,
   BrowserClickActionSchema,
@@ -22,6 +24,7 @@ import {
   EnterPlanModeActionSchema,
   ExitPlanModeActionSchema,
   FinishAgentWorkflowActionSchema,
+  DrainAgentWorkflowActionSchema,
   GlobFilesActionSchema,
   GrepFilesActionSchema,
   AppendFileActionSchema,
@@ -35,13 +38,17 @@ import {
   PlannedPdfActionSchema,
   PlannedPptxActionSchema,
   ReadFileActionSchema,
+  RegenerateAgentWorkflowPlanActionSchema,
+  ReviseAgentWorkflowPlanActionSchema,
   RunCommandActionSchema,
+  RunAgentWorkflowStepActionSchema,
   SearchSkillsActionSchema,
   SshReadFileActionSchema,
   SshRunActionSchema,
   SshWriteFileActionSchema,
   SendAgentMessageActionSchema,
   StartAgentWorkflowActionSchema,
+  CancelAgentWorkflowPlanActionSchema,
   TdaiConversationSearchActionSchema,
   TdaiMemorySearchActionSchema,
   TodoWriteActionSchema,
@@ -49,11 +56,22 @@ import {
   VerifyTaskActionSchema,
   VerifyProjectActionSchema,
   WriteFileActionSchema,
+  type ActionEnvelope,
+  type ActionExecutionReport,
   type ActionRequest,
+  type ActionResult,
 } from "../protocol/actions.js";
 import { loadAgent } from "../agents/loader.js";
-import { AgentWorkflowService } from "../services/agents/agentWorkflow.js";
-import { hasApprovedToolAction } from "../services/approval/approvalPolicy.js";
+import {
+  AgentWorkflowService,
+  normalizeTaskCompletionContract,
+  type AgentRoleState,
+  type AgentWorkflowRecord,
+  type GeneratedRoleSkill,
+  type WorkflowRolePlan,
+  type WorkflowSubtaskState,
+} from "../services/agents/agentWorkflow.js";
+import { hasApprovedToolAction, requireApprovalForToolAction } from "../services/approval/approvalPolicy.js";
 import { McpService } from "../services/mcp/mcpService.js";
 import { BrowserTrajectoryRecorder } from "../services/browser/browserTrajectory.js";
 import { PlanModeService } from "../services/plans/planModeService.js";
@@ -62,8 +80,11 @@ import { readRemoteTextFile, writeRemoteTextFile } from "../services/remote/sshF
 import { SshProfileService } from "../services/remote/sshProfileService.js";
 import { runSshCommand, summarizeSshCommand } from "../services/remote/sshRemoteExecutor.js";
 import { TodoService, formatTodoList } from "../services/todos/todoService.js";
+import { executeToolPlan } from "../services/tools/toolOrchestration.js";
 import { discoverSkills } from "../skills/discovery.js";
 import { loadSkill } from "../skills/loader.js";
+import { buildContextBundle, contextBundlePrompt } from "../context/contextBundle.js";
+import { buildActionSystemPrompt } from "../query/systemPrompt.js";
 import { summarizeValidation, validateArtifact } from "./artifact.js";
 import { startBrowserSession } from "./browser.js";
 import { appendFile, applyTextPatch, globFiles, grepFiles, listFiles, readFileForTool, writeFile } from "./fs.js";
@@ -1113,7 +1134,7 @@ export const baseTools: Tools = [
     inputSchema: StartAgentWorkflowActionSchema,
     concurrencySafe: false,
     destructive: false,
-    run(input, context) {
+    async run(input, context) {
       if (!context.state || !context.runId) {
         return {
           result: {
@@ -1123,18 +1144,34 @@ export const baseTools: Tools = [
           },
         };
       }
+      const planned = await buildWorkflowPlanForStart(input, context);
       const workflow = new AgentWorkflowService(context.state, context.root).start({
         runId: context.runId,
         objective: input.objective,
         roles: (input.roles ?? []).map((role) => ({
           name: role.name,
+          role: role.role,
           responsibility: role.responsibility,
+          contextScope: role.contextScope,
+          allowedTools: role.allowedTools ?? [],
+          preloadedSkills: role.preloadedSkills ?? [],
+          assignedTasks: role.assignedTasks ?? [],
           skills: role.skills ?? [],
           tools: role.tools ?? [],
           acceptance: role.acceptance ?? [],
+          acceptanceCriteria: role.acceptanceCriteria ?? [],
+          checkpoint: role.checkpoint,
         })),
+        contract: input.contract,
         acceptanceCriteria: input.acceptance_criteria ?? [],
         maxSteps: input.max_steps ?? 12,
+        autoApprove: input.autoApprove ?? false,
+        rolePlan: planned.rolePlan,
+        subtaskGraph: planned.subtaskGraph,
+        generatedSkills: planned.generatedSkills,
+        expectedArtifacts: planned.expectedArtifacts,
+        verificationPlan: planned.verificationPlan,
+        riskAndPermissionNotes: planned.riskAndPermissionNotes,
       });
       return {
         data: workflow,
@@ -1142,11 +1179,225 @@ export const baseTools: Tools = [
           action_type: input.type,
           status: "succeeded",
           message: [
-            `workflow ${workflow.id} started`,
+            `workflow ${workflow.id} plan ${workflow.phase === "awaiting_approval" ? "awaiting approval" : "started"}`,
             `objective: ${workflow.objective}`,
-            `roles: ${workflow.roles.map((role) => role.name).join(", ")}`,
-            "A reviewer role is included for acceptance checks.",
+            `roles: ${workflow.roles.map((role) => role.role).join(", ")}`,
+            `subtasks: ${workflow.subtaskGraph.map((subtask) => `${subtask.id}:${subtask.title} -> ${subtask.assigneeRole} [${subtask.status}]`).join(" | ")}`,
+            workflow.contract ? `contract outputs: ${workflow.contract.expectedOutputs.map((output) => `${output.kind}:${output.description}`).join(" | ") || "(none)"}` : "",
+            workflow.phase === "awaiting_approval"
+              ? "Plan gate is waiting. Use approve_agent_workflow_plan to execute, revise_agent_workflow_plan/regenerate_agent_workflow_plan to change it, or cancel_agent_workflow_plan."
+              : "Plan was auto-approved; drain_agent_workflow can execute subtask-local role work.",
           ].join("\n"),
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "approve_agent_workflow_plan",
+    displayName: "Approve Workflow Plan",
+    description: "Approve a plan-gated multi-agent workflow so its dynamic roles can begin executing the subtask graph.",
+    inputSchema: ApproveAgentWorkflowPlanActionSchema,
+    concurrencySafe: false,
+    destructive: false,
+    run(input, context) {
+      if (!context.state || !context.runId) {
+        return {
+          result: {
+            action_type: input.type,
+            status: "failed",
+            message: "approve_agent_workflow_plan requires a run context.",
+          },
+        };
+      }
+      const workflow = new AgentWorkflowService(context.state, context.root).approvePlan({
+        runId: context.runId,
+        workflowId: input.workflow_id,
+        note: input.note,
+      });
+      return {
+        data: workflow,
+        result: {
+          action_type: input.type,
+          status: "succeeded",
+          message: [
+            `workflow ${workflow.id} approved`,
+            `phase=${workflow.phase}`,
+            `subtasks=${workflow.subtaskGraph.length}`,
+            "Use drain_agent_workflow to execute the approved plan.",
+          ].join("\n"),
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "revise_agent_workflow_plan",
+    displayName: "Revise Workflow Plan",
+    description: "Revise the active plan-gated workflow using user instructions; the revised plan returns to awaiting approval.",
+    inputSchema: ReviseAgentWorkflowPlanActionSchema,
+    concurrencySafe: false,
+    destructive: false,
+    async run(input, context) {
+      if (!context.state || !context.runId) {
+        return {
+          result: {
+            action_type: input.type,
+            status: "failed",
+            message: "revise_agent_workflow_plan requires a run context.",
+          },
+        };
+      }
+      const current = new AgentWorkflowService(context.state, context.root).status(input.workflow_id).record;
+      const planned = await buildWorkflowPlanForRevision(current, input.instructions, context);
+      const workflow = new AgentWorkflowService(context.state, context.root).replacePlan({
+        runId: context.runId,
+        workflowId: input.workflow_id,
+        instructions: input.instructions,
+        ...planned,
+      });
+      return {
+        data: workflow,
+        result: {
+          action_type: input.type,
+          status: "succeeded",
+          message: workflowPlanResultMessage(workflow, "revised"),
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "regenerate_agent_workflow_plan",
+    displayName: "Regenerate Workflow Plan",
+    description: "Generate a different dynamic role and subtask plan for the active workflow; it remains awaiting approval.",
+    inputSchema: RegenerateAgentWorkflowPlanActionSchema,
+    concurrencySafe: false,
+    destructive: false,
+    async run(input, context) {
+      if (!context.state || !context.runId) {
+        return {
+          result: {
+            action_type: input.type,
+            status: "failed",
+            message: "regenerate_agent_workflow_plan requires a run context.",
+          },
+        };
+      }
+      const current = new AgentWorkflowService(context.state, context.root).status(input.workflow_id).record;
+      const planned = await buildWorkflowPlanForRevision(current, input.instructions || "Regenerate with a different role split and subtask graph.", context);
+      const workflow = new AgentWorkflowService(context.state, context.root).replacePlan({
+        runId: context.runId,
+        workflowId: input.workflow_id,
+        instructions: input.instructions || "Regenerate plan.",
+        ...planned,
+      });
+      return {
+        data: workflow,
+        result: {
+          action_type: input.type,
+          status: "succeeded",
+          message: workflowPlanResultMessage(workflow, "regenerated"),
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "cancel_agent_workflow_plan",
+    displayName: "Cancel Workflow Plan",
+    description: "Cancel an awaiting or running multi-agent workflow plan.",
+    inputSchema: CancelAgentWorkflowPlanActionSchema,
+    concurrencySafe: false,
+    destructive: false,
+    run(input, context) {
+      if (!context.state || !context.runId) {
+        return {
+          result: {
+            action_type: input.type,
+            status: "failed",
+            message: "cancel_agent_workflow_plan requires a run context.",
+          },
+        };
+      }
+      const workflow = new AgentWorkflowService(context.state, context.root).cancelPlan({
+        runId: context.runId,
+        workflowId: input.workflow_id,
+        reason: input.reason,
+      });
+      return {
+        data: workflow,
+        result: {
+          action_type: input.type,
+          status: "succeeded",
+          message: `workflow ${workflow.id} cancelled${input.reason ? `: ${input.reason}` : ""}`,
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "run_agent_workflow_step",
+    displayName: "Agent Step",
+    description: "Run one role-local step in the active multi-agent workflow using the current provider, role checkpoint, tool-result summary, and role tool policy.",
+    inputSchema: RunAgentWorkflowStepActionSchema,
+    concurrencySafe: false,
+    destructive: false,
+    async run(input, context) {
+      const result = await runWorkflowStep(input, context, baseTools);
+      return {
+        data: result,
+        result: {
+          action_type: input.type,
+          status: result.status === "failed" ? "failed" : "succeeded",
+          message: result.message,
+          context: result.message,
+        },
+      };
+    },
+  }),
+  buildTool({
+    name: "drain_agent_workflow",
+    displayName: "Drain Workflow",
+    description: "Run role-local multi-agent workflow steps until every role is complete, a role blocks, or max_steps is reached.",
+    inputSchema: DrainAgentWorkflowActionSchema,
+    concurrencySafe: false,
+    destructive: false,
+    async run(input, context) {
+      if (!context.state || !context.runId) {
+        return {
+          result: {
+            action_type: input.type,
+            status: "failed",
+            message: "drain_agent_workflow requires a run context.",
+          },
+        };
+      }
+      const maxSteps = Math.min(50, Math.max(1, Math.trunc(input.max_steps ?? 12)));
+      const steps: Awaited<ReturnType<typeof runWorkflowStep>>[] = [];
+      for (let index = 0; index < maxSteps; index += 1) {
+        const step = await runWorkflowStep({
+          workflow_id: input.workflow_id,
+          max_turns: input.max_turns_per_role ?? 2,
+        }, context, baseTools);
+        steps.push(step);
+        if (step.status === "idle" || step.status === "failed" || step.status === "blocked") break;
+      }
+      const finalStatus = steps.at(-1)?.status ?? "idle";
+      const service = new AgentWorkflowService(context.state, context.root);
+      let workflowStatus = "";
+      try {
+        workflowStatus = service.formatStatus(input.workflow_id);
+      } catch {
+        workflowStatus = "";
+      }
+      const message = [
+        `workflow drain status=${finalStatus} steps=${steps.length}/${maxSteps}`,
+        ...steps.map((step, index) => `${index + 1}. ${step.role ?? "none"}${step.subtaskId ? `/${step.subtaskId}` : ""} ${step.status}: ${compact(step.message, 260)}`),
+        workflowStatus,
+      ].filter(Boolean).join("\n");
+      return {
+        data: { steps, finalStatus, workflowStatus },
+        result: {
+          action_type: input.type,
+          status: finalStatus === "failed" ? "failed" : "succeeded",
+          message,
+          context: message,
         },
       };
     },
@@ -1421,6 +1672,605 @@ export const baseTools: Tools = [
     },
   }),
 ];
+
+interface WorkflowPlanParts {
+  rolePlan?: WorkflowRolePlan;
+  subtaskGraph?: WorkflowSubtaskState[];
+  generatedSkills?: GeneratedRoleSkill[];
+  expectedArtifacts?: string[];
+  verificationPlan?: string[];
+  riskAndPermissionNotes?: string[];
+}
+
+async function buildWorkflowPlanForStart(
+  input: { objective: string; contract?: unknown; roles?: Array<Record<string, unknown>>; acceptance_criteria?: string[] },
+  context: ToolExecutionContext,
+): Promise<WorkflowPlanParts> {
+  if (!context.provider) return {};
+  const contract = normalizeTaskCompletionContract(input.contract as never, input.objective, input.acceptance_criteria ?? []);
+  const explicitRoles = input.roles?.length ? JSON.stringify(input.roles) : "";
+  return buildWorkflowPlanWithProvider({
+    objective: input.objective,
+    contract,
+    existingPlan: explicitRoles ? `User supplied role hints:\n${explicitRoles}` : "",
+    revisionInstructions: "",
+    context,
+  });
+}
+
+async function buildWorkflowPlanForRevision(
+  record: AgentWorkflowRecord,
+  instructions: string,
+  context: ToolExecutionContext,
+): Promise<WorkflowPlanParts> {
+  if (!context.provider) return {};
+  return buildWorkflowPlanWithProvider({
+    objective: record.objective,
+    contract: record.contract ?? normalizeTaskCompletionContract(undefined, record.objective),
+    existingPlan: JSON.stringify({
+      phase: record.phase,
+      roles: record.roles.map((role) => ({
+        role: role.role,
+        responsibility: role.responsibility,
+        assignedTasks: role.assignedTasks,
+      })),
+      subtasks: record.subtaskGraph.map((subtask) => ({
+        id: subtask.id,
+        title: subtask.title,
+        role: subtask.assigneeRole,
+        status: subtask.status,
+      })),
+    }),
+    revisionInstructions: instructions,
+    context,
+  });
+}
+
+async function buildWorkflowPlanWithProvider(input: {
+  objective: string;
+  contract: ReturnType<typeof normalizeTaskCompletionContract>;
+  existingPlan: string;
+  revisionInstructions: string;
+  context: ToolExecutionContext;
+}): Promise<WorkflowPlanParts> {
+  try {
+    const reply = await input.context.provider!.completeChat([
+      {
+        role: "system",
+        content: [
+          "Return JSON only. You are the Planner for a plan-gated local multi-agent coding workflow.",
+          "Planner and AcceptanceReviewer are fixed runtime roles, but they are added by the runtime. In the JSON roles array, return only the task-specific middle execution roles.",
+          "If the objective is Chinese or mostly Chinese, all user-facing role names, subtask titles, role responsibilities, skill summaries, risk notes, and handoff text must be Simplified Chinese. Keep only real tool names/code paths in their original language.",
+          "Generate enough middle roles for clear division of labor. Complex website/game/full-stack/data tasks should normally have 3-5 middle roles; never collapse them into one ImplementationSpecialist-style role.",
+          "Role names must describe the domain work, for example 玩法关卡工程师, 动效体验工程师, 前端界面工程师, 后端数据工程师, MCP协议工程师. Avoid generic names such as ImplementationSpecialist, Builder, Worker, Frontend, Backend, Tester unless the user explicitly asked for that exact label.",
+          "Every role needs responsibility, contextScope, allowedTools, requiredOutputs, riskChecks, handoffFormat, and a workflow-local generatedSkill.",
+          "Each generatedSkill must be specific to that role and this workflow; include matching installed skills such as gsap-core, gsap-timeline, gsap-performance, ui-ux, browser-verification, presentations, documents, spreadsheets, pdf, mcp, or plugin-creator when relevant.",
+          "Generate a subtask graph with assigneeRole, dependencies, acceptanceCriteria, expectedOutputs, and evidence requirements.",
+          "No tool execution is allowed in this planning response.",
+        ].join("\n"),
+      },
+      {
+        role: "user",
+        content: [
+          `Objective:\n${input.objective}`,
+          `TaskCompletionContract:\n${JSON.stringify(input.contract)}`,
+          input.existingPlan ? `Existing/hinted plan:\n${input.existingPlan}` : "",
+          input.revisionInstructions ? `Revision instructions:\n${input.revisionInstructions}` : "",
+          [
+            "Return this JSON shape:",
+            "{",
+            '  "plannerNotes": "short useful note",',
+            '  "roles": [{"role":"TaskSpecificRole","responsibility":"...","contextScope":"...","allowedTools":["read_file"],"preloadedSkills":["..."],"requiredOutputs":["..."],"riskChecks":["..."],"handoffFormat":"..."}],',
+            '  "subtasks": [{"id":"subtask_1","title":"...","description":"...","assigneeRole":"TaskSpecificRole","dependencies":[],"acceptanceCriteria":["..."],"expectedOutputs":["..."],"evidenceRequirements":["..."]}],',
+            '  "generatedSkills": [{"role":"TaskSpecificRole","summary":"...","prompt":"...","allowedTools":["read_file"],"outputFormat":"...","riskChecks":["..."],"handoffFormat":"..."}],',
+            '  "expectedArtifacts": ["..."],',
+            '  "verificationPlan": ["..."],',
+            '  "riskAndPermissionNotes": ["..."]',
+            "}",
+          ].join("\n"),
+        ].filter(Boolean).join("\n\n"),
+      },
+    ], { signal: input.context.abortSignal });
+    input.context.recordUsage?.(input.context.provider!.takeLastUsage(), "agent_workflow_plan_gate");
+    return normalizeProviderWorkflowPlan(parseJsonObject(reply.text), input.contract);
+  } catch (error) {
+    input.context.state?.appendEvent(input.context.runId ?? null, "agent_workflow_model_plan_failed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return {};
+  }
+}
+
+function normalizeProviderWorkflowPlan(value: unknown, contract: ReturnType<typeof normalizeTaskCompletionContract>): WorkflowPlanParts {
+  const candidate = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const now = Date.now();
+  const roles = asArray(candidate.roles)
+    .map((role) => roleFromModel(role))
+    .filter((role): role is AgentRoleState => Boolean(role));
+  const generatedSkills = asArray(candidate.generatedSkills)
+    .map((skill, index) => generatedSkillFromModel(skill, roles, index, now))
+    .filter((skill): skill is GeneratedRoleSkill => Boolean(skill));
+  const subtaskGraph = asArray(candidate.subtasks)
+    .map((subtask, index) => subtaskFromModel(subtask, roles, contract, index, now))
+    .filter((subtask): subtask is WorkflowSubtaskState => Boolean(subtask));
+  return {
+    rolePlan: roles.length ? {
+      source: "model",
+      plannerNotes: stringValue(candidate.plannerNotes) || "Model-authored plan gate.",
+      roles,
+    } : undefined,
+    subtaskGraph: subtaskGraph.length ? subtaskGraph : undefined,
+    generatedSkills: generatedSkills.length ? generatedSkills : undefined,
+    expectedArtifacts: stringArray(candidate.expectedArtifacts),
+    verificationPlan: stringArray(candidate.verificationPlan),
+    riskAndPermissionNotes: stringArray(candidate.riskAndPermissionNotes),
+  };
+}
+
+function roleFromModel(value: unknown): AgentRoleState | undefined {
+  const role = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const name = safeModelName(stringValue(role.role) || stringValue(role.name));
+  const responsibility = stringValue(role.responsibility);
+  if (!name || !responsibility) return undefined;
+  const allowedTools = stringArray(role.allowedTools);
+  const preloadedSkills = stringArray(role.preloadedSkills);
+  return {
+    name,
+    role: name,
+    responsibility,
+    contextScope: stringValue(role.contextScope) || "Role-local context: current subtask, generated skill, checkpoint, tool feedback, and necessary upstream summaries only.",
+    allowedTools: allowedTools.length ? allowedTools : defaultAllowedToolsForRole(name, responsibility),
+    preloadedSkills,
+    assignedTasks: stringArray(role.assignedSubtasks).concat(stringArray(role.assignedTasks)),
+    completedTasks: [],
+    transcript: [],
+    toolResultSummary: [],
+    checkpoint: "",
+    status: "queued",
+    taskIds: [],
+    skills: preloadedSkills,
+    tools: allowedTools,
+    acceptance: stringArray(role.acceptanceCriteria).concat(stringArray(role.acceptance)),
+    requiredOutputs: stringArray(role.requiredOutputs),
+    riskChecks: stringArray(role.riskChecks),
+    handoffFormat: stringValue(role.handoffFormat) || "summary, artifacts, evidence, blockers, next handoff",
+  };
+}
+
+function generatedSkillFromModel(value: unknown, roles: AgentRoleState[], index: number, now: number): GeneratedRoleSkill | undefined {
+  const skill = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const role = safeModelName(stringValue(skill.role));
+  if (!role || !roles.some((candidate) => candidate.role === role)) return undefined;
+  return {
+    id: `skill_${role}_${index + 1}`,
+    role,
+    title: stringValue(skill.title) || `${role} workflow-local skill`,
+    summary: stringValue(skill.summary) || `${role} role skill`,
+    prompt: stringValue(skill.prompt) || `${role}: follow role responsibility, tools, acceptance criteria, and evidence handoff.`,
+    allowedTools: stringArray(skill.allowedTools),
+    outputFormat: stringValue(skill.outputFormat) || "checkpoint with artifacts, evidence, blockers, and handoff",
+    riskChecks: stringArray(skill.riskChecks),
+    handoffFormat: stringValue(skill.handoffFormat) || "summary, evidence, blockers, next handoff",
+    createdAtMs: now,
+  };
+}
+
+function subtaskFromModel(
+  value: unknown,
+  roles: AgentRoleState[],
+  contract: ReturnType<typeof normalizeTaskCompletionContract>,
+  index: number,
+  now: number,
+): WorkflowSubtaskState | undefined {
+  const subtask = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const title = stringValue(subtask.title);
+  const assignee = safeModelName(stringValue(subtask.assigneeRole) || stringValue(subtask.role));
+  if (!title || !assignee || !roles.some((role) => role.role === assignee)) return undefined;
+  const evidenceRequirements = stringArray(subtask.evidenceRequirements);
+  return {
+    id: safeModelSubtaskId(stringValue(subtask.id) || `subtask_${index + 1}`),
+    title,
+    description: stringValue(subtask.description) || title,
+    assigneeRole: assignee,
+    parentId: stringValue(subtask.parentId) || undefined,
+    dependencies: stringArray(subtask.dependencies).map((dependency) => safeModelSubtaskId(dependency)),
+    status: "queued",
+    acceptanceCriteria: stringArray(subtask.acceptanceCriteria).concat(evidenceRequirements),
+    expectedOutputs: stringArray(subtask.expectedOutputs),
+    evidence: [],
+    createdBy: "Planner",
+    updatedAtMs: now,
+    lastEvent: contract.objective ? `planned for ${contract.objective}` : "planned",
+  };
+}
+
+function workflowPlanResultMessage(workflow: AgentWorkflowRecord, verb: string): string {
+  return [
+    `workflow ${workflow.id} plan ${verb}`,
+    `phase=${workflow.phase}`,
+    `roles=${workflow.roles.map((role) => role.role).join(", ")}`,
+    `subtasks=${workflow.subtaskGraph.map((subtask) => `${subtask.id}:${subtask.title}->${subtask.assigneeRole}`).join(" | ")}`,
+    "Plan is awaiting approval before execution.",
+  ].join("\n");
+}
+
+function parseJsonObject(text: string): unknown {
+  const trimmed = text.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
+    if (start >= 0 && end > start) return JSON.parse(trimmed.slice(start, end + 1));
+    throw new Error("workflow planner did not return valid JSON");
+  }
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? [...new Set(value.map((item) => typeof item === "string" ? item.trim() : "").filter(Boolean))]
+    : [];
+}
+
+function safeModelName(value: string): string {
+  return value.trim().replace(/\s+/g, "_").replace(/[^\w\u4e00-\u9fa5-]/g, "").slice(0, 48);
+}
+
+function safeModelSubtaskId(value: string): string {
+  return value.trim().replace(/\s+/g, "_").replace(/[^\w.-]/g, "").slice(0, 64) || `subtask_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function defaultAllowedToolsForRole(role: string, responsibility: string): string[] {
+  const text = `${role} ${responsibility}`.toLowerCase();
+  if (/review|acceptance|qa|test|verify|验收|测试/.test(text)) {
+    return ["read_file", "list_files", "grep_files", "glob_files", "validate_artifact", "verify_task", "verify_project", "launch_project", "browser_screenshot", "agent_status", "finish_agent_workflow"];
+  }
+  if (/planner|计划|规划/.test(text)) {
+    return ["TodoWrite", "read_file", "list_files", "grep_files", "search_skills", "send_agent_message", "agent_status"];
+  }
+  return ["read_file", "list_files", "grep_files", "glob_files", "write_file", "append_file", "apply_patch", "run_command", "invoke_skill", "mcp_call", "validate_artifact"];
+}
+
+interface WorkflowStepResult {
+  status: "idle" | "succeeded" | "blocked" | "failed";
+  workflowId?: string;
+  role?: string;
+  subtaskId?: string;
+  taskId?: string;
+  message: string;
+}
+
+async function runWorkflowStep(
+  input: { workflow_id?: string; role?: string; subtask_id?: string; max_turns?: number },
+  context: ToolExecutionContext,
+  tools: Tools,
+): Promise<WorkflowStepResult> {
+  if (!context.state || !context.runId) {
+    return { status: "failed", message: "workflow step requires state and runId." };
+  }
+  if (!context.provider) {
+    return { status: "failed", message: "workflow step requires a provider in ToolExecutionContext." };
+  }
+  const service = new AgentWorkflowService(context.state, context.root);
+  const claimed = service.claimNextSubtask({
+    workflowId: input.workflow_id,
+    role: input.role,
+    subtaskId: input.subtask_id,
+  });
+  if (!claimed) {
+    let status = "";
+    try {
+      status = service.formatStatus(input.workflow_id);
+    } catch {
+      status = "";
+    }
+    return { status: "idle", message: ["No runnable approved workflow subtask is available.", status].filter(Boolean).join("\n") };
+  }
+  const { record, role, subtask, task } = claimed;
+  const maxTurns = Math.min(6, Math.max(1, Math.trunc(input.max_turns ?? 2)));
+  const roleTools = tools.filter((tool) => !["run_agent_workflow_step", "drain_agent_workflow"].includes(tool.name));
+  const allowedToolNames = allowedToolNamesForRole(role, roleTools);
+  let feedback: ActionExecutionReport | undefined;
+  let lastEnvelope: ActionEnvelope | undefined;
+  let lastReport: ActionExecutionReport | undefined;
+
+  for (let turn = 1; turn <= maxTurns; turn += 1) {
+    const prompt = workflowRolePrompt(record, role, subtask, service.status(record.id).messages, turn, maxTurns, feedback);
+    let envelope: ActionEnvelope;
+    try {
+      envelope = await context.provider.planActions({
+        userMessage: prompt,
+        systemPrompt: buildActionSystemPrompt(),
+        contextSummary: contextBundlePrompt(buildContextBundle(context.root, 10_000, record.objective)),
+        feedback,
+        availableToolNames: allowedToolNames,
+      }, { signal: context.abortSignal });
+      context.recordUsage?.(context.provider.takeLastUsage(), `agent_workflow_${role.role}_turn_${turn}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const report = workflowFailureReport(`Role ${role.role} native tool planning failed: ${message}`, "native_tool_plan");
+      lastReport = report;
+      feedback = {
+        ...report,
+        final_message: [
+          report.final_message,
+          "Retry with a smaller valid JSON action plan. Every TodoWrite todo must include required string fields such as content and status.",
+          "If the failure came from an oversized action, split the work into fewer tool calls.",
+        ].join("\n"),
+      };
+      if (turn < maxTurns) {
+        context.state?.appendEvent(record.runId, "agent_workflow_native_tool_plan_retry", {
+          workflow_id: record.id,
+          role: role.role,
+          subtask_id: subtask.id,
+          task_id: task?.id,
+          turn,
+          max_turns: maxTurns,
+          message: compact(message, 500),
+        });
+        continue;
+      }
+      service.recordRoleResult({
+        workflowId: record.id,
+        role: role.role,
+        taskId: task?.id,
+        subtaskId: subtask.id,
+        report,
+        roleStatus: turn < maxTurns ? "blocked" : "failed",
+      });
+      return {
+        status: "failed",
+        workflowId: record.id,
+        role: role.role,
+        subtaskId: subtask.id,
+        taskId: task?.id,
+        message: report.final_message,
+      };
+    }
+
+    lastEnvelope = envelope;
+    const policy = enforceWorkflowRoleToolPolicy(envelope, role, allowedToolNames);
+    const report = policy
+      ? {
+        final_message: policy.message ?? `Role ${role.role} used a disallowed tool.`,
+        status: "failed" as const,
+        results: [policy],
+      }
+      : await executeToolPlan(
+        roleTools,
+        envelope.actions,
+        {
+          ...context,
+          runId: record.runId,
+        },
+        {
+          onEvent: (event) => {
+            const resultMessage = event.result?.message ? compact(event.result.message, 500) : undefined;
+            service.recordRoleToolEvent({
+              workflowId: record.id,
+              role: role.role,
+              subtaskId: subtask.id,
+              taskId: task?.id,
+              phase: event.phase,
+              action: event.action,
+              resultStatus: event.result?.status,
+              message: resultMessage,
+            });
+            context.state?.appendEvent(record.runId, `tool_${event.phase}`, {
+              workflow_id: record.id,
+              role: role.role,
+              subtask_id: subtask.id,
+              task_id: task?.id,
+              action: event.action,
+              result: event.result,
+              started_at_ms: event.startedAtMs,
+              finished_at_ms: event.finishedAtMs,
+              duration_ms: event.durationMs,
+            });
+          },
+          onBeforeTool: (tool, action, toolContext) => {
+            if (!allowedToolNames.includes(action.type)) {
+              return {
+                action_type: action.type,
+                status: "failed" as const,
+                message: `Role ${role.role} is not allowed to use tool: ${action.type}. Allowed tools: ${allowedToolNames.join(", ")}`,
+              };
+            }
+            const approval = requireApprovalForToolAction(context.approvalPolicy, tool, action, toolContext);
+            if (approval) return approval;
+            return undefined;
+          },
+        },
+      ).then((results) => ({
+        final_message: envelope.final_message,
+        status: results.every((result) => result.status === "succeeded") ? "succeeded" as const : "failed" as const,
+        results,
+      }));
+
+    lastReport = report;
+    const roleStatus = report.status === "succeeded" && envelope.continue_work
+      ? "running"
+      : report.status === "succeeded"
+        ? "succeeded"
+        : turn < maxTurns
+          ? "blocked"
+          : "failed";
+    service.recordRoleResult({
+      workflowId: record.id,
+      role: role.role,
+      subtaskId: subtask.id,
+      taskId: task?.id,
+      envelopeActions: envelope.actions,
+      report,
+      roleStatus,
+      checkpoint: workflowCheckpoint(envelope, report),
+    });
+
+    if (report.status === "succeeded" && !envelope.continue_work) {
+      return {
+        status: "succeeded",
+        workflowId: record.id,
+        role: role.role,
+        subtaskId: subtask.id,
+        taskId: task?.id,
+        message: `Role ${role.role} completed subtask ${subtask.id}. ${compact(report.final_message || report.results.map((result) => result.message ?? result.action_type).join(" | "), 1200)}`,
+      };
+    }
+    feedback = report.status === "succeeded" && envelope.continue_work
+      ? {
+        ...report,
+        status: "failed",
+        final_message: [
+          `Role ${role.role} requested more work.`,
+          report.final_message,
+          envelope.remaining_work ? `remaining: ${envelope.remaining_work}` : "",
+        ].filter(Boolean).join("\n"),
+      }
+      : report;
+    if (policy) break;
+  }
+
+  const failed = lastReport?.status === "failed";
+  return {
+    status: failed ? "blocked" : "succeeded",
+    workflowId: record.id,
+    role: role.role,
+    subtaskId: subtask.id,
+    taskId: task?.id,
+    message: [
+      `Role ${role.role} stopped after ${maxTurns} turn(s) on subtask ${subtask.id}.`,
+      lastEnvelope?.remaining_work ? `remaining=${lastEnvelope.remaining_work}` : "",
+      lastReport?.final_message ?? "",
+      ...(lastReport?.results ?? []).slice(-4).map((result) => `${result.action_type}:${result.status}${result.message ? ` ${compact(result.message, 240)}` : ""}`),
+    ].filter(Boolean).join("\n"),
+  };
+}
+
+function workflowRolePrompt(
+  record: AgentWorkflowRecord,
+  role: AgentRoleState,
+  subtask: WorkflowSubtaskState,
+  messages: Array<{ from: string; to: string; message: string; createdAtMs: number }>,
+  turn: number,
+  maxTurns: number,
+  feedback?: ActionExecutionReport,
+): string {
+  const peerSummaries = record.roles
+    .filter((candidate) => candidate.role !== role.role)
+    .map((candidate) => [
+      `${candidate.role} status=${candidate.status}`,
+      candidate.checkpoint ? `checkpoint=${compact(candidate.checkpoint, 500)}` : "",
+      candidate.blockedBy ? `blocked=${compact(candidate.blockedBy, 260)}` : "",
+    ].filter(Boolean).join(" "))
+    .filter(Boolean)
+    .join("\n");
+  const relevantMessages = messages
+    .filter((message) => message.to === "all" || message.to === role.role || message.from === role.role || message.from === "user" || message.from === "supervisor")
+    .slice(-12)
+    .map((message) => `- ${message.from} -> ${message.to}: ${compact(message.message, 400)}`)
+    .join("\n");
+  const generatedSkill = record.generatedSkills.find((skill) => skill.id === role.generatedSkillId || skill.role === role.role);
+  const dependencySummaries = subtask.dependencies
+    .map((dependency) => record.subtaskGraph.find((candidate) => candidate.id === dependency))
+    .filter((candidate): candidate is WorkflowSubtaskState => Boolean(candidate))
+    .map((candidate) => `- ${candidate.id} ${candidate.status}: ${candidate.title}${candidate.evidence.length ? ` evidence=${candidate.evidence.slice(-3).join(" | ")}` : ""}`)
+    .join("\n");
+  return [
+    `Workflow role: ${role.role}`,
+    `Turn: ${turn}/${maxTurns}`,
+    `Objective: ${record.objective}`,
+    `Workflow phase: ${record.phase}`,
+    `Active subtask: ${subtask.id}`,
+    `Subtask title: ${subtask.title}`,
+    `Subtask status before this step: ${subtask.status}`,
+    `Subtask description: ${subtask.description}`,
+    `Subtask expected outputs: ${subtask.expectedOutputs.join(" | ") || "(none)"}`,
+    `Subtask acceptance: ${subtask.acceptanceCriteria.join(" | ") || "(none)"}`,
+    dependencySummaries ? `Satisfied dependency summaries:\n${dependencySummaries}` : "",
+    record.contract ? [
+      "TaskCompletionContract:",
+      `objective=${record.contract.objective}`,
+      `expectedOutputs=${record.contract.expectedOutputs.map((output) => `${output.kind}:${output.description}${output.required ? "" : " optional"}`).join(" | ") || "(none)"}`,
+      `acceptanceCriteria=${record.contract.acceptanceCriteria.join(" | ") || "(none)"}`,
+      `userConstraints=${record.contract.userConstraints.join(" | ") || "(none)"}`,
+      `verificationHints=${record.contract.verificationHints.join(" | ") || "(none)"}`,
+    ].join("\n") : "",
+    `Responsibility: ${role.responsibility}`,
+    `Context scope: ${role.contextScope}`,
+    generatedSkill ? `Workflow-local role skill:\n${generatedSkill.prompt}` : "",
+    `Allowed tools: ${allowedToolList(role)}`,
+    `Preloaded skills: ${role.preloadedSkills.join(", ") || "(none)"}`,
+    `Assigned tasks:\n${role.assignedTasks.map((task) => `- ${task}`).join("\n")}`,
+    role.acceptance.length ? `Role acceptance:\n${role.acceptance.map((item) => `- ${item}`).join("\n")}` : "",
+    role.checkpoint ? `Your checkpoint:\n${role.checkpoint}` : "",
+    role.toolResultSummary.length ? `Your recent tool_result summary:\n${role.toolResultSummary.slice(-8).map((item) => `- ${compact(item, 500)}`).join("\n")}` : "",
+    peerSummaries ? `Peer role summaries:\n${peerSummaries}` : "",
+    relevantMessages ? `Supervisor/user/role messages:\n${relevantMessages}` : "",
+    feedback ? `Previous feedback for this role:\n${feedback.final_message}\n${feedback.results.map((result) => `- ${result.action_type}:${result.status} ${compact(result.message ?? "", 300)}`).join("\n")}` : "",
+    "Act only as this role. Use native tools for concrete local work. Keep outputs concise. If your role needs more work, set continue_work=true and state the next concrete step. If your assigned role is complete, set continue_work=false with a concise checkpoint summary.",
+  ].filter(Boolean).join("\n\n");
+}
+
+function allowedToolNamesForRole(role: AgentRoleState, tools: Tools): string[] {
+  const available = tools.map((tool) => tool.name);
+  if (!role.allowedTools.length) return available;
+  return role.allowedTools.filter((name) => available.includes(name));
+}
+
+function allowedToolList(role: AgentRoleState): string {
+  return role.allowedTools.length ? role.allowedTools.join(", ") : "inherited runtime tools";
+}
+
+function enforceWorkflowRoleToolPolicy(
+  envelope: ActionEnvelope,
+  role: AgentRoleState,
+  allowedToolNames: string[],
+): ActionResult | undefined {
+  for (const action of envelope.actions) {
+    const type = actionType(action);
+    if (!allowedToolNames.includes(type)) {
+      return {
+        action_type: type,
+        status: "failed",
+        message: `Role ${role.role} is not allowed to use tool: ${type}. Allowed tools: ${allowedToolNames.join(", ")}`,
+      };
+    }
+  }
+  return undefined;
+}
+
+function workflowCheckpoint(envelope: ActionEnvelope, report: ActionExecutionReport): string {
+  return compact([
+    envelope.final_message,
+    envelope.remaining_work ? `remaining=${envelope.remaining_work}` : "",
+    ...report.results.map((result) => `${result.action_type}:${result.status}${result.path ? ` ${result.path}` : ""}${result.message ? ` ${compact(result.message, 180)}` : ""}`),
+  ].filter(Boolean).join(" | "), 1600);
+}
+
+function workflowFailureReport(message: string, actionTypeName: string): ActionExecutionReport {
+  return {
+    final_message: message,
+    status: "failed",
+    results: [{
+      action_type: actionTypeName,
+      status: "failed",
+      message,
+    }],
+  };
+}
+
+function compact(value: string, max: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length <= max ? normalized : `${normalized.slice(0, max - 3)}...`;
+}
 
 function commandContext(output: CommandOutput): string {
   return [

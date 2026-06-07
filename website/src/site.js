@@ -34,7 +34,7 @@ const copy = {
     featureSkills:
       "支持本地、GitHub、Git URL 和 file:// skill/plugin 安装。模型可通过 search_skills 与 invoke_skill 自动调用。",
     featureAgents:
-      "多 Agent workflow 可创建 Planner、Builder、Tester、Reviewer 等角色，用共享黑板记录分工、阻塞和验收结论。",
+      "多 Agent workflow 先生成可确认计划；Planner 和 AcceptanceReviewer 固定，中间执行角色按任务动态生成，并用 Pixel cockpit 展示任务、阻塞和证据。",
     featureArtifacts:
       "远程回传按真实文件类型决定：图片预览、Office/PDF 文件、摘要、入口、manifest 和启动命令，不刷屏发送源码。",
     remoteTitle: "电脑执行任务，微信查看进度、审批权限、接收结果。",
@@ -45,7 +45,7 @@ const copy = {
     roadVerifyTitle: "通用验收",
     roadVerify: "继续扩大代码、Office、数据、MCP、自动化任务的真实验证覆盖。",
     roadAgentsTitle: "多 Agent",
-    roadAgents: "完善角色状态面板、独立子上下文、通信轨迹和 Reviewer 证据链。",
+    roadAgents: "继续扩大多 Agent 真实任务矩阵，打磨角色 checkpoint、通信轨迹和 Reviewer 证据链。",
     roadRemoteTitle: "远程控制",
     roadRemote: "改进 OpenClaw 网络恢复、浏览器扫码稳定性和 TUI/微信同步细节。",
     roadCacheTitle: "缓存成本",
@@ -86,7 +86,7 @@ const copy = {
     featureSkills:
       "Install skills/plugins from local paths, GitHub, Git URLs, and file:// sources. The model can discover and invoke them with search_skills and invoke_skill.",
     featureAgents:
-      "Multi-agent workflows can create Planner, Builder, Tester, and Reviewer roles, using a shared blackboard for delegation, blockers, and validation conclusions.",
+      "Multi-agent workflows start with an approval plan; only Planner and AcceptanceReviewer are fixed, while task-specific roles are generated and shown in the Pixel cockpit.",
     featureArtifacts:
       "Remote delivery follows real artifact types: image previews, Office/PDF files, summaries, entry points, manifests, and launch commands without flooding source files.",
     remoteTitle: "Run on the desktop. Review progress and results from WeChat.",
@@ -97,7 +97,7 @@ const copy = {
     roadVerifyTitle: "Verification",
     roadVerify: "Broaden real validation coverage for code, Office, data, MCP, and automation tasks.",
     roadAgentsTitle: "Multi-agent",
-    roadAgents: "Improve role status, isolated child context, communication traces, and Reviewer evidence.",
+    roadAgents: "Expand real multi-agent scenario coverage and refine checkpoints, communication traces, and Reviewer evidence.",
     roadRemoteTitle: "Remote",
     roadRemote: "Improve OpenClaw recovery, browser-based login stability, and TUI/WeChat synchronization.",
     roadCacheTitle: "Cache cost",

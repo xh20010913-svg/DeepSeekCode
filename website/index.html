@@ -30,7 +30,7 @@
         <span class="brand-mark" aria-hidden="true"></span>
         <span class="brand-name">DeepSeekCode</span>
         <span class="brand-dot">DS</span>
-        <span class="brand-version">v0.3.1</span>
+        <span class="brand-version">v0.3.2</span>
       </a>
       <nav class="nav-links" aria-label="Primary navigation">
         <a href="#install" data-i18n="navInstall">安装</a>
@@ -83,7 +83,7 @@
               <p><span class="dim">contract</span> TaskCompletionContract generated</p>
               <p><span class="prompt">&gt;</span> 用多 agent 完成一个前后端任务，并自己验收</p>
               <div class="spacer"></div>
-              <p><span class="dim">planner</span> roles: Planner / Builder / Tester / Reviewer</p>
+              <p><span class="dim">planner</span> dynamic roles + role-local checkpoints</p>
               <p><span class="dim">runtime</span> verify_task selects validators from real artifacts</p>
               <p><span class="dim">repair</span> failed command result replayed to model</p>
               <pre><code>agent-trace.jsonl
@@ -207,7 +207,7 @@ deepseekcode --model deepseek-v4-flash</code></pre>
             <span>05</span>
             <h3>Multi-agent</h3>
             <p data-i18n="featureAgents">
-              多 Agent workflow 可创建 Planner、Builder、Tester、Reviewer 等角色，用共享黑板记录分工、阻塞和验收结论。
+              多 Agent workflow 先生成可确认计划；Planner 和 AcceptanceReviewer 固定，中间执行角色按任务动态生成，并用 Pixel cockpit 展示任务、阻塞和证据。
             </p>
           </article>
           <article class="feature-card reveal">

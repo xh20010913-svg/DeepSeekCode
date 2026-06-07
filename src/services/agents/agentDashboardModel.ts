@@ -1,7 +1,15 @@
 ﻿import path from "node:path";
 import type { EventRecord, RunRecord, StateStore, TaskRecord, TaskStatus, ValidationGateRecord } from "../../state/sqlite.js";
 import { issueLabel, looksLikeTechnicalIssue, summarizeTechnicalError, type TechnicalErrorSummary } from "../../utils/technicalErrorSummary.js";
-import { AgentWorkflowService, type AgentRoleSpec, type AgentWorkflowMessage, type AgentWorkflowRecord } from "./agentWorkflow.js";
+import {
+  AgentWorkflowService,
+  type AgentRoleSpec,
+  type AgentRoleState,
+  type AgentWorkflowMessage,
+  type AgentWorkflowRecord,
+  type GeneratedRoleSkill,
+  type WorkflowSubtaskState,
+} from "./agentWorkflow.js";
 
 export interface AgentDashboardOverview {
   objective: string;
@@ -23,6 +31,7 @@ export interface AgentDashboardOverview {
 export interface AgentDashboardRole {
   role: string;
   responsibility: string;
+  contextScope?: string;
   status: TaskStatus | "defined";
   currentTask?: string;
   assignedTasks: string[];
@@ -31,9 +40,17 @@ export interface AgentDashboardRole {
   blockedIssue?: TechnicalErrorSummary;
   lastTool?: string;
   lastMessage?: string;
+  checkpoint?: string;
+  transcript: string[];
+  toolResultSummary: string[];
   skills: string[];
   tools: string[];
   acceptance: string[];
+  requiredOutputs: string[];
+  riskChecks: string[];
+  handoffFormat?: string;
+  generatedSkillId?: string;
+  generatedSkillSummary?: string;
 }
 
 export interface AgentDashboardTask {
@@ -78,6 +95,31 @@ export interface AgentDashboardValidation {
   repaired: string[];
 }
 
+export interface AgentDashboardCompletionSummary {
+  total: number;
+  queued: number;
+  running: number;
+  needsReview: number;
+  succeeded: number;
+  failed: number;
+  blocked: number;
+  skipped: number;
+  percent: number;
+}
+
+export interface AgentDashboardMobileSummary {
+  objective: string;
+  phase: string;
+  approvalStatus: string;
+  overallProgress: string;
+  activeRoles: string[];
+  unfinishedTasks: Array<{ id: string; title: string; role: string; status: string }>;
+  blockedTasks: Array<{ id: string; title: string; role: string; blockedBy?: string }>;
+  latestArtifacts: string[];
+  nextStep: string;
+  recentEvents: string[];
+}
+
 export interface AgentDashboardSnapshot {
   run?: RunRecord;
   workflow?: AgentWorkflowRecord;
@@ -86,6 +128,14 @@ export interface AgentDashboardSnapshot {
   overview: AgentDashboardOverview;
   roles: AgentDashboardRole[];
   taskBoard: Record<"queued" | "running" | "needs_review" | "succeeded" | "failed", AgentDashboardTask[]>;
+  phase?: string;
+  approvalState?: AgentWorkflowRecord["approvalState"];
+  rolePlan?: AgentWorkflowRecord["rolePlan"];
+  subtaskGraph: WorkflowSubtaskState[];
+  generatedSkills: GeneratedRoleSkill[];
+  completionSummary: AgentDashboardCompletionSummary;
+  mobileSummary: AgentDashboardMobileSummary;
+  agentDiagnostics: Record<string, unknown>;
   timeline: AgentDashboardTimelineEvent[];
   artifacts: AgentDashboardArtifact[];
   validation: AgentDashboardValidation;
@@ -113,6 +163,7 @@ export function buildAgentDashboardSnapshot(input: {
     tasks,
     events,
     messages,
+    generatedSkills: workflowStatus?.record.generatedSkills ?? [],
   });
   const overview = buildOverview({
     run,
@@ -138,6 +189,19 @@ export function buildAgentDashboardSnapshot(input: {
     overview,
     roles,
     taskBoard: buildTaskBoard(tasks),
+    phase: workflowStatus?.record.phase,
+    approvalState: workflowStatus?.record.approvalState,
+    rolePlan: workflowStatus?.record.rolePlan,
+    subtaskGraph: workflowStatus?.record.subtaskGraph ?? [],
+    generatedSkills: workflowStatus?.record.generatedSkills ?? [],
+    completionSummary: buildCompletionSummary(workflowStatus?.record.subtaskGraph ?? []),
+    mobileSummary: buildMobileSummary({
+      workflow: workflowStatus?.record,
+      roles,
+      timeline,
+      artifacts,
+    }),
+    agentDiagnostics: buildAgentDiagnostics(workflowStatus?.record, roles),
     timeline,
     artifacts,
     validation: buildValidation(events, tasks, validationGates),
@@ -213,37 +277,60 @@ function inferRoles(tasks: TaskRecord[]): AgentRoleSpec[] {
 }
 
 function buildRoles(input: {
-  roles: AgentRoleSpec[];
+  roles: Array<AgentRoleSpec | AgentRoleState>;
   tasks: TaskRecord[];
   events: EventRecord[];
   messages: AgentWorkflowMessage[];
+  generatedSkills: GeneratedRoleSkill[];
 }): AgentDashboardRole[] {
   return input.roles.map((role) => {
-    const tasks = input.tasks.filter((task) => task.agent === role.name);
+    const name = roleName(role);
+    const skill = input.generatedSkills.find((candidate) => candidate.id === (role as AgentRoleState).generatedSkillId || candidate.role === name);
+    const tasks = input.tasks.filter((task) => task.agent === name);
     const running = tasks.find((task) => task.status === "running");
-    const blockedIssue = blockedIssueFor(role.name, tasks, input.events);
+    const blockedIssue = blockedIssueFor(name, tasks, input.events);
     const latestMessage = input.messages
-      .filter((message) => message.from === role.name || message.to === role.name || message.to === "all")
+      .filter((message) => message.from === name || message.to === name || message.to === "all")
       .at(-1);
+    const roleState = isRoleState(role) ? role : undefined;
     return {
-      role: role.name,
+      role: name,
       responsibility: role.responsibility,
-      status: roleStatus(tasks),
+      contextScope: roleState?.contextScope,
+      status: roleStatus(tasks, roleState?.status),
       currentTask: running?.title,
-      assignedTasks: tasks.map((task) => task.title),
-      completedTasks: tasks.filter((task) => task.status === "succeeded").map((task) => evidenceForTask(task)),
-      blockedBy: blockedIssue ? issueLabel(blockedIssue, "zh") : undefined,
+      assignedTasks: roleState?.assignedTasks.length ? roleState.assignedTasks : tasks.map((task) => task.title),
+      completedTasks: unique([
+        ...(roleState?.completedTasks ?? []),
+        ...tasks.filter((task) => task.status === "succeeded").map((task) => evidenceForTask(task)),
+      ]),
+      blockedBy: roleState?.blockedBy ? compact(roleState.blockedBy, 220) : blockedIssue ? issueLabel(blockedIssue, "zh") : undefined,
       blockedIssue,
-      lastTool: latestToolForRole(role.name, input.events),
-      lastMessage: latestMessage ? `${latestMessage.from} -> ${latestMessage.to}: ${compact(latestMessage.message, 180)}` : undefined,
-      skills: role.skills,
-      tools: role.tools,
-      acceptance: role.acceptance,
+      lastTool: latestToolForRole(name, input.events) ?? roleState?.toolResultSummary.at(-1)?.split(":")[0],
+      lastMessage: roleState?.lastMessage
+        ? compact(roleState.lastMessage, 220)
+        : latestMessage ? `${latestMessage.from} -> ${latestMessage.to}: ${compact(latestMessage.message, 180)}` : undefined,
+      checkpoint: roleState?.checkpoint ? compact(roleState.checkpoint, 900) : undefined,
+      transcript: (roleState?.transcript ?? []).slice(-8).map((entry) => `${entry.role}/${entry.kind}: ${compact(entry.text, 220)}`),
+      toolResultSummary: (roleState?.toolResultSummary ?? []).slice(-8),
+      skills: roleSkills(role),
+      tools: roleTools(role),
+      acceptance: roleAcceptance(role),
+      requiredOutputs: roleState?.requiredOutputs ?? [],
+      riskChecks: roleState?.riskChecks ?? [],
+      handoffFormat: roleState?.handoffFormat,
+      generatedSkillId: roleState?.generatedSkillId,
+      generatedSkillSummary: skill?.summary,
     };
   });
 }
 
-function roleStatus(tasks: TaskRecord[]): AgentDashboardRole["status"] {
+function roleStatus(tasks: TaskRecord[], explicit?: AgentRoleState["status"]): AgentDashboardRole["status"] {
+  if (explicit === "running") return "running";
+  if (explicit === "blocked") return "paused";
+  if (explicit === "failed") return "failed";
+  if (explicit === "succeeded" && tasks.length === 0) return "succeeded";
+  if (explicit === "idle" && tasks.length === 0) return "defined";
   if (tasks.length === 0) return "defined";
   if (tasks.some((task) => task.status === "failed")) return "failed";
   if (tasks.some((task) => task.status === "running")) return "running";
@@ -313,6 +400,105 @@ function buildOverview(input: {
     lastTool: latestTool(input.events),
     estimatedCostUsd: undefined,
     cacheHitRate: hit + miss > 0 ? hit / (hit + miss) : undefined,
+  };
+}
+
+function buildCompletionSummary(subtasks: WorkflowSubtaskState[]): AgentDashboardCompletionSummary {
+  const counts = {
+    total: subtasks.length,
+    queued: subtasks.filter((subtask) => subtask.status === "queued").length,
+    running: subtasks.filter((subtask) => subtask.status === "running").length,
+    needsReview: subtasks.filter((subtask) => subtask.status === "needs_review").length,
+    succeeded: subtasks.filter((subtask) => subtask.status === "succeeded").length,
+    failed: subtasks.filter((subtask) => subtask.status === "failed").length,
+    blocked: subtasks.filter((subtask) => subtask.status === "blocked").length,
+    skipped: subtasks.filter((subtask) => subtask.status === "skipped").length,
+  };
+  return {
+    ...counts,
+    percent: counts.total > 0 ? Math.round(((counts.succeeded + counts.skipped) / counts.total) * 100) : 0,
+  };
+}
+
+function buildMobileSummary(input: {
+  workflow?: AgentWorkflowRecord;
+  roles: AgentDashboardRole[];
+  timeline: AgentDashboardTimelineEvent[];
+  artifacts: AgentDashboardArtifact[];
+}): AgentDashboardMobileSummary {
+  const workflow = input.workflow;
+  const subtasks = workflow?.subtaskGraph ?? [];
+  const completion = buildCompletionSummary(subtasks);
+  const activeRoles = input.roles
+    .filter((role) => role.status === "running" || role.blockedBy)
+    .map((role) => `${role.role}${role.currentTask ? `: ${role.currentTask}` : ""}`)
+    .slice(0, 6);
+  const unfinishedTasks = subtasks
+    .filter((subtask) => !["succeeded", "skipped"].includes(subtask.status))
+    .slice(0, 8)
+    .map((subtask) => ({
+      id: subtask.id,
+      title: subtask.title,
+      role: subtask.assigneeRole,
+      status: subtask.status,
+    }));
+  const blockedTasks = subtasks
+    .filter((subtask) => subtask.status === "blocked" || subtask.status === "failed")
+    .slice(0, 6)
+    .map((subtask) => ({
+      id: subtask.id,
+      title: subtask.title,
+      role: subtask.assigneeRole,
+      blockedBy: subtask.blockedBy,
+    }));
+  const nextStep = workflow?.phase === "awaiting_approval"
+    ? "等待确认计划：发送“执行”、 “修改：...”、 “重生成”或“取消”。"
+    : blockedTasks.length
+      ? "优先修复阻塞任务，然后继续原 workflow。"
+      : completion.needsReview
+        ? "等待 AcceptanceReviewer 验收待审任务。"
+        : completion.running
+          ? "角色正在执行当前子任务。"
+          : completion.queued
+            ? "继续执行下一个可运行子任务。"
+            : completion.succeeded
+              ? "汇总最终验收结果。"
+              : "等待新的任务进展。";
+  return {
+    objective: workflow?.objective ?? "",
+    phase: workflow?.phase ?? "unknown",
+    approvalStatus: workflow?.approvalState.status ?? "unknown",
+    overallProgress: `${completion.succeeded + completion.skipped}/${completion.total} (${completion.percent}%)`,
+    activeRoles,
+    unfinishedTasks,
+    blockedTasks,
+    latestArtifacts: input.artifacts.slice(-5).map((artifact) => artifact.path),
+    nextStep,
+    recentEvents: input.timeline.slice(-5).map((event) => event.message ?? event.kind).filter(Boolean),
+  };
+}
+
+function buildAgentDiagnostics(
+  workflow: AgentWorkflowRecord | undefined,
+  roles: AgentDashboardRole[],
+): Record<string, unknown> {
+  if (!workflow) return {};
+  const skillByRole = new Map(workflow.generatedSkills.map((skill) => [skill.role, skill]));
+  return {
+    workflow: {
+      id: workflow.id,
+      phase: workflow.phase,
+      approvalState: workflow.approvalState,
+      plannerNotes: workflow.rolePlan.plannerNotes,
+      expectedArtifacts: workflow.expectedArtifacts,
+      verificationPlan: workflow.verificationPlan,
+      riskAndPermissionNotes: workflow.riskAndPermissionNotes,
+    },
+    roles: roles.map((role) => ({
+      ...role,
+      generatedSkill: skillByRole.get(role.role),
+      subtasks: workflow.subtaskGraph.filter((subtask) => subtask.assigneeRole === role.role || (role.role === "AcceptanceReviewer" && subtask.status === "needs_review")),
+    })),
   };
 }
 
@@ -483,6 +669,29 @@ function evidenceForTask(task: TaskRecord): string {
   return task.detail ? `${task.title}: ${compact(task.detail, 120)}` : task.title;
 }
 
+function isRoleState(role: AgentRoleSpec | AgentRoleState): role is AgentRoleState {
+  return "transcript" in role || "allowedTools" in role || "preloadedSkills" in role;
+}
+
+function roleName(role: AgentRoleSpec | AgentRoleState): string {
+  const candidate = (role as AgentRoleState).role ?? role.name;
+  return candidate || "agent";
+}
+
+function roleSkills(role: AgentRoleSpec | AgentRoleState): string[] {
+  const state = role as AgentRoleState;
+  return unique([...(state.preloadedSkills ?? []), ...((role as AgentRoleSpec).skills ?? [])]);
+}
+
+function roleTools(role: AgentRoleSpec | AgentRoleState): string[] {
+  const state = role as AgentRoleState;
+  return unique([...(state.allowedTools ?? []), ...((role as AgentRoleSpec).tools ?? [])]);
+}
+
+function roleAcceptance(role: AgentRoleSpec | AgentRoleState): string[] {
+  return unique([...(role.acceptance ?? []), ...((role as AgentRoleSpec).acceptanceCriteria ?? [])]);
+}
+
 function objectPayload(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -512,3 +721,6 @@ function formatDuration(ms: number): string {
   return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
 }
 
+function unique(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
+}

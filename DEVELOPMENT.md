@@ -117,11 +117,21 @@ Bad rules:
 The workflow is centered around `AgentWorkflowService` and state events:
 
 - `start_agent_workflow`
+- `run_agent_workflow_step`
+- `drain_agent_workflow`
 - `send_agent_message`
 - `agent_status`
 - `finish_agent_workflow`
 
-Default roles should include Planner, Builder, Tester, and Reviewer. User-provided roles should be preserved, but still receive tool limits, skills, output requirements, and acceptance rules.
+The only fixed roles are `Planner` and `AcceptanceReviewer`. Middle execution roles are generated from the task contract, output types, required tools, dependency shape, and verification risk. User-provided roles should be preserved as execution-role hints, but the workflow still wraps them with the Planner plan gate, role-local generated skills, tool limits, output requirements, risk checks, and AcceptanceReviewer evidence review.
+
+Each role state should remain durable:
+
+- `role` / `responsibility` / `contextScope`
+- `allowedTools` / `preloadedSkills`
+- `assignedTasks` / `completedTasks`
+- `transcript` / `toolResultSummary` / `checkpoint`
+- `status` / `lastMessage` / `blockedBy`
 
 Reviewer must check against the generic task contract. It should not only inspect web artifacts.
 
@@ -132,14 +142,16 @@ The multi-agent panel is an observer, not a control plane. DeepSeekCode now serv
 - `src/services/agents/agentDashboardModel.ts`: converts durable state, workflow roles, tasks, events, usage, and artifacts into `AgentDashboardSnapshot`.
 - `src/services/agents/agentDashboardServer.ts`: starts a per-project local HTTP server, serves Pixel Agents assets, snapshot JSON, websocket/SSE updates, and `agent-trace.jsonl`.
 - `QueryEngine.openAgentDashboard`: automatically opens the Agent Panel when a run is classified as multi-agent.
-- remote channel callbacks: WeChat/WeCom receive a share link when a public base URL is configured.
+- remote channel callbacks: WeChat/WeCom receive a share link when a public base URL is configured; `/agents dashboard tunnel` starts a Cloudflare Quick Tunnel only when explicitly requested.
 
 Agent Panel rules:
 
 - Do not infer roles from free-form terminal text when durable task/workflow state exists.
 - Keep the panel read-only; permission approval stays in the TUI or remote approval bridge.
+- Keep Pixel labels short. Long responsibilities, prompts, stack traces, role checkpoints, and transcripts belong in snapshot JSON and `agentDiagnostics`, not the character head bubble.
 - Emit Pixel-style JSONL fields (`role`, `status`, `task`, `tool`, `message`, `artifact`, `parentRunId`, `childRunId`) and Pixel websocket bootstrap/update messages.
 - Use `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` only for a trusted HTTPS tunnel; otherwise remote channels should say the panel is local-only.
+- Quick Tunnel URLs are temporary and tokenized, but anyone with the URL and token can view the read-only panel until the token expires.
 - The view token is short-lived and scoped to one run.
 
 ## Skills, Plugins, And MCP

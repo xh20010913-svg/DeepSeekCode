@@ -180,7 +180,7 @@ export function Workbench(props: {
   }, [activeConfig.model, sessionStorage]);
   const openAgentDashboard = useCallback(async (
     runId?: string,
-    options?: { openBrowser?: boolean; share?: boolean; writeTrace?: boolean },
+    options?: { openBrowser?: boolean; share?: boolean; writeTrace?: boolean; tunnel?: "cloudflare" },
   ): Promise<string> => {
     const selectedRunId = runId ?? props.state.listRuns(1)[0]?.id;
     if (!selectedRunId) {
@@ -196,18 +196,30 @@ export function Workbench(props: {
       openBrowser: options?.openBrowser ?? true,
       share: options?.share ?? false,
       writeTrace: options?.writeTrace ?? true,
+      tunnel: options?.tunnel,
     });
     const traceNote = result.tracePath
       ? (isChineseUi(activeConfig.language) ? `\ntrace: ${result.tracePath}` : `\ntrace: ${result.tracePath}`)
       : "";
+    const expiry = new Date(result.tokenExpiresAtMs).toLocaleString();
     const remoteNote = options?.share && result.remoteAccess === "local-only"
       ? (isChineseUi(activeConfig.language)
           ? "\n远程访问需要配置 DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL 或安全隧道；当前链接仅本机可用。"
           : "\nRemote access needs DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL or a secure tunnel; this link is local-only.")
       : "";
+    const tunnelNote = result.remoteAccess === "cloudflare-quick-tunnel"
+      ? (isChineseUi(activeConfig.language)
+          ? `\n远程访问：Cloudflare Quick Tunnel 已启动；面板 token 到期时间 ${expiry}。不要把链接发到公开群。`
+          : `\nRemote access: Cloudflare Quick Tunnel is active; panel token expires at ${expiry}. Do not post the link publicly.`)
+      : "";
+    const publicNote = result.remoteAccess === "public-base-url"
+      ? (isChineseUi(activeConfig.language)
+          ? `\n远程访问：使用 DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL；面板 token 到期时间 ${expiry}。`
+          : `\nRemote access: using DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL; panel token expires at ${expiry}.`)
+      : "";
     return isChineseUi(activeConfig.language)
-      ? `多 Agent 面板已启动：${options?.share ? result.shareUrl : result.localUrl}${traceNote}${remoteNote}`
-      : `Agent panel started: ${options?.share ? result.shareUrl : result.localUrl}${traceNote}${remoteNote}`;
+      ? `多 Agent 面板已启动：${options?.share ? result.shareUrl : result.localUrl}${traceNote}${tunnelNote}${publicNote}${remoteNote}`
+      : `Agent panel started: ${options?.share ? result.shareUrl : result.localUrl}${traceNote}${tunnelNote}${publicNote}${remoteNote}`;
   }, [activeConfig.dataDir, activeConfig.language, activeConfig.projectPath, props.state]);
   const engine = useMemo(
     () =>

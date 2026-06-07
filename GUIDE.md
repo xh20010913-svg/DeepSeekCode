@@ -86,21 +86,22 @@ The model should search and invoke matching skills such as GSAP without requirin
 You can ask for a team:
 
 ```text
-开启多 agent 协作：Planner 负责方案，Builder 负责实现，Tester 负责运行检查，Reviewer 负责验收。
+开启多 agent 协作：先生成可审查计划，我确认后再执行；中间角色按任务动态生成。
 ```
 
-If roles are missing, DeepSeekCode creates Planner, Builder, Tester, and Reviewer. When the workflow starts, the bundled Pixel Agents read-only panel opens automatically in TUI mode and shows role responsibilities, current tasks, assigned work, blockers, recent tools, handoffs, artifacts, and Reviewer conclusions. Reviewer must use the task contract and generic verification, not a web-only checklist.
+DeepSeekCode first creates a Planner proposal and stops at `awaiting_approval`. You can choose `执行`, `修改：...`, `重生成`, or `取消` from the CLI prompt or by sending the same text from WeChat. `Planner` and `AcceptanceReviewer` are the only fixed roles; execution roles are generated from the task contract, output types, required tools, and verification risk. Each role keeps role-local assigned subtasks, transcript snippets, tool-result summaries, checkpoint, allowed tools, a generated workflow-local skill, risk checks, and handoff format. The bundled Pixel Agents panel opens automatically in TUI mode and shows the plan, dynamic roles, subtask graph, dependencies, evidence, blockers, artifacts, and AcceptanceReviewer conclusions. Phone viewing uses the same Pixel run with a responsive task cockpit.
 
 Backup commands:
 
 ```text
 /agents dashboard
 /agents dashboard share
+/agents dashboard tunnel
 /agents dashboard trace
 /agents dashboard close
 ```
 
-For phone access from WeChat/WeCom, point `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` to a trusted HTTPS tunnel. Without it, the Pixel Agents panel remains local-only.
+For phone access from WeChat/WeCom, point `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` to a trusted HTTPS tunnel. Without it, the Pixel Agents panel remains local-only. For a temporary local-only-to-phone preview, install `cloudflared` and run `/agents dashboard tunnel`; DeepSeekCode starts a Cloudflare Quick Tunnel to the local panel and returns a tokenized HTTPS link. Treat that link as private.
 
 ## 7. Remote control
 

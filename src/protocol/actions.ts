@@ -176,7 +176,37 @@ export const ValidateArtifactActionSchema = z.object({
   expected_kind: ArtifactKindSchema.optional(),
 });
 
+export const TaskOutputKindSchema = z.enum([
+  "code",
+  "cli",
+  "web",
+  "docx",
+  "pptx",
+  "xlsx",
+  "pdf",
+  "markdown",
+  "data",
+  "image",
+  "automation",
+  "mcp",
+  "plugin",
+  "unknown",
+]);
+
+export type TaskOutputKind = z.infer<typeof TaskOutputKindSchema>;
+
+export const ExpectedTaskOutputSchema = z.object({
+  kind: TaskOutputKindSchema.default("unknown"),
+  description: z.string().min(1),
+  required: z.boolean().default(true),
+});
+
 export const TaskCompletionContractSchema = z.object({
+  objective: z.string().min(1).optional(),
+  expectedOutputs: z.array(ExpectedTaskOutputSchema).default([]),
+  acceptanceCriteria: z.array(z.string().min(1)).default([]),
+  userConstraints: z.array(z.string().min(1)).default([]),
+  verificationHints: z.array(z.string().min(1)).default([]),
   goal: z.string().min(1).optional(),
   expected_artifacts: z.array(z.string().min(1)).default([]),
   acceptance_criteria: z.array(z.string().min(1)).default([]),
@@ -312,19 +342,75 @@ export const InvokeAgentActionSchema = z.object({
 });
 
 export const AgentRoleSpecSchema = z.object({
-  name: z.string().min(1),
+  name: z.string().min(1).optional(),
+  role: z.string().min(1).optional(),
   responsibility: z.string().min(1),
+  contextScope: z.string().min(1).optional(),
+  allowedTools: z.array(z.string().min(1)).default([]),
+  preloadedSkills: z.array(z.string().min(1)).default([]),
+  assignedTasks: z.array(z.string().min(1)).default([]),
   skills: z.array(z.string().min(1)).default([]),
   tools: z.array(z.string().min(1)).default([]),
   acceptance: z.array(z.string().min(1)).default([]),
+  acceptanceCriteria: z.array(z.string().min(1)).default([]),
+  checkpoint: z.string().optional(),
+}).superRefine((role, ctx) => {
+  if (!role.name && !role.role) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "agent role requires name or role",
+      path: ["name"],
+    });
+  }
 });
 
 export const StartAgentWorkflowActionSchema = z.object({
   type: z.literal("start_agent_workflow"),
   objective: z.string().min(1),
   roles: z.array(AgentRoleSpecSchema).default([]),
+  contract: TaskCompletionContractSchema.optional(),
   acceptance_criteria: z.array(z.string().min(1)).default([]),
   max_steps: z.number().int().min(1).max(50).default(12),
+  autoApprove: z.boolean().default(false),
+});
+
+export const RunAgentWorkflowStepActionSchema = z.object({
+  type: z.literal("run_agent_workflow_step"),
+  workflow_id: z.string().optional(),
+  role: z.string().optional(),
+  subtask_id: z.string().optional(),
+  max_turns: z.number().int().min(1).max(6).default(2),
+});
+
+export const DrainAgentWorkflowActionSchema = z.object({
+  type: z.literal("drain_agent_workflow"),
+  workflow_id: z.string().optional(),
+  max_steps: z.number().int().min(1).max(50).default(12),
+  max_turns_per_role: z.number().int().min(1).max(6).default(2),
+});
+
+export const ApproveAgentWorkflowPlanActionSchema = z.object({
+  type: z.literal("approve_agent_workflow_plan"),
+  workflow_id: z.string().optional(),
+  note: z.string().optional(),
+});
+
+export const ReviseAgentWorkflowPlanActionSchema = z.object({
+  type: z.literal("revise_agent_workflow_plan"),
+  workflow_id: z.string().optional(),
+  instructions: z.string().min(1),
+});
+
+export const RegenerateAgentWorkflowPlanActionSchema = z.object({
+  type: z.literal("regenerate_agent_workflow_plan"),
+  workflow_id: z.string().optional(),
+  instructions: z.string().optional(),
+});
+
+export const CancelAgentWorkflowPlanActionSchema = z.object({
+  type: z.literal("cancel_agent_workflow_plan"),
+  workflow_id: z.string().optional(),
+  reason: z.string().optional(),
 });
 
 export const SendAgentMessageActionSchema = z.object({
@@ -386,6 +472,12 @@ export const ActionRequestSchema = z.discriminatedUnion("type", [
   InvokeSkillActionSchema,
   InvokeAgentActionSchema,
   StartAgentWorkflowActionSchema,
+  ApproveAgentWorkflowPlanActionSchema,
+  ReviseAgentWorkflowPlanActionSchema,
+  RegenerateAgentWorkflowPlanActionSchema,
+  CancelAgentWorkflowPlanActionSchema,
+  RunAgentWorkflowStepActionSchema,
+  DrainAgentWorkflowActionSchema,
   SendAgentMessageActionSchema,
   AgentStatusActionSchema,
   FinishAgentWorkflowActionSchema,

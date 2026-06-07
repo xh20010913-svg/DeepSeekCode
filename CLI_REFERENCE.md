@@ -52,6 +52,7 @@ The npm package only installs `deepseekcode`.
 | `/agents status` | Show active multi-agent workflow. |
 | `/agents dashboard` | Open the read-only multi-agent panel for the latest agent run. |
 | `/agents dashboard share` | Print/share a tokenized dashboard link for remote channels. Requires a public base URL for phone access. |
+| `/agents dashboard tunnel` | Start a Cloudflare Quick Tunnel for the dashboard and print a tokenized HTTPS link for WeChat phone viewing. |
 | `/agents dashboard trace` | Write `agent-trace.jsonl` for the selected run. |
 | `/agents dashboard close` | Close the local dashboard server. |
 | `/artifacts` | Recent artifacts and delivery summary. |
@@ -83,6 +84,7 @@ Normal chat is allowed. If no local work is needed, the runtime answers normally
 | `DEEPSEEK_MODEL` | Default model. |
 | `DEEPSEEKCODE_LANGUAGE` | `zh-CN` or `en`. |
 | `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` | Optional public HTTPS base URL used to share the read-only agent panel with WeChat/WeCom. |
+| `DEEPSEEKCODE_AGENT_PANEL_TOKEN_TTL_MS` | Optional dashboard view-token lifetime. Defaults to 30 minutes, min 1 minute, max 24 hours. |
 | `DEEPSEEKCODE_PROMPT_AUDIT_DIR` | Optional prompt audit output directory. Off by default. |
 | `DEEPSEEKCODE_WECHAT_OPENCLAW_ENABLED` | Enables personal WeChat OpenClaw remote. |
 | `DEEPSEEKCODE_WECHAT_ALLOWED_USERS` | Optional personal WeChat user allowlist. |

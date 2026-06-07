@@ -9,6 +9,7 @@ import type { StateStore } from "../state/sqlite.js";
 import type { FileStateCache } from "../utils/fileStateCache.js";
 import type { ToolExecutionContext } from "../Tool.js";
 import type { TencentMemoryService } from "../services/memory/tencentMemoryService.js";
+import type { DeepSeekProviderClient, UsageSnapshot } from "../protocol/provider.js";
 import { baseTools } from "./registry.js";
 import type { ShellPolicy } from "./shell.js";
 
@@ -23,6 +24,8 @@ export interface ExecutionOptions {
   state?: StateStore;
   runId?: string;
   memoryService?: TencentMemoryService;
+  provider?: DeepSeekProviderClient;
+  recordUsage?: (usage: UsageSnapshot | undefined, source: string) => void;
   skillRunner?: ToolExecutionContext["skillRunner"];
   abortSignal?: AbortSignal;
 }
@@ -43,7 +46,10 @@ export async function executeEnvelope(
       fileStateCache: options.fileStateCache,
       state: options.state,
       runId: options.runId,
+      approvalPolicy: options.approvalPolicy,
       memoryService: options.memoryService,
+      provider: options.provider,
+      recordUsage: options.recordUsage,
       skillRunner: options.skillRunner,
       abortSignal: options.abortSignal,
     },

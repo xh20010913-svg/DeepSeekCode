@@ -1,4 +1,5 @@
 import type { EventRecord, RunRecord, StateStore, TaskRecord } from "../../state/sqlite.js";
+import { AgentWorkflowService } from "../agents/agentWorkflow.js";
 import { sanitizeLegacyPlannerContext } from "./legacyContextSanitizer.js";
 
 export interface RunStateContextOptions {
@@ -43,6 +44,12 @@ export function buildRunStateContext(
     "runtime_run_state v1",
     "Durable local run/task state. Prefer this over guessing from old chat when continuing or repairing work.",
   ];
+
+  const workflow = activeWorkflowContext(state, projectPath);
+  if (workflow) {
+    lines.push("");
+    lines.push(workflow);
+  }
 
   for (const run of runs) {
     const trace = safeTrace(state, run.id);
@@ -110,6 +117,52 @@ export function buildRunStateContext(
   }
 
   return compact(lines.join("\n"), maxChars);
+}
+
+function activeWorkflowContext(state: StateStore, projectPath: string): string | undefined {
+  try {
+    const status = new AgentWorkflowService(state, projectPath).status();
+    const record = status.record;
+    if (["succeeded", "failed", "cancelled"].includes(record.status)) return undefined;
+    const messages = status.messages.slice(-5)
+      .map((message) => `- ${message.from}->${message.to}: ${compact(oneLine(sanitizeLegacyPlannerContext(message.message)), 180)}`);
+    const roles = record.roles.map((role) => [
+      `- ${role.role} status=${role.status}`,
+      role.assignedTasks.length ? `assigned=${compact(oneLine(role.assignedTasks.join(" | ")), 160)}` : "",
+      role.checkpoint ? `checkpoint=${compact(oneLine(sanitizeLegacyPlannerContext(role.checkpoint)), 180)}` : "",
+      role.blockedBy ? `blocked=${compact(oneLine(sanitizeLegacyPlannerContext(role.blockedBy)), 160)}` : "",
+      role.toolResultSummary.length ? `tools=${compact(oneLine(role.toolResultSummary.slice(-2).join(" | ")), 180)}` : "",
+    ].filter(Boolean).join(" "));
+    const subtasks = record.subtaskGraph.slice(0, 12).map((subtask) => [
+      `- ${subtask.id} status=${subtask.status}`,
+      `role=${subtask.assigneeRole}`,
+      `title=${compact(oneLine(sanitizeLegacyPlannerContext(subtask.title)), 140)}`,
+      subtask.evidence.length ? `evidence=${compact(oneLine(subtask.evidence.slice(-2).join(" | ")), 160)}` : "",
+      subtask.blockedBy ? `blocked=${compact(oneLine(sanitizeLegacyPlannerContext(subtask.blockedBy)), 140)}` : "",
+    ].filter(Boolean).join(" "));
+    const skills = record.generatedSkills.slice(0, 10)
+      .map((skill) => `- ${skill.role}: ${compact(oneLine(sanitizeLegacyPlannerContext(skill.summary)), 160)}`);
+    return [
+      `active_workflow ${record.id} run=${record.runId} status=${record.status} phase=${record.phase} approval=${record.approvalState.status}`,
+      `objective: ${compact(oneLine(sanitizeLegacyPlannerContext(record.objective)), 260)}`,
+      record.contract?.expectedOutputs.length
+        ? `contract_outputs: ${record.contract.expectedOutputs.map((output) => `${output.kind}:${compact(oneLine(output.description), 80)}`).join(" | ")}`
+        : "",
+      record.phase === "awaiting_approval"
+        ? "plan_gate: waiting for user command approve_agent_workflow_plan / revise_agent_workflow_plan / regenerate_agent_workflow_plan / cancel_agent_workflow_plan"
+        : "",
+      "workflow_roles:",
+      ...roles,
+      subtasks.length ? "workflow_subtasks:" : "",
+      ...subtasks,
+      skills.length ? "workflow_local_skills:" : "",
+      ...skills,
+      messages.length ? "workflow_messages:" : "",
+      ...messages,
+    ].filter(Boolean).join("\n");
+  } catch {
+    return undefined;
+  }
 }
 
 function selectRuns(state: StateStore, projectPath: string, maxRuns: number, nowMs: number): RunRecord[] {

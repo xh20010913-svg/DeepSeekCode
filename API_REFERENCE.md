@@ -1,6 +1,6 @@
 ﻿# DeepSeekCode API Reference
 
-Version: `v0.3.1`
+Version: `v0.3.2`
 
 This reference covers the public CLI, slash commands, remote commands, tools, and extension surfaces that are stable enough to document.
 
@@ -89,6 +89,7 @@ Agents:
 /agents message <role> <message>
 /agents dashboard
 /agents dashboard share
+/agents dashboard tunnel
 /agents dashboard trace
 /agents dashboard close
 /agents stop
@@ -144,6 +145,7 @@ WeCom:
 | `DEEPSEEKCODE_WECOM_ALLOWED_GROUPS` | Optional group allowlist. |
 | `DEEPSEEKCODE_WECOM_PROJECT_ROOTS` | Allowed project roots for remote switching. |
 | `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` | Optional public HTTPS base URL for read-only multi-agent panel sharing. |
+| `DEEPSEEKCODE_AGENT_PANEL_TOKEN_TTL_MS` | Optional dashboard view-token lifetime. Defaults to 30 minutes. |
 
 Personal WeChat OpenClaw:
 
@@ -170,12 +172,12 @@ DeepSeekCode exposes tools through native provider `tools[]`. Important tool gro
 | Verification | `verify_task`, `verify_project`, `launch_project` |
 | Skills/plugins | `search_skills`, `invoke_skill`, `install_skill`, `install_plugin` |
 | MCP | `mcp_call` |
-| Agents | `invoke_agent`, `start_agent_workflow`, `send_agent_message`, `agent_status`, `finish_agent_workflow` |
+| Agents | `invoke_agent`, `start_agent_workflow`, `approve_agent_workflow_plan`, `revise_agent_workflow_plan`, `regenerate_agent_workflow_plan`, `cancel_agent_workflow_plan`, `run_agent_workflow_step`, `drain_agent_workflow`, `send_agent_message`, `agent_status`, `finish_agent_workflow` |
 | Memory | `memory_search`, `memory_capture`, `memory_raw_search` |
 
 ## Agent Panel
 
-The Agent Panel is the bundled Pixel Agents read-only observer for multi-agent runs. DeepSeekCode serves the Pixel web UI and supplies runtime snapshots, SSE updates, and trace JSONL. It is started automatically when a workflow begins and can be reopened with `/agents dashboard`.
+The Agent Panel is the bundled Pixel Agents read-only observer for multi-agent runs. DeepSeekCode serves the Pixel web UI and supplies runtime snapshots, WebSocket/SSE updates, and trace JSONL. It is started automatically when a workflow begins and can be reopened with `/agents dashboard`. `/agents dashboard share` prints the local or configured public tokenized URL. `/agents dashboard tunnel` starts a Cloudflare Quick Tunnel when `cloudflared` is installed and returns a random tokenized HTTPS URL for WeChat phone viewing.
 
 Snapshot shape:
 
@@ -184,6 +186,15 @@ interface AgentDashboardSnapshot {
   run?: RunRecord;
   workflow?: AgentWorkflowRecord;
   projectPath: string;
+  phase?: "planning" | "awaiting_approval" | "executing" | "reviewing" | "completed" | "blocked" | "cancelled";
+  approvalState?: {
+    required: boolean;
+    approved: boolean;
+    decision?: "approved" | "revision_requested" | "regenerate_requested" | "cancelled";
+    requestedAt?: string;
+    decidedAt?: string;
+    revisionRequest?: string;
+  };
   overview: {
     objective: string;
     phase: string;
@@ -198,6 +209,43 @@ interface AgentDashboardSnapshot {
     lastTool?: string;
     cacheHitRate?: number;
   };
+  rolePlan?: {
+    source: "model" | "heuristic";
+    plannerNotes?: string;
+    roles: Array<{
+      role: string;
+      responsibility: string;
+      contextScope: string;
+      allowedTools: string[];
+      requiredOutputs: string[];
+      assignedSubtasks: string[];
+      riskChecks: string[];
+      handoffFormat: string;
+    }>;
+  };
+  subtaskGraph: Array<{
+    id: string;
+    title: string;
+    description: string;
+    ownerRole: string;
+    dependencies: string[];
+    acceptanceCriteria: string[];
+    expectedArtifacts: string[];
+    evidenceRequirements: string[];
+    status: "queued" | "running" | "needs_review" | "succeeded" | "failed" | "blocked" | "skipped";
+    latestEvent?: string;
+    evidence?: string[];
+    blockedBy?: string;
+  }>;
+  generatedSkills: Array<{
+    id: string;
+    role: string;
+    title: string;
+    summary: string;
+    instructions: string[];
+    constraints: string[];
+    outputFormat: string;
+  }>;
   roles: Array<{
     role: string;
     responsibility: string;
@@ -210,10 +258,37 @@ interface AgentDashboardSnapshot {
     skills: string[];
     tools: string[];
     acceptance: string[];
+    requiredOutputs: string[];
+    riskChecks: string[];
+    handoffFormat?: string;
+    generatedSkillId?: string;
+    generatedSkillSummary?: string;
   }>;
   taskBoard: Record<"queued" | "running" | "needs_review" | "succeeded" | "failed", unknown[]>;
   timeline: Array<{ role?: string; status?: string; task?: string; tool?: string; message?: string; artifact?: string }>;
   artifacts: Array<{ kind: string; path: string; preview?: string }>;
+  completionSummary: {
+    completed: number;
+    total: number;
+    running: number;
+    needsReview: number;
+    failed: number;
+    blocked: number;
+    percent: number;
+  };
+  mobileSummary: {
+    objective: string;
+    phase: string;
+    approvalStatus: string;
+    overallProgress: string;
+    activeRoles: string[];
+    unfinishedTasks: Array<{ id: string; title: string; role: string; status: string }>;
+    blockedTasks: Array<{ id: string; title: string; role: string; blockedBy?: string }>;
+    latestArtifacts: string[];
+    nextStep: string;
+    recentEvents: string[];
+  };
+  agentDiagnostics: unknown;
 }
 ```
 
@@ -225,6 +300,17 @@ Pixel Agents consumes the runtime snapshot and Pixel-style `agent-trace.jsonl`/S
 
 ```ts
 interface TaskCompletionContract {
+  objective?: string;
+  expectedOutputs?: Array<{
+    kind: "code" | "cli" | "web" | "docx" | "pptx" | "xlsx" | "pdf" | "markdown" | "data" | "image" | "automation" | "mcp" | "plugin" | "unknown";
+    description: string;
+    required: boolean;
+  }>;
+  acceptanceCriteria?: string[];
+  userConstraints?: string[];
+  verificationHints?: string[];
+
+  // Legacy aliases are still accepted and normalized.
   goal?: string;
   expected_artifacts?: string[];
   verifiable_behaviors?: string[];
@@ -277,21 +363,40 @@ interface ProjectVerificationReport {
 
 ```ts
 interface AgentRoleSpec {
-  name: string;
-  responsibility?: string;
-  tools?: string[];
-  disallowed_tools?: string[];
-  skills?: string[];
+  name?: string;
+  role?: string;
+  responsibility: string;
+  contextScope?: string;
+  allowedTools?: string[];
+  preloadedSkills?: string[];
+  assignedTasks?: string[];
+  skills?: string[];      // legacy alias for preloadedSkills
+  tools?: string[];       // legacy alias for allowedTools
   acceptance?: string[];
+  acceptanceCriteria?: string[];
+  checkpoint?: string;
+}
+
+interface StartAgentWorkflowInput {
+  objective: string;
+  roles?: AgentRoleSpec[];
+  contract?: TaskCompletionContract;
+  autoApprove?: boolean;
 }
 ```
 
 Workflow tools:
 
-- `start_agent_workflow`: creates role specs and a shared blackboard.
+- `start_agent_workflow`: creates a Planner proposal, dynamic role plan, workflow-local role skills, subtask graph, task contract, and Pixel run. It defaults to `awaiting_approval` unless `autoApprove` is explicit.
+- `approve_agent_workflow_plan`: marks the current plan approved and moves the workflow into execution on the same Pixel run.
+- `revise_agent_workflow_plan`: sends user notes back to Planner and replaces the plan while staying in `awaiting_approval`.
+- `regenerate_agent_workflow_plan`: asks Planner/model to create a different role and subtask decomposition.
+- `cancel_agent_workflow_plan`: cancels an unapproved or active workflow.
+- `run_agent_workflow_step`: runs one dependency-ready subtask with the assigned role's local prompt, generated skill, checkpoint, allowed-tool policy, and summarized upstream context.
+- `drain_agent_workflow`: runs role-local steps until the workflow completes, blocks, awaits approval, or reaches the step limit.
 - `send_agent_message`: records role-to-role handoff.
-- `agent_status`: summarizes role state, current task, latest tool, and blockers.
-- `finish_agent_workflow`: closes only after Tester/Reviewer acceptance.
+- `agent_status`: summarizes phase, approval state, role state, subtasks, latest tools, evidence, and blockers.
+- `finish_agent_workflow`: closes only after `AcceptanceReviewer` acceptance or an honest blocked/cancelled state.
 
 ## Remote Delivery Plan
 

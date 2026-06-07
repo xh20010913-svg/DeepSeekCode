@@ -8,6 +8,7 @@ export interface AgentDashboardRequestOptions {
   openBrowser?: boolean;
   share?: boolean;
   writeTrace?: boolean;
+  tunnel?: "cloudflare";
 }
 
 export interface CommandContext {

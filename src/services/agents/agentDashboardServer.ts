@@ -1,8 +1,10 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { randomBytes } from "node:crypto";
+import { createRequire } from "node:module";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   buildAgentDashboardSnapshot,
@@ -18,13 +20,16 @@ export type AgentDashboardOpenResult = {
   localUrl: string;
   shareUrl: string;
   tracePath: string;
-  remoteAccess: "local-only" | "public-base-url";
+  remoteAccess: "local-only" | "public-base-url" | "cloudflare-quick-tunnel";
+  tokenExpiresAtMs: number;
+  tunnelOutput?: string[];
 };
 
 export type AgentPanelOpenOptions = {
   share?: boolean;
   openBrowser?: boolean;
   writeTrace?: boolean;
+  tunnel?: "cloudflare";
 };
 
 type ServerOptions = {
@@ -49,7 +54,20 @@ type PixelSocketRoute = {
   token: string;
 };
 
+type PanelToken = {
+  token: string;
+  expiresAtMs: number;
+};
+
+type CloudflareTunnelState = {
+  process: ChildProcess;
+  publicBaseUrl?: string;
+  startedAtMs: number;
+  output: string[];
+};
+
 let singleton: AgentPanelServer | undefined;
+const require = createRequire(import.meta.url);
 
 export function getAgentDashboardServer(options: ServerOptions): AgentPanelServer {
   if (!singleton) {
@@ -75,9 +93,10 @@ export class AgentPanelServer {
   private host = process.env.DEEPSEEKCODE_AGENT_PANEL_HOST || "127.0.0.1";
   private port = Number(process.env.DEEPSEEKCODE_AGENT_PANEL_PORT || 0);
   private started = false;
-  private tokens = new Map<string, string>();
+  private tokens = new Map<string, PanelToken>();
   private socketTimers = new Set<NodeJS.Timeout>();
   private pixelAssets?: PixelAssets;
+  private cloudflareTunnel?: CloudflareTunnelState;
 
   constructor(options: ServerOptions) {
     this.stateStore = options.stateStore;
@@ -94,11 +113,15 @@ export class AgentPanelServer {
   async open(runId: string, options: AgentPanelOpenOptions = {}): Promise<AgentDashboardOpenResult> {
     await this.ensureStarted();
     const token = this.tokenFor(runId);
+    if (options.tunnel === "cloudflare") {
+      await this.ensureCloudflareQuickTunnel();
+    }
     const localHost = this.host === "0.0.0.0" ? "127.0.0.1" : this.host;
-    const localUrl = `http://${localHost}:${this.port}/pixel/${encodeURIComponent(runId)}?token=${encodeURIComponent(token)}`;
-    const publicBaseUrl = (process.env.DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+    const localUrl = `http://${localHost}:${this.port}/pixel/${encodeURIComponent(runId)}?token=${encodeURIComponent(token.token)}`;
+    const configuredPublicBaseUrl = (process.env.DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+    const publicBaseUrl = configuredPublicBaseUrl || this.cloudflareTunnel?.publicBaseUrl || "";
     const shareUrl = publicBaseUrl
-      ? `${publicBaseUrl}/pixel/${encodeURIComponent(runId)}?token=${encodeURIComponent(token)}`
+      ? `${publicBaseUrl}/pixel/${encodeURIComponent(runId)}?token=${encodeURIComponent(token.token)}`
       : localUrl;
     const tracePath = options.writeTrace === false ? "" : this.writeTrace(runId);
 
@@ -111,11 +134,15 @@ export class AgentPanelServer {
       localUrl,
       shareUrl,
       tracePath,
-      remoteAccess: publicBaseUrl ? "public-base-url" : "local-only",
+      remoteAccess: configuredPublicBaseUrl ? "public-base-url" : this.cloudflareTunnel?.publicBaseUrl ? "cloudflare-quick-tunnel" : "local-only",
+      tokenExpiresAtMs: token.expiresAtMs,
+      tunnelOutput: this.cloudflareTunnel?.output.slice(-20),
     };
   }
 
   async close(): Promise<void> {
+    this.broadcastPanelShutdown("DeepSeekCode TUI 已关闭，本地 Pixel 面板连接断开。");
+    await delay(80);
     for (const timer of this.socketTimers) {
       clearInterval(timer);
     }
@@ -125,6 +152,11 @@ export class AgentPanelServer {
         resolve();
         return;
       }
+      for (const client of this.wss.clients) {
+        if (client.readyState === WebSocket.OPEN || client.readyState === WebSocket.CONNECTING) {
+          client.close(1001, "DeepSeekCode TUI closed");
+        }
+      }
       this.wss.close(() => resolve());
     });
     this.wss = undefined;
@@ -132,6 +164,8 @@ export class AgentPanelServer {
     await new Promise<void>((resolve) => this.server?.close(() => resolve()));
     this.server = undefined;
     this.started = false;
+    this.cloudflareTunnel?.process.kill();
+    this.cloudflareTunnel = undefined;
   }
 
   private async ensureStarted(): Promise<void> {
@@ -186,6 +220,11 @@ export class AgentPanelServer {
       return;
     }
 
+    if (url.pathname === "/agent-assets/gsap.min.js") {
+      this.serveGsap(res);
+      return;
+    }
+
     const runId = routeRunId(url.pathname);
     if (!runId) {
       res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
@@ -213,7 +252,7 @@ export class AgentPanelServer {
     }
     if (url.pathname.startsWith("/panel/") || url.pathname.startsWith("/dashboard/")) {
       res.writeHead(302, {
-        Location: `/pixel/${encodeURIComponent(runId)}?token=${encodeURIComponent(this.tokenFor(runId))}`,
+        Location: `/pixel/${encodeURIComponent(runId)}?token=${encodeURIComponent(this.tokenFor(runId).token)}`,
       });
       res.end();
       return;
@@ -286,6 +325,19 @@ export class AgentPanelServer {
     }
   }
 
+  private broadcastPanelShutdown(message: string): void {
+    if (!this.wss) return;
+    const payload = {
+      type: "serverShutdown",
+      status: "closed",
+      message,
+      createdAtMs: Date.now(),
+    };
+    for (const client of this.wss.clients) {
+      sendSocket(client, payload);
+    }
+  }
+
   private pixelBootstrapMessages(runId: string): PixelMessage[] {
     const snapshot = this.snapshot(runId);
     const assets = this.loadPixelAssets();
@@ -294,9 +346,10 @@ export class AgentPanelServer {
     const agentMeta: Record<string, { palette: number; hueShift: number; seatId: string | null }> = {};
     const folderNames: Record<string, string> = {};
     for (const id of ids) {
-      agentMeta[String(id)] = { palette: id % 8, hueShift: 0, seatId: null };
+      agentMeta[String(id)] = { palette: id % 8, hueShift: 0, seatId: seatIdForRole(snapshot.roles[id - 1], id) };
       folderNames[String(id)] = folderName;
     }
+    const layout = buildDeepSeekPixelLayout(assets.layout);
 
     return [
       {
@@ -307,10 +360,10 @@ export class AgentPanelServer {
       {
         type: "settingsLoaded",
         soundEnabled: false,
-        lastSeenVersion: "deepseekcode-0.3.1",
-        extensionVersion: "deepseekcode-0.3.1",
+        lastSeenVersion: "vdeepseekcode-0.3.2",
+        extensionVersion: "deepseekcode-0.3.2",
         watchAllSessions: false,
-        alwaysShowLabels: true,
+        alwaysShowLabels: false,
         hooksEnabled: false,
         hooksInfoShown: true,
         externalAssetDirectories: [],
@@ -345,7 +398,7 @@ export class AgentPanelServer {
       },
       {
         type: "layoutLoaded",
-        layout: assets.layout,
+        layout,
       },
     ];
   }
@@ -366,16 +419,74 @@ export class AgentPanelServer {
     return tracePath;
   }
 
-  private tokenFor(runId: string): string {
+  private tokenFor(runId: string): PanelToken {
     const existing = this.tokens.get(runId);
-    if (existing) return existing;
-    const token = randomToken();
+    const now = Date.now();
+    if (existing && existing.expiresAtMs > now) return existing;
+    const token = {
+      token: randomToken(),
+      expiresAtMs: now + panelTokenTtlMs(),
+    };
     this.tokens.set(runId, token);
     return token;
   }
 
   private validToken(runId: string, token: string): boolean {
-    return Boolean(token) && this.tokenFor(runId) === token;
+    const existing = this.tokens.get(runId);
+    if (!existing || existing.expiresAtMs <= Date.now()) {
+      this.tokens.delete(runId);
+      return false;
+    }
+    return Boolean(token) && existing.token === token;
+  }
+
+  private async ensureCloudflareQuickTunnel(): Promise<void> {
+    if (this.cloudflareTunnel?.process && !this.cloudflareTunnel.process.killed && this.cloudflareTunnel.publicBaseUrl) {
+      return;
+    }
+    const executable = await resolveCommand("cloudflared");
+    if (!executable) {
+      throw new Error([
+        "cloudflared is not installed or not on PATH.",
+        "Install it with: winget install --id Cloudflare.cloudflared --accept-source-agreements --accept-package-agreements",
+        "Then run /agents dashboard tunnel again.",
+      ].join("\n"));
+    }
+    const targetUrl = `http://127.0.0.1:${this.port}`;
+    const child = spawn(executable, ["tunnel", "--url", targetUrl, "--no-autoupdate"], {
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const tunnel: CloudflareTunnelState = {
+      process: child,
+      publicBaseUrl: undefined,
+      startedAtMs: Date.now(),
+      output: [],
+    };
+    this.cloudflareTunnel = tunnel;
+    const collect = (chunk: Buffer): void => {
+      const text = chunk.toString("utf8");
+      tunnel.output.push(...text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+      tunnel.output = tunnel.output.slice(-80);
+      const found = text.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i)?.[0];
+      if (found) tunnel.publicBaseUrl = found.replace(/\/+$/, "");
+    };
+    child.stdout.on("data", collect);
+    child.stderr.on("data", collect);
+    child.on("exit", (code, signal) => {
+      tunnel.output.push(`cloudflared exited code=${code ?? "null"} signal=${signal ?? "null"}`);
+      if (this.cloudflareTunnel === tunnel) this.cloudflareTunnel = undefined;
+    });
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+      if (tunnel.publicBaseUrl) return;
+      if (child.killed || child.exitCode !== null) break;
+      await delay(250);
+    }
+    child.kill();
+    const detail = tunnel.output.slice(-8).join("\n");
+    this.cloudflareTunnel = undefined;
+    throw new Error(`cloudflared did not produce a trycloudflare URL within 20s.${detail ? `\n${detail}` : ""}`);
   }
 
   private websocketRoute(req: http.IncomingMessage): PixelSocketRoute | undefined {
@@ -411,12 +522,41 @@ export class AgentPanelServer {
       trace: `/api/runs/${encodeURIComponent(runId)}/trace.jsonl`,
       language: "zh-CN",
     }).replace(/</g, "\\u003c");
-    return fs.readFileSync(indexPath, "utf8")
+    const bootstrapScript = `<script>
+(() => {
+  const panel = ${panelConfig};
+  panel.token = new URLSearchParams(window.location.search).get("token") || "";
+  window.DEEPSEEKCODE_PIXEL_PANEL = panel;
+  const NativeWebSocket = window.WebSocket;
+  function PatchedWebSocket(url, protocols) {
+    let nextUrl = url;
+    try {
+      const target = new URL(String(url), window.location.href);
+      if (target.pathname === "/ws" && !target.searchParams.has("runId")) {
+        target.searchParams.set("runId", panel.runId);
+        target.searchParams.set("token", new URLSearchParams(window.location.search).get("token") || "");
+        nextUrl = target.toString();
+      }
+    } catch {}
+    return protocols === undefined ? new NativeWebSocket(nextUrl) : new NativeWebSocket(nextUrl, protocols);
+  }
+  PatchedWebSocket.prototype = NativeWebSocket.prototype;
+  for (const key of ["CONNECTING", "OPEN", "CLOSING", "CLOSED"]) {
+    Object.defineProperty(PatchedWebSocket, key, { value: NativeWebSocket[key] });
+  }
+  window.WebSocket = PatchedWebSocket;
+})();
+</script>`;
+    const overlay = pixelDashboardOverlayV3();
+    const html = fs.readFileSync(indexPath, "utf8")
       .replace("<title>webview-ui</title>", "<title>DeepSeekCode Pixel Agents</title>")
       .replace('href="/vite.svg"', 'href="/pixel-assets/banner.png"')
       .split("./assets/")
       .join("/pixel-assets/assets/")
-      .replace("</head>", `<script>window.DEEPSEEKCODE_PIXEL_PANEL=${panelConfig};</script></head>`);
+      .replace("</head>", `${bootstrapScript}${overlay.style}</head>`);
+    return html.includes("</body>")
+      ? html.replace("</body>", `${overlay.markup}${overlay.script}</body>`)
+      : `${html}${overlay.markup}${overlay.script}`;
   }
 
   private servePixelAsset(requestPath: string, res: http.ServerResponse): void {
@@ -431,6 +571,17 @@ export class AgentPanelServer {
     }
     res.writeHead(200, { "Content-Type": mimeType(target), "Cache-Control": "public, max-age=3600" });
     fs.createReadStream(target).pipe(res);
+  }
+
+  private serveGsap(res: http.ServerResponse): void {
+    try {
+      const target = require.resolve("gsap/dist/gsap.min.js");
+      res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "public, max-age=3600" });
+      fs.createReadStream(target).pipe(res);
+    } catch {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("GSAP asset not found. Run npm install.");
+    }
   }
 
   private loadPixelAssets(): PixelAssets {
@@ -448,6 +599,485 @@ export class AgentPanelServer {
   }
 }
 
+function seatIdForRole(role: AgentDashboardRole | undefined, id: number): string | null {
+  const workSeats = [
+    "f-1773356768339-eo6u",
+    "f-1773356769007-a8jm",
+    "f-1773354877474-kt9s",
+    "f-1773354880309-yphd",
+    "f-1773354879805-px9b",
+    "f-1773354881902-9m50",
+  ];
+  const restSeats = [
+    "f-1773354668333-lo7w",
+    "f-1773354665989-zgrw",
+    "f-1773354664329-hxsh",
+    "f-1773354670818-r1q2",
+  ];
+  if (!role) return restSeats[(id - 1) % restSeats.length] ?? null;
+  if (role.status === "running" || role.status === "paused") {
+    return workSeats[(id - 1) % workSeats.length] ?? null;
+  }
+  return restSeats[(id - 1) % restSeats.length] ?? workSeats[(id - 1) % workSeats.length] ?? null;
+}
+
+function buildDeepSeekPixelLayout(base: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!base) return base;
+  const layout = JSON.parse(JSON.stringify(base)) as Record<string, unknown>;
+  const furniture = Array.isArray(layout.furniture) ? [...layout.furniture] as Array<Record<string, unknown>> : [];
+  const addFurniture = (item: Record<string, unknown>) => {
+    if (!furniture.some((existing) => existing.uid === item.uid)) furniture.push(item);
+  };
+  addFurniture({ uid: "dsc-whiteboard-main", type: "WHITEBOARD", col: 11, row: 9 });
+  addFurniture({ uid: "dsc-review-bench", type: "WOODEN_BENCH", col: 17, row: 19 });
+  addFurniture({ uid: "dsc-plan-table", type: "SMALL_TABLE", col: 18, row: 18 });
+  layout.furniture = furniture;
+  return layout;
+}
+
+function pixelDashboardOverlay(): { style: string; markup: string; script: string } {
+  const style = `<style>
+:root{--dsc-ink:#17202a;--dsc-muted:#657083;--dsc-panel:#fbfcfe;--dsc-line:#d7dde8;--dsc-good:#17805c;--dsc-run:#2563eb;--dsc-warn:#b7791f;--dsc-bad:#c43b3b;--dsc-idle:#7b8494}
+#dsc-panel{position:fixed;right:14px;top:14px;bottom:14px;width:min(420px,calc(100vw - 28px));z-index:2147483000;background:rgba(251,252,254,.96);border:1px solid var(--dsc-line);box-shadow:0 16px 46px rgba(12,20,33,.18);border-radius:8px;color:var(--dsc-ink);font:13px/1.42 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:flex;flex-direction:column;overflow:hidden;backdrop-filter:blur(10px)}
+#dsc-panel *{box-sizing:border-box;letter-spacing:0}
+#dsc-head{padding:12px 14px;border-bottom:1px solid var(--dsc-line);display:grid;grid-template-columns:1fr auto;gap:10px;align-items:start;background:linear-gradient(180deg,#fff,#f4f7fb)}
+#dsc-title{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#dsc-sub{color:var(--dsc-muted);font-size:12px;margin-top:3px;display:flex;gap:8px;flex-wrap:wrap}
+#dsc-progress{height:7px;background:#e7ebf2;border-radius:999px;overflow:hidden;margin:10px 14px 8px}
+#dsc-progress span{display:block;height:100%;width:0;background:linear-gradient(90deg,#2563eb,#17805c);transition:width .45s ease}
+#dsc-tabs{display:flex;gap:6px;padding:0 14px 10px;border-bottom:1px solid var(--dsc-line);overflow-x:auto}
+.dsc-tab{border:1px solid var(--dsc-line);background:#fff;border-radius:6px;padding:5px 8px;font-size:12px;color:var(--dsc-muted);cursor:pointer;white-space:nowrap}
+.dsc-tab[aria-selected=true]{background:#17202a;color:#fff;border-color:#17202a}
+#dsc-body{overflow:auto;padding:10px 14px 14px;display:flex;flex-direction:column;gap:8px}
+.dsc-card{border:1px solid var(--dsc-line);border-radius:8px;background:#fff;padding:9px 10px;animation:dsc-in .28s ease both}
+.dsc-task{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:start;cursor:pointer}
+.dsc-dot{width:9px;height:9px;border-radius:99px;margin-top:5px;background:var(--dsc-idle)}
+.dsc-dot.running{background:var(--dsc-run);box-shadow:0 0 0 4px rgba(37,99,235,.12)}
+.dsc-dot.succeeded{background:var(--dsc-good)}
+.dsc-dot.needs_review{background:var(--dsc-warn)}
+.dsc-dot.blocked,.dsc-dot.failed{background:var(--dsc-bad)}
+.dsc-name{font-weight:650;min-width:0;overflow-wrap:anywhere}
+.dsc-meta{font-size:12px;color:var(--dsc-muted);margin-top:2px;overflow-wrap:anywhere}
+.dsc-pill{font-size:11px;border:1px solid var(--dsc-line);border-radius:999px;padding:2px 7px;color:var(--dsc-muted);white-space:nowrap}
+#dsc-detail{border-top:1px solid var(--dsc-line);padding:10px 14px;background:#f7f9fc;max-height:36%;overflow:auto}
+#dsc-detail h3{font-size:13px;margin:0 0 6px}
+#dsc-detail p{margin:4px 0;color:var(--dsc-muted);overflow-wrap:anywhere}
+#dsc-toggle{display:none;border:1px solid var(--dsc-line);background:#fff;border-radius:6px;padding:5px 8px;font-size:12px;color:var(--dsc-ink)}
+@keyframes dsc-in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+@media (max-width:700px){#dsc-panel{left:8px;right:8px;top:auto;bottom:8px;width:auto;max-height:58vh;border-radius:8px}#dsc-panel.dsc-collapsed{max-height:52px}#dsc-panel.dsc-collapsed #dsc-progress,#dsc-panel.dsc-collapsed #dsc-tabs,#dsc-panel.dsc-collapsed #dsc-body,#dsc-panel.dsc-collapsed #dsc-detail{display:none}#dsc-toggle{display:inline-block}#dsc-head{padding:9px 10px}#dsc-title{font-size:13px}}
+</style>`;
+  const markup = `<section id="dsc-panel" aria-label="DeepSeekCode multi-agent task dashboard">
+  <header id="dsc-head"><div><div id="dsc-title">DeepSeekCode Agents</div><div id="dsc-sub"></div></div><button id="dsc-toggle" type="button">展开</button></header>
+  <div id="dsc-progress"><span></span></div>
+  <nav id="dsc-tabs" aria-label="task filters"></nav>
+  <main id="dsc-body"></main>
+  <aside id="dsc-detail"></aside>
+</section>`;
+  const script = `<script>
+(() => {
+  const panel = window.DEEPSEEKCODE_PIXEL_PANEL;
+  if (!panel) return;
+  const root = document.getElementById("dsc-panel");
+  const title = document.getElementById("dsc-title");
+  const sub = document.getElementById("dsc-sub");
+  const progress = document.querySelector("#dsc-progress span");
+  const tabs = document.getElementById("dsc-tabs");
+  const body = document.getElementById("dsc-body");
+  const detail = document.getElementById("dsc-detail");
+  const toggle = document.getElementById("dsc-toggle");
+  let filter = "all";
+  let selected = "";
+  const filters = [["all","全部"],["unfinished","未完成"],["running","进行中"],["needs_review","待验收"],["succeeded","已完成"],["blocked","阻塞"]];
+  toggle?.addEventListener("click", () => {
+    root.classList.toggle("dsc-collapsed");
+    toggle.textContent = root.classList.contains("dsc-collapsed") ? "展开" : "收起";
+  });
+  function esc(v){return String(v ?? "").replace(/[&<>"]/g, ch => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[ch]));}
+  function statusText(v){return ({queued:"未开始",running:"进行中",needs_review:"待验收",succeeded:"已完成",failed:"失败",blocked:"阻塞",skipped:"已跳过"}[v] || v || "未知");}
+  function visible(task){
+    if (filter === "all") return true;
+    if (filter === "unfinished") return !["succeeded","skipped"].includes(task.status);
+    if (filter === "blocked") return ["blocked","failed"].includes(task.status);
+    return task.status === filter;
+  }
+  function renderTabs(snapshot){
+    const counts = snapshot.completionSummary || {};
+    tabs.innerHTML = filters.map(([id,label]) => {
+      const count = id === "all" ? counts.total : id === "unfinished" ? (counts.total || 0) - (counts.succeeded || 0) - (counts.skipped || 0) : id === "needs_review" ? counts.needsReview : id === "blocked" ? (counts.blocked || 0) + (counts.failed || 0) : counts[id] || 0;
+      return '<button class="dsc-tab" aria-selected="'+(filter===id)+'" data-filter="'+id+'">'+label+' '+count+'</button>';
+    }).join("");
+    tabs.querySelectorAll("button").forEach(btn => btn.addEventListener("click", () => { filter = btn.dataset.filter || "all"; render(snapshot); }));
+  }
+  function renderDetail(snapshot, task){
+    if (!task) {
+      detail.innerHTML = '<h3>移动摘要</h3><p>'+esc(snapshot.mobileSummary?.nextStep || "等待进展")+'</p>';
+      return;
+    }
+    const role = (snapshot.roles || []).find(r => r.role === task.assigneeRole) || {};
+    const skill = (snapshot.generatedSkills || []).find(s => s.id === role.generatedSkillId || s.role === role.role) || {};
+    detail.innerHTML = '<h3>'+esc(task.title)+'</h3>'
+      + '<p><b>负责人</b> '+esc(task.assigneeRole)+' · '+esc(statusText(task.status))+'</p>'
+      + '<p><b>验收</b> '+esc((task.acceptanceCriteria || []).join(" | ") || "暂无")+'</p>'
+      + '<p><b>证据</b> '+esc((task.evidence || []).join(" | ") || "暂无")+'</p>'
+      + '<p><b>Skill</b> '+esc(skill.summary || role.generatedSkillSummary || "暂无")+'</p>'
+      + '<p><b>Checkpoint</b> '+esc(role.checkpoint || "暂无")+'</p>'
+      + (task.blockedBy ? '<p><b>阻塞</b> '+esc(task.blockedBy)+'</p>' : '');
+  }
+  function render(snapshot){
+    const tasks = snapshot.subtaskGraph || [];
+    const completion = snapshot.completionSummary || { total: tasks.length, percent: 0 };
+    title.textContent = snapshot.overview?.objective || "DeepSeekCode Agents";
+    sub.innerHTML = '<span>'+esc(snapshot.phase || snapshot.overview?.phase || "unknown")+'</span><span>'+esc(snapshot.approvalState?.status || "")+'</span><span>'+esc((snapshot.mobileSummary && snapshot.mobileSummary.overallProgress) || "")+'</span>';
+    progress.style.width = (completion.percent || 0) + "%";
+    renderTabs(snapshot);
+    const shown = tasks.filter(visible);
+    body.innerHTML = shown.length ? shown.map(task => '<article class="dsc-card dsc-task" data-id="'+esc(task.id)+'"><span class="dsc-dot '+esc(task.status)+'"></span><div><div class="dsc-name">'+esc(task.title)+'</div><div class="dsc-meta">'+esc(task.assigneeRole)+' · '+esc((task.dependencies || []).length ? "依赖 "+task.dependencies.join(", ") : "无依赖")+'</div></div><span class="dsc-pill">'+esc(statusText(task.status))+'</span></article>').join("") : '<div class="dsc-card">当前筛选没有任务。</div>';
+    body.querySelectorAll("[data-id]").forEach(node => node.addEventListener("click", () => { selected = node.dataset.id || ""; renderDetail(snapshot, tasks.find(t => t.id === selected)); }));
+    renderDetail(snapshot, tasks.find(t => t.id === selected));
+  }
+  async function tick(){
+    try {
+      const res = await fetch(panel.api + "/snapshot", { cache: "no-store" });
+      if (res.ok) render(await res.json());
+    } catch {}
+  }
+  tick();
+  setInterval(tick, 1500);
+})();
+</script>`;
+  return { style, markup, script };
+}
+
+function pixelDashboardOverlayV2(): { style: string; markup: string; script: string } {
+  const style = `<style>
+:root{--dsc-bg:#f7f8fb;--dsc-panel:#ffffff;--dsc-ink:#18202b;--dsc-muted:#667085;--dsc-soft:#edf1f7;--dsc-line:#d7dde7;--dsc-blue:#2563eb;--dsc-green:#16845b;--dsc-amber:#b7791f;--dsc-red:#c2413b;--dsc-violet:#6d5dfc}
+#dsc-cockpit{position:fixed;right:16px;top:16px;bottom:16px;width:min(540px,calc(100vw - 32px));z-index:2147483000;color:var(--dsc-ink);font:13px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0;background:rgba(255,255,255,.96);border:1px solid var(--dsc-line);border-radius:8px;box-shadow:0 18px 54px rgba(9,14,24,.24);display:grid;grid-template-rows:auto auto auto auto minmax(0,1fr) auto;overflow:hidden;backdrop-filter:blur(14px)}
+#dsc-cockpit *{box-sizing:border-box;letter-spacing:0}
+.dsc-top{padding:14px 16px 12px;border-bottom:1px solid var(--dsc-line);background:linear-gradient(180deg,#fff,#f6f8fb)}
+.dsc-title-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:start}
+.dsc-kicker{font-size:11px;font-weight:700;color:var(--dsc-violet);text-transform:uppercase}
+#dsc-title{font-size:16px;font-weight:750;line-height:1.25;margin-top:3px;overflow-wrap:anywhere}
+#dsc-collapse{min-width:44px;min-height:36px;border:1px solid var(--dsc-line);border-radius:6px;background:#fff;color:var(--dsc-ink);font-weight:650;cursor:pointer}
+.dsc-sub{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.dsc-chip{border:1px solid var(--dsc-line);border-radius:999px;padding:3px 8px;background:#fff;color:var(--dsc-muted);font-size:12px}
+.dsc-chip.running,.dsc-chip.executing{color:#174ea6;background:#eaf1ff;border-color:#c7d7ff}.dsc-chip.awaiting_approval{color:#8a5a00;background:#fff6df;border-color:#f3d28a}.dsc-chip.completed,.dsc-chip.succeeded{color:#126143;background:#e7f7ef;border-color:#b9e7ce}.dsc-chip.blocked,.dsc-chip.failed{color:#9d2d2d;background:#fff0ef;border-color:#f2b9b5}
+.dsc-progress-wrap{padding:12px 16px 10px;border-bottom:1px solid var(--dsc-line)}
+.dsc-progress-meta{display:flex;justify-content:space-between;color:var(--dsc-muted);font-size:12px;margin-bottom:7px}
+.dsc-progress{height:8px;background:#e8edf5;border-radius:999px;overflow:hidden}.dsc-progress span{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--dsc-blue),var(--dsc-green));transition:width .35s ease}
+.dsc-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:12px 16px;border-bottom:1px solid var(--dsc-line)}
+.dsc-metric{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px;min-width:0}.dsc-metric b{display:block;font-size:16px}.dsc-metric span{display:block;color:var(--dsc-muted);font-size:11px;margin-top:2px}
+.dsc-main{min-height:0;display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--dsc-line)}
+.dsc-column{min-width:0;min-height:0;display:flex;flex-direction:column}.dsc-column:first-child{border-right:1px solid var(--dsc-line)}
+.dsc-section-head{padding:10px 12px;border-bottom:1px solid var(--dsc-line);display:flex;align-items:center;justify-content:space-between;gap:8px}.dsc-section-head h2{font-size:12px;text-transform:uppercase;margin:0;color:#344054}.dsc-filter{font-size:11px;color:var(--dsc-muted);border:1px solid var(--dsc-line);background:#fff;border-radius:6px;padding:4px 6px;min-height:28px}
+#dsc-task-list,#dsc-detail{overflow:auto;padding:10px 12px;min-height:0}.dsc-task-row{display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:8px;align-items:start;border:1px solid var(--dsc-line);border-radius:8px;background:#fff;padding:9px;margin-bottom:8px;cursor:pointer;will-change:transform,opacity}.dsc-task-row:hover,.dsc-task-row[aria-selected=true]{border-color:#9db7f8;box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+.dsc-dot{width:9px;height:9px;border-radius:99px;margin-top:5px;background:#98a2b3}.dsc-dot.running{background:var(--dsc-blue);box-shadow:0 0 0 4px rgba(37,99,235,.12)}.dsc-dot.needs_review{background:var(--dsc-amber)}.dsc-dot.succeeded{background:var(--dsc-green)}.dsc-dot.failed,.dsc-dot.blocked{background:var(--dsc-red)}
+.dsc-task-name{font-weight:700;overflow-wrap:anywhere}.dsc-task-meta{font-size:12px;color:var(--dsc-muted);margin-top:2px;overflow-wrap:anywhere}.dsc-status{font-size:11px;border:1px solid var(--dsc-line);border-radius:999px;padding:2px 7px;color:var(--dsc-muted);white-space:nowrap}
+.dsc-role-strip{display:flex;gap:8px;overflow-x:auto;padding:10px 12px;border-bottom:1px solid var(--dsc-line)}.dsc-role{flex:0 0 150px;border:1px solid var(--dsc-line);background:#fff;border-radius:8px;padding:8px}.dsc-role b{display:block;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsc-role span{display:block;color:var(--dsc-muted);font-size:11px;margin-top:2px}
+.dsc-detail-title{font-weight:750;font-size:14px;margin-bottom:8px;overflow-wrap:anywhere}.dsc-detail-line{margin:7px 0;color:var(--dsc-muted);overflow-wrap:anywhere}.dsc-detail-line b{color:#344054}.dsc-empty{border:1px dashed #cbd5e1;border-radius:8px;padding:14px;color:var(--dsc-muted);background:#f8fafc}
+.dsc-footer{padding:10px 12px;background:#f8fafc;color:var(--dsc-muted);font-size:12px;display:flex;justify-content:space-between;gap:8px}.dsc-footer a{color:#1d4ed8;text-decoration:none}
+#dsc-cockpit.dsc-min{grid-template-rows:auto;bottom:auto;height:auto}.dsc-min .dsc-progress-wrap,.dsc-min .dsc-metrics,.dsc-min .dsc-role-strip,.dsc-min .dsc-main,.dsc-min .dsc-footer{display:none}
+@media (max-width:760px){#dsc-cockpit{left:8px;right:8px;top:auto;bottom:8px;width:auto;max-height:68dvh;border-radius:8px;grid-template-rows:auto auto auto minmax(0,1fr) auto}.dsc-metrics{grid-template-columns:repeat(2,minmax(0,1fr));padding:10px}.dsc-role-strip{display:none}.dsc-main{grid-template-columns:1fr}.dsc-column:first-child{border-right:0}.dsc-column:nth-child(2){display:none}.dsc-section-head{padding:9px 10px}#dsc-task-list{padding:9px 10px}.dsc-footer{padding:9px 10px}#dsc-cockpit.dsc-detail-open .dsc-column:nth-child(2){display:flex;position:absolute;inset:64px 0 0;background:#fff;z-index:2}.dsc-detail-open .dsc-column:first-child{display:none}}
+@media (prefers-reduced-motion:reduce){.dsc-task-row{will-change:auto}.dsc-progress span{transition:none}}
+</style>`;
+  const markup = `<section id="dsc-cockpit" aria-label="DeepSeekCode agent cockpit">
+  <header class="dsc-top"><div class="dsc-title-row"><div><div class="dsc-kicker">DeepSeekCode Agents</div><div id="dsc-title">Loading run...</div><div class="dsc-sub" id="dsc-sub"></div></div><button id="dsc-collapse" type="button" aria-label="Collapse panel">Hide</button></div></header>
+  <div class="dsc-progress-wrap"><div class="dsc-progress-meta"><span id="dsc-progress-label">0/0 completed</span><span id="dsc-next">Waiting</span></div><div class="dsc-progress"><span id="dsc-progress-bar"></span></div></div>
+  <div class="dsc-metrics" id="dsc-metrics"></div>
+  <div class="dsc-role-strip" id="dsc-roles"></div>
+  <div class="dsc-main"><section class="dsc-column"><div class="dsc-section-head"><h2>Task Graph</h2><select id="dsc-filter" class="dsc-filter" aria-label="Task filter"><option value="all">All</option><option value="unfinished">Unfinished</option><option value="running">Running</option><option value="needs_review">Review</option><option value="succeeded">Done</option><option value="blocked">Blocked</option></select></div><div id="dsc-task-list"></div></section><aside class="dsc-column"><div class="dsc-section-head"><h2>Details</h2><button id="dsc-back" class="dsc-filter" type="button">Back</button></div><div id="dsc-detail"></div></aside></div>
+  <footer class="dsc-footer"><span id="dsc-updated">Snapshot pending</span><a id="dsc-trace" href="#" target="_blank" rel="noreferrer">trace</a></footer>
+</section>`;
+  const script = `<script>
+(() => {
+  const panel = window.DEEPSEEKCODE_PIXEL_PANEL;
+  if (!panel) return;
+  const token = panel.token || new URLSearchParams(window.location.search).get("token") || "";
+  const root = document.getElementById("dsc-cockpit");
+  const title = document.getElementById("dsc-title");
+  const sub = document.getElementById("dsc-sub");
+  const progressLabel = document.getElementById("dsc-progress-label");
+  const progressBar = document.getElementById("dsc-progress-bar");
+  const next = document.getElementById("dsc-next");
+  const connection = document.getElementById("dsc-connection");
+  const metrics = document.getElementById("dsc-metrics");
+  const roles = document.getElementById("dsc-roles");
+  const filter = document.getElementById("dsc-filter");
+  const taskList = document.getElementById("dsc-task-list");
+  const detail = document.getElementById("dsc-detail");
+  const collapse = document.getElementById("dsc-collapse");
+  const back = document.getElementById("dsc-back");
+  const updated = document.getElementById("dsc-updated");
+  const trace = document.getElementById("dsc-trace");
+  let selected = "";
+  let lastTaskSignature = "";
+  let disconnected = false;
+  let pollTimer = 0;
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function esc(v){return String(v ?? "").replace(/[&<>"]/g, ch => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[ch]));}
+  function api(path){return panel.api + path + (path.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(token);}
+  function statusText(v){return ({queued:"Queued",running:"Running",needs_review:"Review",succeeded:"Done",failed:"Failed",blocked:"Blocked",skipped:"Skipped",paused:"Paused",cancelled:"Cancelled"}[v] || v || "Unknown");}
+  function chip(v){return '<span class="dsc-chip '+esc(v)+'">'+esc(v || "unknown")+'</span>';}
+  function visible(task){
+    const value = filter.value || "all";
+    if (value === "all") return true;
+    if (value === "unfinished") return !["succeeded","skipped"].includes(task.status);
+    if (value === "blocked") return ["blocked","failed"].includes(task.status);
+    return task.status === value;
+  }
+  function animateRows(){
+    if (reduceMotion || !window.gsap) return;
+    window.gsap.fromTo("#dsc-task-list .dsc-task-row", { autoAlpha: 0, y: 8 }, { autoAlpha: 1, y: 0, duration: 0.22, stagger: 0.025, ease: "power2.out", overwrite: "auto" });
+  }
+  function renderDetail(snapshot, task){
+    if (!task) {
+      const mobile = snapshot.mobileSummary || {};
+      detail.innerHTML = '<div class="dsc-empty"><b>Mobile summary</b><div class="dsc-detail-line">'+esc(mobile.nextStep || "Waiting for workflow progress.")+'</div></div>';
+      return;
+    }
+    const role = (snapshot.roles || []).find(r => r.role === task.assigneeRole) || {};
+    const skill = (snapshot.generatedSkills || []).find(s => s.id === role.generatedSkillId || s.role === role.role) || {};
+    detail.innerHTML =
+      '<div class="dsc-detail-title">'+esc(task.title)+'</div>'
+      + '<div class="dsc-detail-line"><b>Owner</b> '+esc(task.assigneeRole)+' - '+esc(statusText(task.status))+'</div>'
+      + '<div class="dsc-detail-line"><b>Dependencies</b> '+esc((task.dependencies || []).join(", ") || "None")+'</div>'
+      + '<div class="dsc-detail-line"><b>Acceptance</b> '+esc((task.acceptanceCriteria || []).join(" | ") || "No criteria yet")+'</div>'
+      + '<div class="dsc-detail-line"><b>Evidence</b> '+esc((task.evidence || []).join(" | ") || "No evidence yet")+'</div>'
+      + '<div class="dsc-detail-line"><b>Role skill</b> '+esc(skill.summary || role.generatedSkillSummary || "No generated skill summary yet")+'</div>'
+      + '<div class="dsc-detail-line"><b>Checkpoint</b> '+esc(role.checkpoint || "No checkpoint yet")+'</div>'
+      + (task.blockedBy ? '<div class="dsc-detail-line"><b>Blocked</b> '+esc(task.blockedBy)+'</div>' : '');
+  }
+  function render(snapshot){
+    const tasks = snapshot.subtaskGraph || [];
+    const completion = snapshot.completionSummary || { total: tasks.length, succeeded: 0, running: 0, needsReview: 0, blocked: 0, failed: 0, percent: 0 };
+    const mobile = snapshot.mobileSummary || {};
+    title.textContent = snapshot.overview?.objective || mobile.objective || "DeepSeekCode Agents";
+    sub.innerHTML = chip(snapshot.phase || snapshot.overview?.phase) + chip(snapshot.approvalState?.status || "") + chip(mobile.overallProgress || "");
+    progressLabel.textContent = (mobile.overallProgress || ((completion.succeeded || 0) + "/" + (completion.total || 0))) + " completed";
+    progressBar.style.width = Math.max(0, Math.min(100, completion.percent || 0)) + "%";
+    next.textContent = mobile.nextStep || "Waiting";
+    metrics.innerHTML = [
+      ["Open", Math.max(0, (completion.total || 0) - (completion.succeeded || 0) - (completion.skipped || 0))],
+      ["Running", completion.running || 0],
+      ["Review", completion.needsReview || 0],
+      ["Blocked", (completion.blocked || 0) + (completion.failed || 0)]
+    ].map(([label,value]) => '<div class="dsc-metric"><b>'+esc(value)+'</b><span>'+esc(label)+'</span></div>').join("");
+    roles.innerHTML = (snapshot.roles || []).map(role => '<div class="dsc-role"><b>'+esc(role.role)+'</b><span>'+esc(role.status || "idle")+'</span><span>'+esc(role.currentTask || role.generatedSkillSummary || "")+'</span></div>').join("");
+    const shown = tasks.filter(visible);
+    const signature = shown.map(t => t.id + ":" + t.status + ":" + (t.lastEvent || "")).join("|");
+    taskList.innerHTML = shown.length
+      ? shown.map(task => '<button class="dsc-task-row" type="button" data-id="'+esc(task.id)+'" aria-selected="'+(task.id===selected)+'"><span class="dsc-dot '+esc(task.status)+'"></span><span><span class="dsc-task-name">'+esc(task.title)+'</span><span class="dsc-task-meta">'+esc(task.assigneeRole)+' - '+esc((task.dependencies || []).length ? "depends on "+task.dependencies.join(", ") : "no dependencies")+'</span></span><span class="dsc-status">'+esc(statusText(task.status))+'</span></button>').join("")
+      : '<div class="dsc-empty">No tasks match this filter. If work is running, check that this link includes a valid token.</div>';
+    taskList.querySelectorAll("[data-id]").forEach(node => node.addEventListener("click", () => {
+      selected = node.dataset.id || "";
+      root.classList.add("dsc-detail-open");
+      renderDetail(snapshot, tasks.find(t => t.id === selected));
+      taskList.querySelectorAll("[data-id]").forEach(row => row.setAttribute("aria-selected", String(row.dataset.id === selected)));
+    }));
+    if (!selected && tasks.length) selected = tasks[0].id;
+    renderDetail(snapshot, tasks.find(t => t.id === selected));
+    updated.textContent = snapshot.generatedAtMs ? "Updated " + new Date(snapshot.generatedAtMs).toLocaleTimeString() : "Snapshot pending";
+    trace.href = api("/trace.jsonl");
+    if (signature !== lastTaskSignature) animateRows();
+    lastTaskSignature = signature;
+  }
+  async function tick(){
+    try {
+      const res = await fetch(api("/snapshot"), { cache: "no-store" });
+      if (!res.ok) {
+        taskList.innerHTML = '<div class="dsc-empty">Snapshot failed: HTTP '+res.status+'. Reopen /agents dashboard share to refresh the token.</div>';
+        return;
+      }
+      render(await res.json());
+    } catch (error) {
+      taskList.innerHTML = '<div class="dsc-empty">Snapshot failed: '+esc(error && error.message ? error.message : error)+'</div>';
+    }
+  }
+  collapse.addEventListener("click", () => {
+    root.classList.toggle("dsc-min");
+    collapse.textContent = root.classList.contains("dsc-min") ? "Show" : "Hide";
+  });
+  back.addEventListener("click", () => root.classList.remove("dsc-detail-open"));
+  filter.addEventListener("change", () => tick());
+  const gs = document.createElement("script");
+  gs.src = "/agent-assets/gsap.min.js";
+  gs.onload = () => { if (!reduceMotion && window.gsap) window.gsap.fromTo(root, { autoAlpha: 0, y: 12 }, { autoAlpha: 1, y: 0, duration: 0.3, ease: "power2.out" }); };
+  document.head.appendChild(gs);
+  tick();
+  setInterval(tick, 1500);
+})();
+</script>`;
+  return { style, markup, script };
+}
+
+function pixelDashboardOverlayV3(): { style: string; markup: string; script: string } {
+  const style = `<style>
+:root{--dsc-bg:#f6f7f9;--dsc-panel:#fff;--dsc-ink:#17202a;--dsc-muted:#5f6b7a;--dsc-soft:#eef2f7;--dsc-line:#d7dee8;--dsc-blue:#2563eb;--dsc-green:#15845b;--dsc-amber:#a66a00;--dsc-red:#c2413b;--dsc-violet:#5b5cf6;--dsc-board:#172318;--dsc-board-line:#34523a}
+#dsc-stage-board{position:fixed;left:clamp(72px,7vw,150px);top:64px;width:min(380px,calc(100vw - 760px));max-height:42dvh;z-index:2147482999;color:#e8f5df;background:linear-gradient(180deg,#18261b,#101a13);border:2px solid #6f5530;border-radius:8px;box-shadow:0 14px 34px rgba(0,0,0,.28),inset 0 0 0 1px rgba(255,255,255,.05);padding:14px 14px 12px;pointer-events:none;font:14px/1.55 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0;overflow:hidden}
+#dsc-stage-board *{box-sizing:border-box;letter-spacing:0}
+.dsc-board-title{font-size:15px;font-weight:800;color:#f4ffe8;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:12px}.dsc-board-title span{color:#9fd6a7;font-weight:650;font-size:12px;white-space:nowrap}
+.dsc-board-progress{height:7px;border-radius:999px;background:#26392a;overflow:hidden;margin-bottom:10px}.dsc-board-progress span{display:block;height:100%;width:0;background:linear-gradient(90deg,#9fd6a7,#7dd3fc);transition:width .35s ease}
+.dsc-board-list{display:flex;flex-direction:column;gap:6px}.dsc-board-item{display:grid;grid-template-columns:8px minmax(0,1fr) auto;gap:8px;align-items:start;padding:6px 0;border-top:1px solid var(--dsc-board-line);will-change:transform,opacity}.dsc-board-item:first-child{border-top:0}.dsc-board-dot{width:7px;height:7px;border-radius:99px;margin-top:7px;background:#9fb0a1}.dsc-board-dot.running{background:#7dd3fc}.dsc-board-dot.needs_review{background:#f8d66d}.dsc-board-dot.succeeded{background:#9fd6a7}.dsc-board-dot.failed,.dsc-board-dot.blocked{background:#fca5a5}.dsc-board-name{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsc-board-meta{font-size:12px;color:#b8c8b4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsc-board-status{font-size:12px;color:#d9ead4;white-space:nowrap}
+#dsc-cockpit{position:fixed;right:16px;top:16px;bottom:16px;width:min(620px,calc(100vw - 32px));z-index:2147483000;color:var(--dsc-ink);font:15px/1.55 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0;background:rgba(255,255,255,.97);border:1px solid var(--dsc-line);border-radius:8px;box-shadow:0 18px 54px rgba(9,14,24,.24);display:grid;grid-template-rows:auto auto auto minmax(0,1fr) auto;overflow:hidden;backdrop-filter:blur(14px)}
+#dsc-cockpit *{box-sizing:border-box;letter-spacing:0}
+.dsc-top{padding:18px 20px 16px;border-bottom:1px solid var(--dsc-line);background:linear-gradient(180deg,#fff,#f7f9fc)}
+.dsc-title-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:start}
+.dsc-kicker{font-size:12px;font-weight:800;color:var(--dsc-violet);text-transform:uppercase}
+#dsc-title{font-size:22px;font-weight:800;line-height:1.28;margin-top:5px;overflow-wrap:anywhere}
+#dsc-collapse{min-width:52px;min-height:44px;border:1px solid var(--dsc-line);border-radius:8px;background:#fff;color:var(--dsc-ink);font-weight:750;cursor:pointer}
+.dsc-sub{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.dsc-chip{border:1px solid var(--dsc-line);border-radius:999px;padding:5px 11px;background:#fff;color:var(--dsc-muted);font-size:13px;font-weight:650}
+.dsc-chip.running,.dsc-chip.executing{color:#174ea6;background:#eaf1ff;border-color:#c7d7ff}.dsc-chip.awaiting_approval{color:#7a4b00;background:#fff6df;border-color:#f3d28a}.dsc-chip.completed,.dsc-chip.succeeded{color:#126143;background:#e7f7ef;border-color:#b9e7ce}.dsc-chip.blocked,.dsc-chip.failed{color:#9d2d2d;background:#fff0ef;border-color:#f2b9b5}
+.dsc-progress-wrap{padding:14px 20px 12px;border-bottom:1px solid var(--dsc-line)}.dsc-progress-meta{display:flex;justify-content:space-between;gap:14px;color:var(--dsc-muted);font-size:14px;margin-bottom:8px}.dsc-progress-meta span:last-child{text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsc-progress{height:9px;background:#e8edf5;border-radius:999px;overflow:hidden}.dsc-progress span{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--dsc-blue),var(--dsc-green));transition:width .35s ease}
+#dsc-connection{display:none;margin:0;padding:10px 20px;border-bottom:1px solid #f2b9b5;background:#fff1f0;color:#9d2d2d;font-size:14px;font-weight:700}.dsc-offline #dsc-connection{display:block}
+.dsc-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding:14px 20px;border-bottom:1px solid var(--dsc-line);background:#fbfcfe}.dsc-metric{background:#fff;border:1px solid #e0e7f0;border-radius:8px;padding:10px 11px;min-width:0}.dsc-metric b{display:block;font-size:20px;line-height:1.1}.dsc-metric span{display:block;color:var(--dsc-muted);font-size:13px;margin-top:5px}
+.dsc-main{min-height:0;display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,.92fr);border-bottom:1px solid var(--dsc-line)}.dsc-column{min-width:0;min-height:0;display:flex;flex-direction:column}.dsc-column:first-child{border-right:1px solid var(--dsc-line)}
+.dsc-section-head{padding:12px 16px;border-bottom:1px solid var(--dsc-line);display:flex;align-items:center;justify-content:space-between;gap:10px}.dsc-section-head h2{font-size:14px;margin:0;color:#253044}.dsc-filter{font-size:13px;color:var(--dsc-muted);border:1px solid var(--dsc-line);background:#fff;border-radius:8px;padding:7px 10px;min-height:36px}
+#dsc-task-list,#dsc-detail{overflow:auto;padding:12px 16px;min-height:0}.dsc-task-row{display:grid;grid-template-columns:11px minmax(0,1fr) auto;gap:10px;align-items:start;border:1px solid var(--dsc-line);border-radius:8px;background:#fff;padding:12px;margin-bottom:10px;cursor:pointer;text-align:left;width:100%;will-change:transform,opacity}.dsc-task-row:hover,.dsc-task-row[aria-selected=true]{border-color:#9db7f8;box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+.dsc-dot{width:10px;height:10px;border-radius:99px;margin-top:7px;background:#98a2b3}.dsc-dot.running{background:var(--dsc-blue);box-shadow:0 0 0 5px rgba(37,99,235,.12)}.dsc-dot.needs_review{background:var(--dsc-amber)}.dsc-dot.succeeded{background:var(--dsc-green)}.dsc-dot.failed,.dsc-dot.blocked{background:var(--dsc-red)}
+.dsc-task-name{font-weight:800;overflow-wrap:anywhere}.dsc-task-meta{font-size:13px;color:var(--dsc-muted);margin-top:4px;overflow-wrap:anywhere}.dsc-status{font-size:13px;border:1px solid var(--dsc-line);border-radius:999px;padding:3px 9px;color:var(--dsc-muted);white-space:nowrap}
+.dsc-role-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:14px 20px;border-bottom:1px solid var(--dsc-line);max-height:196px;overflow:auto}.dsc-role{border:1px solid var(--dsc-line);background:#fff;border-radius:8px;padding:11px;min-width:0}.dsc-role b{display:block;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsc-role span{display:block;color:var(--dsc-muted);font-size:13px;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsc-role.running{border-color:#9db7f8;background:#f6f9ff}.dsc-role.succeeded{border-color:#b9e7ce;background:#f6fff9}.dsc-role.failed,.dsc-role.blocked{border-color:#f2b9b5;background:#fff7f7}
+.dsc-detail-title{font-weight:850;font-size:17px;margin-bottom:10px;overflow-wrap:anywhere}.dsc-detail-line{margin:8px 0;color:var(--dsc-muted);overflow-wrap:anywhere}.dsc-detail-line b{color:#253044}.dsc-detail-section{border:1px solid var(--dsc-line);border-radius:8px;background:#fff;margin-top:10px;overflow:hidden}.dsc-detail-section summary{cursor:pointer;padding:10px 12px;font-weight:750;color:#253044}.dsc-detail-section div,.dsc-detail-section pre{padding:0 12px 12px;margin:0;color:var(--dsc-muted);white-space:pre-wrap;overflow-wrap:anywhere}.dsc-detail-section pre{max-height:180px;overflow:auto;font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;background:#f8fafc;border-top:1px solid var(--dsc-line);padding-top:10px}
+.dsc-empty{border:1px dashed #cbd5e1;border-radius:8px;padding:16px;color:var(--dsc-muted);background:#f8fafc}.dsc-footer{padding:11px 16px;background:#f8fafc;color:var(--dsc-muted);font-size:13px;display:flex;justify-content:space-between;gap:10px}.dsc-footer a{color:#1d4ed8;text-decoration:none}
+#dsc-cockpit.dsc-min{grid-template-rows:auto;bottom:auto;height:auto}.dsc-min .dsc-progress-wrap,.dsc-min .dsc-summary,.dsc-min .dsc-role-strip,.dsc-min .dsc-main,.dsc-min .dsc-footer{display:none}
+@media (max-width:1180px){#dsc-stage-board{display:none}}
+@media (max-width:760px){#dsc-cockpit{left:8px;right:8px;top:auto;bottom:8px;width:auto;max-height:72dvh;border-radius:8px;grid-template-rows:auto auto auto minmax(0,1fr) auto}.dsc-top{padding:13px 10px 12px 14px}.dsc-title-row{grid-template-columns:minmax(0,1fr) 48px;gap:8px}#dsc-title{font-size:18px}#dsc-collapse{min-width:48px;width:48px;min-height:42px;padding:0;font-size:13px}.dsc-summary{grid-template-columns:repeat(2,minmax(0,1fr));padding:10px 12px}#dsc-connection{padding:9px 12px}.dsc-role-strip{grid-template-columns:1fr 1fr;padding:10px 12px;max-height:132px}.dsc-main{grid-template-columns:1fr}.dsc-column:first-child{border-right:0}.dsc-column:nth-child(2){display:none}.dsc-section-head{padding:10px 12px}#dsc-task-list{padding:10px 12px}.dsc-footer{padding:9px 12px}#dsc-cockpit.dsc-detail-open .dsc-column:nth-child(2){display:flex;position:absolute;inset:58px 0 0;background:#fff;z-index:2}.dsc-detail-open .dsc-column:first-child{display:none}}
+@media (prefers-reduced-motion:reduce){.dsc-task-row,.dsc-board-item{will-change:auto}.dsc-progress span,.dsc-board-progress span{transition:none}}
+</style>`;
+  const markup = `<aside id="dsc-stage-board" aria-label="舞台任务黑板"></aside>
+<section id="dsc-cockpit" aria-label="DeepSeekCode 多 Agent 任务驾驶舱">
+  <header class="dsc-top"><div class="dsc-title-row"><div><div class="dsc-kicker">DeepSeekCode Agents</div><div id="dsc-title">正在读取任务...</div><div class="dsc-sub" id="dsc-sub"></div></div><button id="dsc-collapse" type="button" aria-label="折叠面板">收起</button></div></header>
+  <div class="dsc-progress-wrap"><div class="dsc-progress-meta"><span id="dsc-progress-label">0/0 已完成</span><span id="dsc-next">等待进展</span></div><div class="dsc-progress"><span id="dsc-progress-bar"></span></div></div>
+  <div id="dsc-connection" role="status" aria-live="polite"></div>
+  <div class="dsc-summary" id="dsc-metrics"></div>
+  <div class="dsc-role-strip" id="dsc-roles"></div>
+  <div class="dsc-main"><section class="dsc-column"><div class="dsc-section-head"><h2>任务清单</h2><select id="dsc-filter" class="dsc-filter" aria-label="任务筛选"><option value="all">全部</option><option value="unfinished">未完成</option><option value="running">执行中</option><option value="needs_review">待验收</option><option value="succeeded">已完成</option><option value="blocked">失败/阻塞</option></select></div><div id="dsc-task-list"></div></section><aside class="dsc-column"><div class="dsc-section-head"><h2>任务详情</h2><button id="dsc-back" class="dsc-filter" type="button">返回</button></div><div id="dsc-detail"></div></aside></div>
+  <footer class="dsc-footer"><span id="dsc-updated">等待 snapshot</span><a id="dsc-trace" href="#" target="_blank" rel="noreferrer">trace</a></footer>
+</section>`;
+  const script = `<script>
+(() => {
+  const panel = window.DEEPSEEKCODE_PIXEL_PANEL;
+  if (!panel) return;
+  const token = panel.token || new URLSearchParams(window.location.search).get("token") || "";
+  const root = document.getElementById("dsc-cockpit");
+  const board = document.getElementById("dsc-stage-board");
+  const title = document.getElementById("dsc-title");
+  const sub = document.getElementById("dsc-sub");
+  const progressLabel = document.getElementById("dsc-progress-label");
+  const progressBar = document.getElementById("dsc-progress-bar");
+  const next = document.getElementById("dsc-next");
+  const metrics = document.getElementById("dsc-metrics");
+  const roles = document.getElementById("dsc-roles");
+  const filter = document.getElementById("dsc-filter");
+  const taskList = document.getElementById("dsc-task-list");
+  const detail = document.getElementById("dsc-detail");
+  const collapse = document.getElementById("dsc-collapse");
+  const back = document.getElementById("dsc-back");
+  const updated = document.getElementById("dsc-updated");
+  const trace = document.getElementById("dsc-trace");
+  let selected = "";
+  let lastTaskSignature = "";
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function esc(v){return String(v ?? "").replace(/[&<>"]/g, ch => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[ch]));}
+  function compact(v,n=96){const s=String(v ?? "").replace(/\\s+/g," ").trim();return s.length>n?s.slice(0,n-1)+"...":s;}
+  function api(path){return panel.api + path + (path.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(token);}
+  function roleLabel(v){return ({Planner:"规划负责人",AcceptanceReviewer:"验收负责人",ImplementationSpecialist:"实现专家",RuntimeImplementationSpecialist:"运行实现工程师",MotionExperienceBuilder:"动效体验工程师",ExperienceArtifactBuilder:"前端界面工程师",Frontend:"前端工程师",Backend:"后端工程师",Builder:"实现工程师",Tester:"验证工程师",Worker:"执行工程师",Coordinator:"协调员"}[v] || v || "未分配");}
+  function statusText(v){return ({queued:"排队中",running:"执行中",needs_review:"待验收",succeeded:"已完成",failed:"失败",blocked:"阻塞",skipped:"已跳过",paused:"等待中",cancelled:"已取消",defined:"待命",idle:"休息中"}[v] || v || "未知");}
+  function phaseText(v){return ({planning:"规划中",awaiting_approval:"等待确认",executing:"执行中",reviewing:"验收中",completed:"已完成",blocked:"已阻塞",cancelled:"已取消"}[v] || v || "初始化");}
+  function approvalText(v){return ({pending:"待确认",approved:"已批准",rejected:"已拒绝",cancelled:"已取消"}[v] || v || "");}
+  function chip(v,cls){return v ? '<span class="dsc-chip '+esc(cls || v)+'">'+esc(v)+'</span>' : "";}
+  function markDisconnected(message){
+    if(disconnected) return;
+    disconnected = true;
+    root.classList.add("dsc-offline");
+    if(connection) connection.textContent = message || "本机 DeepSeekCode 已断开，页面保留最后一次 snapshot。";
+    next.textContent = "连接断开";
+    if(pollTimer) clearInterval(pollTimer);
+  }
+  function connectPanelSocket(){
+    try{
+      const wsUrl = new URL("/ws", window.location.href);
+      wsUrl.protocol = wsUrl.protocol === "https:" ? "wss:" : "ws:";
+      wsUrl.searchParams.set("runId", panel.runId);
+      wsUrl.searchParams.set("token", token);
+      const ws = new window.WebSocket(wsUrl.toString());
+      ws.addEventListener("message", event => {
+        try{
+          const message = JSON.parse(event.data);
+          if(message && message.type === "serverShutdown") markDisconnected(message.message || "本机 DeepSeekCode 已关闭，Pixel 页面连接断开。");
+        }catch{}
+      });
+      ws.addEventListener("close", () => markDisconnected("本机 DeepSeekCode 连接已断开，页面保留最后一次状态。"));
+      ws.addEventListener("error", () => markDisconnected("本机 DeepSeekCode 连接异常，页面保留最后一次状态。"));
+    }catch{}
+  }
+  function visible(task){const value=filter.value || "all"; if(value==="all")return true; if(value==="unfinished")return !["succeeded","skipped"].includes(task.status); if(value==="blocked")return ["blocked","failed"].includes(task.status); return task.status===value;}
+  function roleTaskCount(snapshot, role){return (snapshot.subtaskGraph || []).filter(t => t.assigneeRole === role.role).length;}
+  function animateRows(){if(reduceMotion || !window.gsap)return; window.gsap.fromTo("#dsc-task-list .dsc-task-row",{autoAlpha:0,y:8},{autoAlpha:1,y:0,duration:.22,stagger:.025,ease:"power2.out",overwrite:"auto"}); window.gsap.fromTo("#dsc-stage-board .dsc-board-item",{autoAlpha:0,y:6},{autoAlpha:1,y:0,duration:.22,stagger:.03,ease:"power2.out",overwrite:"auto"});}
+  function renderBoard(snapshot){
+    const tasks=(snapshot.subtaskGraph||[]).slice();
+    const completion=snapshot.completionSummary || {total:tasks.length,succeeded:0,skipped:0,percent:0};
+    const focus=tasks.filter(t=>!["succeeded","skipped"].includes(t.status)).slice(0,5);
+    const unassigned=tasks.filter(t=>!t.assigneeRole).length;
+    board.innerHTML='<div class="dsc-board-title">会议室任务黑板 <span>'+esc((completion.succeeded||0)+(completion.skipped||0))+'/'+esc(completion.total||0)+'</span></div><div class="dsc-board-progress"><span style="width:'+Math.max(0,Math.min(100,completion.percent||0))+'%"></span></div><div class="dsc-board-list">'+(focus.length?focus.map(t=>'<div class="dsc-board-item"><span class="dsc-board-dot '+esc(t.status)+'"></span><span><span class="dsc-board-name">'+esc(compact(t.title,42))+'</span><span class="dsc-board-meta">'+esc(roleLabel(t.assigneeRole))+' · '+esc((t.dependencies||[]).length?("依赖 "+t.dependencies.length):"无依赖")+'</span></span><span class="dsc-board-status">'+esc(statusText(t.status))+'</span></div>').join(""):'<div class="dsc-board-item"><span class="dsc-board-dot succeeded"></span><span><span class="dsc-board-name">暂无未完成任务</span><span class="dsc-board-meta">等待新计划或最终验收</span></span><span class="dsc-board-status">完成</span></div>')+'</div>'+(unassigned?'<div class="dsc-board-meta">未指派任务：'+esc(unassigned)+'</div>':'');
+  }
+  function renderDetail(snapshot, task){
+    if(!task){const mobile=snapshot.mobileSummary||{}; detail.innerHTML='<div class="dsc-empty"><b>手机摘要</b><div class="dsc-detail-line">'+esc(mobile.nextStep || "等待 workflow 进展。")+'</div></div>'; return;}
+    const role=(snapshot.roles||[]).find(r=>r.role===task.assigneeRole)||{};
+    const skill=(snapshot.generatedSkills||[]).find(s=>s.id===role.generatedSkillId || s.role===role.role)||{};
+    const issue=task.blockedBy || role.blockedBy || (role.blockedIssue && (role.blockedIssue.title || role.blockedIssue.firstLine)) || "";
+    const raw=[...(role.toolResultSummary||[]), role.lastMessage, role.checkpoint].filter(Boolean).join("\\n");
+    detail.innerHTML='<div class="dsc-detail-title">'+esc(task.title)+'</div>'
+      + '<div class="dsc-detail-line"><b>负责人</b> '+esc(roleLabel(task.assigneeRole))+' · '+esc(statusText(task.status))+'</div>'
+      + '<div class="dsc-detail-line"><b>依赖</b> '+esc((task.dependencies||[]).join(", ") || "无")+'</div>'
+      + '<div class="dsc-detail-line"><b>最近事件</b> '+esc(task.lastEvent || role.lastTool || "暂无")+'</div>'
+      + '<details class="dsc-detail-section" open><summary>验收标准与 evidence</summary><div><b>验收：</b>'+esc((task.acceptanceCriteria||[]).join(" | ") || "暂无")+'\\n\\n<b>证据：</b>'+esc((task.evidence||[]).join(" | ") || "暂无")+'</div></details>'
+      + '<details class="dsc-detail-section"><summary>角色专属 skill</summary><div>'+esc(skill.summary || role.generatedSkillSummary || "暂无 role-local skill 摘要")+'\\n\\n'+esc(skill.prompt || "")+'</div></details>'
+      + '<details class="dsc-detail-section"><summary>职责与上下文范围</summary><div>'+esc(role.responsibility || "暂无")+'\\n\\n'+esc(role.contextScope || "暂无")+'</div></details>'
+      + (issue ? '<details class="dsc-detail-section" open><summary>错误/阻塞摘要</summary><div>'+esc(issue)+'</div></details>' : '')
+      + '<details class="dsc-detail-section"><summary>Checkpoint / 工具摘要 / 原始输出</summary><pre>'+esc(raw || "暂无。代码输出和完整日志只在这里展开查看。")+'</pre></details>';
+  }
+  function render(snapshot){
+    const tasks=snapshot.subtaskGraph || [];
+    const completion=snapshot.completionSummary || {total:tasks.length,succeeded:0,skipped:0,running:0,needsReview:0,blocked:0,failed:0,percent:0};
+    const mobile=snapshot.mobileSummary || {};
+    title.textContent=snapshot.overview?.objective || mobile.objective || "DeepSeekCode 多 Agent";
+    sub.innerHTML=chip(phaseText(snapshot.phase || snapshot.overview?.phase), snapshot.phase || "")+chip(approvalText(snapshot.approvalState?.status), snapshot.approvalState?.status || "")+chip(mobile.overallProgress || "");
+    progressLabel.textContent=mobile.overallProgress ? mobile.overallProgress+" 已完成" : ((completion.succeeded||0)+(completion.skipped||0))+"/"+(completion.total||0)+" 已完成";
+    progressBar.style.width=Math.max(0,Math.min(100,completion.percent||0))+"%";
+    next.textContent=mobile.nextStep || "等待下一步";
+    metrics.innerHTML=[["未完成",Math.max(0,(completion.total||0)-(completion.succeeded||0)-(completion.skipped||0))],["执行中",completion.running||0],["待验收",completion.needsReview||0],["失败/阻塞",(completion.blocked||0)+(completion.failed||0)]].map(([label,value])=>'<div class="dsc-metric"><b>'+esc(value)+'</b><span>'+esc(label)+'</span></div>').join("");
+    roles.innerHTML=(snapshot.roles||[]).map(role=>{const count=roleTaskCount(snapshot,role); const line=role.currentTask || (count?("负责 "+count+" 个子任务"):(role.status==="succeeded"?"已完成，回休息区":"待命/休息区")); return '<div class="dsc-role '+esc(role.status||"")+'"><b>'+esc(roleLabel(role.role))+'</b><span>'+esc(statusText(role.status))+'</span><span>'+esc(line)+'</span></div>';}).join("");
+    const shown=tasks.filter(visible);
+    const signature=shown.map(t=>t.id+":"+t.status+":"+(t.lastEvent||"")).join("|");
+    taskList.innerHTML=shown.length?shown.map(task=>'<button class="dsc-task-row" type="button" data-id="'+esc(task.id)+'" aria-selected="'+(task.id===selected)+'"><span class="dsc-dot '+esc(task.status)+'"></span><span><span class="dsc-task-name">'+esc(task.title)+'</span><span class="dsc-task-meta">'+esc(roleLabel(task.assigneeRole))+' · '+esc((task.dependencies||[]).length?("依赖 "+task.dependencies.join(", ")):"无依赖")+'</span></span><span class="dsc-status">'+esc(statusText(task.status))+'</span></button>').join(""):'<div class="dsc-empty">当前筛选没有任务。若任务正在运行，请确认链接 token 仍有效。</div>';
+    taskList.querySelectorAll("[data-id]").forEach(node=>node.addEventListener("click",()=>{selected=node.dataset.id||""; root.classList.add("dsc-detail-open"); renderDetail(snapshot,tasks.find(t=>t.id===selected)); taskList.querySelectorAll("[data-id]").forEach(row=>row.setAttribute("aria-selected",String(row.dataset.id===selected)));}));
+    if(!selected && tasks.length) selected=tasks[0].id;
+    renderDetail(snapshot,tasks.find(t=>t.id===selected));
+    renderBoard(snapshot);
+    updated.textContent=snapshot.generatedAtMs ? "更新于 "+new Date(snapshot.generatedAtMs).toLocaleTimeString() : "等待 snapshot";
+    trace.href=api("/trace.jsonl");
+    if(signature!==lastTaskSignature) animateRows();
+    lastTaskSignature=signature;
+  }
+  async function tick(){
+    if(disconnected) return;
+    try{const res=await fetch(api("/snapshot"),{cache:"no-store"}); if(!res.ok){taskList.innerHTML='<div class="dsc-empty">Snapshot 读取失败：HTTP '+res.status+'。请重新打开 /agents dashboard share 刷新 token。</div>'; return;} render(await res.json());}
+    catch(error){markDisconnected("无法连接本机 DeepSeekCode，页面保留最后一次状态。"); taskList.innerHTML='<div class="dsc-empty">Snapshot 读取失败：'+esc(error && error.message ? error.message : error)+'</div>';}
+  }
+  collapse.addEventListener("click",()=>{root.classList.toggle("dsc-min"); collapse.textContent=root.classList.contains("dsc-min")?"展开":"收起";});
+  back.addEventListener("click",()=>root.classList.remove("dsc-detail-open"));
+  filter.addEventListener("change",()=>tick());
+  const gs=document.createElement("script");
+  gs.src="/agent-assets/gsap.min.js";
+  gs.onload=()=>{if(!reduceMotion && window.gsap){const tl=window.gsap.timeline({defaults:{duration:.26,ease:"power2.out"}}); tl.fromTo(root,{autoAlpha:0,y:12},{autoAlpha:1,y:0}).fromTo(board,{autoAlpha:0,y:10},{autoAlpha:1,y:0},"<.05");}};
+  document.head.appendChild(gs);
+  connectPanelSocket();
+  tick();
+  pollTimer = window.setInterval(tick,1500);
+})();
+</script>`;
+  return { style, markup, script };
+}
+
 function pixelMessagesFromSnapshot(snapshot: AgentDashboardSnapshot): PixelMessage[] {
   const messages: PixelMessage[] = [];
   const ids = roleIds(snapshot.roles);
@@ -460,7 +1090,7 @@ function pixelMessagesFromSnapshot(snapshot: AgentDashboardSnapshot): PixelMessa
       type: "agentTeamInfo",
       id,
       teamName: "DeepSeekCode",
-      agentName: role.role,
+      agentName: displayRoleName(role.role),
       isTeamLead: index === 0,
       leadAgentId: ids[0] ?? 1,
       teamUsesTmux: false,
@@ -490,11 +1120,24 @@ function pixelMessagesFromSnapshot(snapshot: AgentDashboardSnapshot): PixelMessa
     messages.push({ type: "agentTokenUsage", id, inputTokens: 0, outputTokens: 0 });
   }
   messages.push({
+    type: "workflowTaskGraph",
+    workflowId: snapshot.workflow?.id,
+    phase: snapshot.phase,
+    approvalState: snapshot.approvalState,
+    rolePlan: snapshot.rolePlan,
+    subtasks: snapshot.subtaskGraph,
+    generatedSkills: snapshot.generatedSkills,
+    completionSummary: snapshot.completionSummary,
+    mobileSummary: snapshot.mobileSummary,
+  });
+  messages.push({
     type: "agentDiagnostics",
+    workflow: snapshot.agentDiagnostics,
     agents: roles.map((role, index) => ({
       id: ids[index] ?? index + 1,
       role: role.role,
       responsibility: role.responsibility,
+      contextScope: role.contextScope,
       status: role.status,
       currentTask: role.currentTask,
       assignedTasks: role.assignedTasks,
@@ -503,9 +1146,17 @@ function pixelMessagesFromSnapshot(snapshot: AgentDashboardSnapshot): PixelMessa
       issue: role.blockedIssue,
       lastTool: role.lastTool,
       lastMessage: role.lastMessage,
+      checkpoint: role.checkpoint,
+      transcript: role.transcript,
+      toolResultSummary: role.toolResultSummary,
       skills: role.skills,
       tools: role.tools,
       acceptance: role.acceptance,
+      requiredOutputs: role.requiredOutputs,
+      riskChecks: role.riskChecks,
+      handoffFormat: role.handoffFormat,
+      generatedSkillId: role.generatedSkillId,
+      generatedSkillSummary: role.generatedSkillSummary,
     })),
   });
   return messages;
@@ -514,10 +1165,9 @@ function pixelMessagesFromSnapshot(snapshot: AgentDashboardSnapshot): PixelMessa
 function rolesForSnapshot(snapshot: AgentDashboardSnapshot): AgentDashboardRole[] {
   if (snapshot.roles.length) return snapshot.roles;
   const defaultRoles = [
-    ["Planner", "Clarify the task, split work, and keep the plan aligned."],
-    ["Builder", "Implement the concrete work required by the objective."],
-    ["Tester", "Run checks, collect failures, and feed actionable results back."],
-    ["Reviewer", "Verify the final result against the task contract."],
+    ["Planner", "Create the reviewable plan gate and task-specific role plan."],
+    ["DynamicSpecialist", "Execute a task-specific role generated from the contract."],
+    ["AcceptanceReviewer", "Verify subtasks and final evidence against the contract."],
   ];
   return defaultRoles.map(([role, responsibility]) => ({
     role,
@@ -525,14 +1175,18 @@ function rolesForSnapshot(snapshot: AgentDashboardSnapshot): AgentDashboardRole[
     status: "defined",
     assignedTasks: [],
     completedTasks: [],
+    transcript: [],
+    toolResultSummary: [],
     skills: [],
     tools: [],
     acceptance: [],
+    requiredOutputs: [],
+    riskChecks: [],
   }));
 }
 
 function roleIds(roles: AgentDashboardRole[]): number[] {
-  const count = Math.max(roles.length, 4);
+  const count = Math.max(roles.length, roles.length ? roles.length : 3);
   return Array.from({ length: count }, (_, index) => index + 1);
 }
 
@@ -547,37 +1201,84 @@ function toolItemsForRole(role: AgentDashboardRole, timeline: AgentDashboardTime
   done?: boolean;
 }[] {
   const items: { toolName: string; status: string; permissionActive?: boolean; done?: boolean }[] = [];
-  items.push({ toolName: "role", status: `职责：${compact(role.responsibility, 80)}`, done: true });
+  items.push({ toolName: "状态", status: shortStatusLabel(role), done: !isRoleActive(role) });
   if (role.currentTask) {
-    items.push({ toolName: "task", status: `当前任务：${compact(role.currentTask, 90)}` });
-  }
-  for (const task of role.assignedTasks.slice(0, 2)) {
-    items.push({ toolName: "assigned", status: `已分配：${compact(task, 80)}`, done: role.completedTasks.some((done) => done.includes(task.slice(0, 20))) });
+    items.push({ toolName: "任务", status: compact(role.currentTask, 36) });
   }
   if (role.lastTool) {
-    items.push({ toolName: role.lastTool, status: `最近工具：${compact(role.lastTool, 70)}` });
+    items.push({ toolName: localizedToolName(role.lastTool), status: compact(localizedToolName(role.lastTool), 32), done: role.status === "succeeded" });
   }
   if (role.blockedIssue) {
     const issue = role.blockedIssue;
     const title = localizedText(issue.title) || issue.firstLine || role.blockedBy || "需要处理";
-    const detail = localizedText(issue.explanation) || localizedText(issue.suggestion);
     items.push({
-      toolName: "issue",
-      status: `问题：${compact(title, 90)}。${compact(detail, 90)}`,
-      permissionActive: /permission|权限|approval|gate/i.test(`${title} ${detail}`),
+      toolName: "问题",
+      status: compact(title, 42),
+      permissionActive: /permission|权限|approval|gate/i.test(title),
     });
   } else if (role.blockedBy) {
-    items.push({ toolName: "issue", status: `问题：${compact(role.blockedBy, 100)}` });
+    items.push({ toolName: "问题", status: compact(role.blockedBy, 42) });
   }
-  if (role.lastMessage) {
-    items.push({ toolName: "message", status: `通信：${compact(role.lastMessage, 120)}`, done: true });
-  }
-  const roleEvents = timeline.filter((event) => event.role === role.role).slice(-2);
+  const roleEvents = timeline.filter((event) => event.role === role.role).slice(-1);
   for (const event of roleEvents) {
     const label = event.message ?? event.task ?? event.tool ?? event.kind;
-    items.push({ toolName: event.tool ?? event.kind, status: `事件：${compact(label, 120)}`, done: /succeed|done|finished|message/i.test(event.status ?? event.kind) });
+    items.push({ toolName: localizedToolName(event.tool ?? event.kind), status: compact(label, 40), done: /succeed|done|finished|message/i.test(event.status ?? event.kind) });
   }
-  return items.slice(0, 7);
+  return items.slice(0, 4);
+}
+
+function shortStatusLabel(role: AgentDashboardRole): string {
+  if (role.blockedBy || role.blockedIssue) return /permission|approval|gate|权限|确认/i.test(role.blockedBy ?? "") ? "等待确认" : "已阻塞";
+  if (role.status === "running") {
+    if (/test|qa|verify|验证|测试/i.test(role.role)) return "验证中";
+    if (/review|accept|验收|审查/i.test(role.role)) return "验收中";
+    if (/plan|planner|coordinator|规划|计划/i.test(role.role)) return "规划中";
+    if (/front|ui|web|page|前端|界面|动效|玩法/i.test(role.role)) return "构建体验";
+    if (/back|api|server|cli|后端|接口|命令行/i.test(role.role)) return "构建逻辑";
+    return "执行中";
+  }
+  if (role.status === "paused") return "等待中";
+  if (role.status === "failed") return "失败";
+  if (role.status === "succeeded") return "已完成";
+  return "休息中";
+}
+
+function displayRoleName(role: string): string {
+  const names: Record<string, string> = {
+    Planner: "规划负责人",
+    AcceptanceReviewer: "验收负责人",
+    ImplementationSpecialist: "实现专家",
+    RuntimeImplementationSpecialist: "运行实现工程师",
+    MotionExperienceBuilder: "动效体验工程师",
+    ExperienceArtifactBuilder: "前端界面工程师",
+    Frontend: "前端工程师",
+    Backend: "后端工程师",
+    Builder: "实现工程师",
+    Tester: "验证工程师",
+    Worker: "执行工程师",
+    Coordinator: "协调员",
+  };
+  return names[role] ?? role;
+}
+
+function localizedToolName(tool: string): string {
+  const names: Record<string, string> = {
+    status: "状态",
+    run_command: "执行命令",
+    write_file: "写文件",
+    append_file: "追加文件",
+    read_file: "读文件",
+    apply_patch: "修改文件",
+    launch_project: "启动项目",
+    browser_screenshot: "浏览器截图",
+    validate_artifact: "验证产物",
+    verify_task: "任务验收",
+    search_skills: "查找 skill",
+    invoke_skill: "调用 skill",
+    mcp_call: "MCP 调用",
+    agent_status: "Agent 状态",
+  };
+  return names[tool] ?? tool;
 }
 
 function routeRunId(pathname: string): string | undefined {
@@ -598,7 +1299,33 @@ function setCors(res: http.ServerResponse): void {
 }
 
 function randomToken(): string {
-  return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  return randomBytes(32).toString("base64url");
+}
+
+function panelTokenTtlMs(): number {
+  const raw = Number(process.env.DEEPSEEKCODE_AGENT_PANEL_TOKEN_TTL_MS || 30 * 60 * 1000);
+  if (!Number.isFinite(raw)) return 30 * 60 * 1000;
+  return Math.min(24 * 60 * 60 * 1000, Math.max(60_000, Math.trunc(raw)));
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function resolveCommand(command: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const shellCommand = process.platform === "win32" ? "where" : "command";
+    const args = process.platform === "win32" ? [command] : ["-v", command];
+    const child = execFile(shellCommand, args, { windowsHide: true }, (error, stdout) => {
+      if (error) {
+        resolve(undefined);
+        return;
+      }
+      const first = stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)[0];
+      resolve(first);
+    });
+    child.on("error", () => resolve(undefined));
+  });
 }
 
 function reqOnClose(res: http.ServerResponse, callback: () => void): void {
