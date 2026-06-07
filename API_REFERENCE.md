@@ -175,7 +175,7 @@ DeepSeekCode exposes tools through native provider `tools[]`. Important tool gro
 
 ## Agent Panel
 
-The Agent Panel is a read-only, Pixel-compatible observer for multi-agent runs. It is started automatically when a workflow begins and can be reopened with `/agents dashboard`.
+The Agent Panel is the bundled Pixel Agents read-only observer for multi-agent runs. DeepSeekCode serves the Pixel web UI and supplies runtime snapshots, SSE updates, and trace JSONL. It is started automatically when a workflow begins and can be reopened with `/agents dashboard`.
 
 Snapshot shape:
 
@@ -217,7 +217,7 @@ interface AgentDashboardSnapshot {
 }
 ```
 
-Pixel-style compatibility is provided through `agent-trace.jsonl` and the SSE stream. The panel does not execute tools or approve permissions.
+Pixel Agents consumes the runtime snapshot and Pixel-style `agent-trace.jsonl`/SSE stream. The panel does not execute tools or approve permissions.
 
 ## `TaskCompletionContract`
 

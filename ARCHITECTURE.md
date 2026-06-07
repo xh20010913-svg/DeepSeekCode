@@ -39,7 +39,7 @@ Provider-facing execution does not rely on model-emitted `ActionEnvelope JSON`. 
 | MCP | Provides unified `mcp_call`; native per-tool schema expansion is an extension path. |
 | Remote channels | WeCom and personal WeChat OpenClaw share QueryEngine, state, permissions, and delivery planning. |
 | Agent workflow | Supervisor + role specs + shared blackboard + Tester/Reviewer acceptance. |
-| Agent panel | Read-only Pixel-compatible per-run observer with local HTTP/SSE snapshots, tokenized share links, and JSONL trace output. |
+| Agent panel | Bundled Pixel Agents read-only observer with local HTTP/SSE snapshots, tokenized share links, and JSONL trace output. |
 | Artifact delivery | Sends readable previews by artifact type instead of flooding remote chat with source files. |
 
 ## Generic Completion
@@ -79,7 +79,7 @@ Multi-agent mode is a project-scoped workflow, not a chat gimmick. The main mode
 
 The workflow writes role messages to a shared blackboard and exposes `agent_status` for TUI/remote display. Reviewer acceptance must refer back to the task contract and the relevant validators.
 
-When a workflow starts, `AgentDashboardServer` can open a local browser Agent Panel and write `agent-trace.jsonl`. The panel is built from durable run/task/event/artifact state, not terminal scraping. Remote channels can share the same view through `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL`; without a secure tunnel the link remains local-only. The panel is read-only and never approves tools or executes commands.
+When a workflow starts, `AgentDashboardServer` serves the bundled Pixel Agents panel and writes `agent-trace.jsonl`. The panel is built from durable run/task/event/artifact state, not terminal scraping. Remote channels can share the same view through `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL`; without a secure tunnel the link remains local-only. The panel is read-only and never approves tools or executes commands.
 
 ## Remote Runtime
 

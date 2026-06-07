@@ -89,9 +89,9 @@ MCP 通过统一入口进入工具链路，结果走同一套权限、摘要、h
 
 当前多 agent 是中心编排 + 共享黑板 + 可见状态的实现，仍在继续增强独立子 agent 执行深度。
 
-多 Agent 工作流启动时，DeepSeekCode 会自动启动只读的 Pixel-compatible Agent Panel。TUI 模式会在本机浏览器打开一次；微信/企微远程模式会在配置了 `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` 的情况下发送带 30 分钟 view token 的安全链接。没有公网隧道时会降级为本机链接和状态摘要。
+多 Agent 工作流启动时，DeepSeekCode 会直接启动内置的 Pixel Agents 只读面板。TUI 模式会在本机浏览器打开一次；微信/企微远程模式会在配置了 `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` 的情况下发送带 30 分钟 view token 的安全链接。没有公网隧道时会降级为本机链接和状态摘要。
 
-面板展示任务目标、当前阶段、是否卡住、最近工具、token/cache 概览；每个角色的职责、当前任务、已分配任务、完成证据、阻塞点、skills、tools、验收标准；任务板、协作时间线、产物入口、验证结论和 `agent-trace.jsonl`。备用命令：
+Pixel Agents 面板展示任务目标、当前阶段、是否卡住、最近工具、token/cache 概览；每个角色的职责、当前任务、已分配任务、完成证据、阻塞点、skills、tools、验收标准；任务板、协作时间线、产物入口、验证结论和 `agent-trace.jsonl`。DeepSeekCode 后端只负责输出真实 run 事件、snapshot 和 JSONL trace，不再维护另一套自研 dashboard UI。备用命令：
 
 ```text
 /agents dashboard

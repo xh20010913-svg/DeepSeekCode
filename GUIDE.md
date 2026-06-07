@@ -89,7 +89,7 @@ You can ask for a team:
 开启多 agent 协作：Planner 负责方案，Builder 负责实现，Tester 负责运行检查，Reviewer 负责验收。
 ```
 
-If roles are missing, DeepSeekCode creates Planner, Builder, Tester, and Reviewer. When the workflow starts, the read-only agent panel opens automatically in TUI mode and shows role responsibilities, current tasks, assigned work, blockers, recent tools, handoffs, artifacts, and Reviewer conclusions. Reviewer must use the task contract and generic verification, not a web-only checklist.
+If roles are missing, DeepSeekCode creates Planner, Builder, Tester, and Reviewer. When the workflow starts, the bundled Pixel Agents read-only panel opens automatically in TUI mode and shows role responsibilities, current tasks, assigned work, blockers, recent tools, handoffs, artifacts, and Reviewer conclusions. Reviewer must use the task contract and generic verification, not a web-only checklist.
 
 Backup commands:
 
@@ -100,7 +100,7 @@ Backup commands:
 /agents dashboard close
 ```
 
-For phone access from WeChat/WeCom, point `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` to a trusted HTTPS tunnel. Without it, the Agent Panel remains local-only.
+For phone access from WeChat/WeCom, point `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` to a trusted HTTPS tunnel. Without it, the Pixel Agents panel remains local-only.
 
 ## 7. Remote control
 

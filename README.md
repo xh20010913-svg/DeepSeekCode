@@ -88,7 +88,7 @@ MCP tools are routed through the same tool-result, permission, hook, audit, and 
 
 Natural language can start a visible multi-agent workflow. User-defined roles are preserved. If no roles are supplied, DeepSeekCode creates Planner, Builder, Tester, and Reviewer roles. Reviewer uses the generic task contract rather than a web-specific checklist.
 
-When a multi-agent workflow starts, DeepSeekCode now starts a read-only Pixel-compatible Agent Panel for that run. In TUI mode it opens the local browser once; remote channels receive a tokenized link when `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` points to a secure tunnel. The panel shows:
+When a multi-agent workflow starts, DeepSeekCode serves the bundled Pixel Agents read-only panel for that run. In TUI mode it opens the local browser once; remote channels receive a tokenized link when `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` points to a secure tunnel. The panel shows:
 
 - objective, phase, stale state, recent tool, token/cache summary
 - role cards with responsibility, current task, assigned work, blockers, skills, tools, and acceptance criteria
@@ -96,7 +96,7 @@ When a multi-agent workflow starts, DeepSeekCode now starts a read-only Pixel-co
 - collaboration timeline with handoffs, tools, approvals, validation, and repair events
 - artifacts, entry points, validation state, and `agent-trace.jsonl`
 
-DeepSeekCode emits Pixel-style JSONL and SSE events from the runtime. The built-in panel consumes that stream without requiring the Pixel Agents extension to be bundled into the npm package.
+DeepSeekCode emits runtime snapshots, SSE updates, and Pixel-style JSONL. Pixel Agents is the presentation layer; DeepSeekCode no longer maintains a separate hand-written multi-agent dashboard UI.
 
 Backup commands:
 

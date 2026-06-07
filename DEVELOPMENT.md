@@ -127,10 +127,10 @@ Reviewer must check against the generic task contract. It should not only inspec
 
 ## Agent Panel Development
 
-The multi-agent panel is an observer, not a control plane. It is implemented by:
+The multi-agent panel is an observer, not a control plane. DeepSeekCode now serves the bundled Pixel Agents UI and only owns the runtime data feed:
 
 - `src/services/agents/agentDashboardModel.ts`: converts durable state, workflow roles, tasks, events, usage, and artifacts into `AgentDashboardSnapshot`.
-- `src/services/agents/agentDashboardServer.ts`: starts a per-project local HTTP server, serves the Agent Panel HTML, snapshot JSON, SSE snapshots, and `agent-trace.jsonl`.
+- `src/services/agents/agentDashboardServer.ts`: starts a per-project local HTTP server, serves Pixel Agents assets, snapshot JSON, websocket/SSE updates, and `agent-trace.jsonl`.
 - `QueryEngine.openAgentDashboard`: automatically opens the Agent Panel when a run is classified as multi-agent.
 - remote channel callbacks: WeChat/WeCom receive a share link when a public base URL is configured.
 
@@ -138,7 +138,7 @@ Agent Panel rules:
 
 - Do not infer roles from free-form terminal text when durable task/workflow state exists.
 - Keep the panel read-only; permission approval stays in the TUI or remote approval bridge.
-- Emit Pixel-style JSONL fields (`role`, `status`, `task`, `tool`, `message`, `artifact`, `parentRunId`, `childRunId`) without depending on the Pixel Agents extension.
+- Emit Pixel-style JSONL fields (`role`, `status`, `task`, `tool`, `message`, `artifact`, `parentRunId`, `childRunId`) and Pixel websocket bootstrap/update messages.
 - Use `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` only for a trusted HTTPS tunnel; otherwise remote channels should say the panel is local-only.
 - The view token is short-lived and scoped to one run.
 
