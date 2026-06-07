@@ -1,10 +1,10 @@
-# DeepSeekCode
+﻿# DeepSeekCode
 
 [中文](./README.zh-CN.md) | [Guide](./GUIDE.md) | [Architecture](./ARCHITECTURE.md) | [CLI Reference](./CLI_REFERENCE.md) | [Development](./DEVELOPMENT.md) | [API Reference](./API_REFERENCE.md) | [Website](https://xh20010913-svg.github.io/DeepSeekCode/)
 
 DeepSeekCode is a DeepSeek-first local agent runtime for real project workspaces. It connects native function calling, local files, shell/browser permissions, project state, skills, plugins, MCP, WeChat remote control, multi-agent workflows, and task verification.
 
-v0.3.0 focuses on a generic execution loop: create a task contract, execute with tools, verify real outputs, feed failures back to the model, and retry with a better strategy. HTML is only one artifact type. The same `verify_task` entry point also covers code projects, CLI scripts, Office/PDF files, spreadsheets, reports, data tasks, media artifacts, MCP, plugins, and automation jobs.
+v0.3.1 focuses on a generic execution loop: create a task contract, execute with tools, verify real outputs, feed failures back to the model, and retry with a better strategy. HTML is only one artifact type. The same `verify_task` entry point also covers code projects, CLI scripts, Office/PDF files, spreadsheets, reports, data tasks, media artifacts, MCP, plugins, and automation jobs.
 
 ## Install
 
@@ -88,13 +88,15 @@ MCP tools are routed through the same tool-result, permission, hook, audit, and 
 
 Natural language can start a visible multi-agent workflow. User-defined roles are preserved. If no roles are supplied, DeepSeekCode creates Planner, Builder, Tester, and Reviewer roles. Reviewer uses the generic task contract rather than a web-specific checklist.
 
-When a multi-agent workflow starts, DeepSeekCode now starts a read-only dashboard for that run. In TUI mode it opens the local browser once; remote channels receive a tokenized link when `DEEPSEEKCODE_DASHBOARD_PUBLIC_BASE_URL` points to a secure tunnel. The dashboard shows:
+When a multi-agent workflow starts, DeepSeekCode now starts a read-only Pixel-compatible Agent Panel for that run. In TUI mode it opens the local browser once; remote channels receive a tokenized link when `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` points to a secure tunnel. The panel shows:
 
 - objective, phase, stale state, recent tool, token/cache summary
 - role cards with responsibility, current task, assigned work, blockers, skills, tools, and acceptance criteria
 - task board for queued, running, review, completed, and failed work
 - collaboration timeline with handoffs, tools, approvals, validation, and repair events
 - artifacts, entry points, validation state, and `agent-trace.jsonl`
+
+DeepSeekCode emits Pixel-style JSONL and SSE events from the runtime. The built-in panel consumes that stream without requiring the Pixel Agents extension to be bundled into the npm package.
 
 Backup commands:
 
@@ -159,4 +161,4 @@ Real scenario tests should be run in `D:\code\DeepSeekTest`. Do not publish `.en
 
 ## References
 
-DeepSeek Function Calling, DeepSeek Context Caching, Claude Code subagents/skills/hooks/MCP, MCP TypeScript SDK, Playwright screenshots, Pixel Agents, and browser-use informed the v0.3.0 direction.
+DeepSeek Function Calling, DeepSeek Context Caching, Claude Code subagents/skills/hooks/MCP, MCP TypeScript SDK, Playwright screenshots, Pixel Agents, and browser-use informed the v0.3.1 direction.

@@ -331,9 +331,9 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
       sessionScopeProjectPath: `${path.resolve(projectPath)}#remote:wechat-openclaw:${this.client?.currentAccount()?.accountId ?? "unknown"}:${message.chatId}`,
       openAgentDashboard: async (runId, options) => {
         const selectedRunId = runId ?? runtime.state.listRuns(1)[0]?.id;
-        if (!selectedRunId) return "Agent dashboard is not ready yet.";
+        if (!selectedRunId) return "多 Agent 面板还没有可展示的 run。";
         const dashboard = await getAgentDashboardServer({
-          state: runtime.state,
+          stateStore: runtime.state,
           projectPath,
           dataDir: runtime.config.dataDir,
         }).open(selectedRunId, {
@@ -345,7 +345,7 @@ export class WeChatOpenClawRemoteControlService implements RemoteChannel {
           ? [
               "多 Agent 面板已启动，但当前只有本机链接。",
               `本机打开：${dashboard.localUrl}`,
-              "手机访问需要配置 DEEPSEEKCODE_DASHBOARD_PUBLIC_BASE_URL 或安全隧道。",
+              "手机访问需要配置 DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL 或安全隧道。",
             ].join("\n")
           : [
               "多 Agent 面板已启动。",

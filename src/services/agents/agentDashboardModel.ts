@@ -122,6 +122,14 @@ export function buildAgentDashboardSnapshot(input: {
     usage,
     projectPath: input.projectPath,
   });
+  const eventTimeline = events.slice(-120).map((event) => normalizeTimelineEvent(event));
+  const messageTimeline = workflowStatus
+    ? workflowStatus.messages.slice(-80).map((message, index) => workflowMessageToTimelineEvent(message, index, workflowStatus.record))
+    : [];
+  const timeline = [...eventTimeline, ...messageTimeline]
+    .sort((a, b) => a.createdAtMs - b.createdAtMs)
+    .slice(-180);
+
   return {
     run,
     workflow: workflowStatus?.record,
@@ -130,31 +138,50 @@ export function buildAgentDashboardSnapshot(input: {
     overview,
     roles,
     taskBoard: buildTaskBoard(tasks),
-    timeline: events.slice(-100).map((event) => normalizeTimelineEvent(event)),
+    timeline,
     artifacts,
     validation: buildValidation(events, tasks, validationGates),
   };
 }
 
 export function serializeAgentTraceJsonl(snapshot: AgentDashboardSnapshot): string {
-  return snapshot.timeline
-    .map((event) => JSON.stringify({
-      role: event.role,
-      status: event.status,
-      task: event.task,
-      tool: event.tool,
-      message: event.message,
-      issue: event.issue ? {
-        category: event.issue.category,
-        title: event.issue.title.en,
-      } : undefined,
-      artifact: event.artifact,
-      parentRunId: event.parentRunId ?? snapshot.run?.id,
-      childRunId: event.childRunId,
-      kind: event.kind,
-      createdAtMs: event.createdAtMs,
-    }))
-    .join("\n");
+  const meta = {
+    source: "deepseekcode",
+    schema: "pixel-agents-compatible.v1",
+    kind: "run_snapshot",
+    runId: snapshot.run?.id,
+    workflowId: snapshot.workflow?.id,
+    projectPath: snapshot.projectPath,
+    createdAtMs: snapshot.generatedAtMs,
+    status: snapshot.overview.status,
+    task: snapshot.overview.objective,
+  };
+  const events = snapshot.timeline.map((event) => ({
+    source: "deepseekcode",
+    schema: "pixel-agents-compatible.v1",
+    runId: snapshot.run?.id,
+    workflowId: snapshot.workflow?.id,
+    role: event.role,
+    status: event.status,
+    task: event.task,
+    tool: event.tool,
+    message: event.message,
+    rawMessage: event.rawMessage,
+    issue: event.issue ? {
+      category: event.issue.category,
+      severity: event.issue.severity,
+      title: event.issue.title,
+      explanation: event.issue.explanation,
+      suggestion: event.issue.suggestion,
+      firstLine: event.issue.firstLine,
+    } : undefined,
+    artifact: event.artifact,
+    parentRunId: event.parentRunId ?? snapshot.run?.id,
+    childRunId: event.childRunId,
+    kind: event.kind,
+    createdAtMs: event.createdAtMs,
+  }));
+  return [meta, ...events].map((line) => JSON.stringify(line)).join("\n");
 }
 
 function activeWorkflowStatus(state: StateStore, projectPath: string): {
@@ -382,6 +409,25 @@ function blockedIssueFor(role: string, tasks: TaskRecord[], events: EventRecord[
     return eventRole === role && /failed|gate|decision|rework|retry|blocked/i.test(event.kind);
   });
   return relevant ? summarizeTechnicalError(timelineMessage(relevant) ?? relevant.kind) : undefined;
+}
+
+function workflowMessageToTimelineEvent(
+  message: AgentWorkflowMessage,
+  index: number,
+  workflow: AgentWorkflowRecord,
+): AgentDashboardTimelineEvent {
+  return {
+    id: `agent-message-${workflow.id}-${message.createdAtMs}-${index}`,
+    createdAtMs: message.createdAtMs,
+    kind: "agent_message",
+    role: message.from,
+    status: "message",
+    task: message.to === "all" ? undefined : `to ${message.to}`,
+    message: `${message.from} -> ${message.to}: ${compact(message.message, 500)}`,
+    rawMessage: message.message,
+    parentRunId: workflow.runId,
+    childRunId: workflow.id,
+  };
 }
 
 function issueFromTask(task: TaskRecord): TechnicalErrorSummary | undefined {

@@ -10,279 +10,292 @@ export type TechnicalErrorCategory =
   | "file_not_found"
   | "unknown";
 
-export interface LocalizedText {
+export type LocalizedText = {
   zh: string;
   en: string;
-}
+};
 
-export interface TechnicalErrorSummary {
+export type TechnicalErrorSummary = {
   category: TechnicalErrorCategory;
   severity: "info" | "warning" | "error";
+  firstLine: string;
   title: LocalizedText;
   explanation: LocalizedText;
   suggestion: LocalizedText;
-  firstLine: string;
-  details: string;
-}
+  strategy: LocalizedText;
+  details: string[];
+};
 
-const MAX_DETAIL_CHARS = 3600;
+type CategoryDefinition = {
+  title: LocalizedText;
+  explanation: LocalizedText;
+  suggestion: LocalizedText;
+  strategy: LocalizedText;
+};
 
-export function summarizeTechnicalError(value: string): TechnicalErrorSummary {
-  const details = normalizeText(value).slice(0, MAX_DETAIL_CHARS);
-  const lower = details.toLowerCase();
-  const firstLine = firstMeaningfulLine(details);
-
-  if (
-    /\b(mkdir\s+-p|rm\s+-rf|cat\s+|touch\s+|cp\s+-r)\b/i.test(details) ||
-    /\b(parsererror|parentcontainserrorrecordexception|parameterbindingexception|invalidendofline)\b/i.test(details) ||
-    /\buses\s+posix\/bash\s+syntax\b/i.test(details)
-  ) {
-    return issue({
-      category: "windows_shell_incompatible",
-      title: {
-        zh: "命令写法和当前 Windows shell 不兼容",
-        en: "The command is not compatible with the current Windows shell",
-      },
-      explanation: {
-        zh: "工具在 PowerShell 里执行，但命令像 bash/Linux 写法，所以这一步没有真正完成。",
-        en: "The tool is running in PowerShell, but the command looks like bash/Linux syntax, so this step did not really complete.",
-      },
-      suggestion: {
-        zh: "换成 PowerShell 写法，或改用文件工具和后台启动工具后重试。",
-        en: "Use PowerShell-compatible commands, or switch to file tools/background launch and retry.",
-      },
-      firstLine,
-      details,
-    });
-  }
-
-  if (
-    /\b(node-gyp|better-sqlite3|prebuild-install|vcinstalldir|visual studio|desktop development with c\+\+|msvs_version)\b/i.test(details) ||
-    /\bnative dependency\b/i.test(details)
-  ) {
-    return issue({
-      category: "native_dependency_build_failed",
-      title: {
-        zh: "本机原生依赖编译失败",
-        en: "A native dependency failed to build locally",
-      },
-      explanation: {
-        zh: "这类包需要 Visual Studio C++、node-gyp 或特定 Node 版本。普通用户机器经常没有这些组件。",
-        en: "This package needs system build tools such as Visual Studio C++ or node-gyp, which are often absent on user machines.",
-      },
-      suggestion: {
-        zh: "优先换成纯 JavaScript 依赖、内存或文件存储方案；如果必须使用原生包，再明确提示用户安装系统编译组件。",
-        en: "Prefer a pure JavaScript dependency or an in-memory/file storage fallback; if native code is required, ask the user to install system build tools.",
-      },
-      firstLine,
-      details,
-    });
-  }
-
-  if (
-    /\b(native tool call failed|invalid arguments for tool|local schema validation|unterminated string|unexpected end of json|invalid_type|expected.*received)\b/i.test(details) ||
-    /"path"\s*:\s*\["to"\]/i.test(details)
-  ) {
-    return issue({
-      category: "tool_schema_invalid",
-      title: {
-        zh: "模型传给工具的参数格式不合法",
-        en: "The model sent invalid tool arguments",
-      },
-      explanation: {
-        zh: "常见原因是一次写入内容过长、换行字符串没有正确转义，或必填字段缺失。",
-        en: "Common causes are oversized writes, unescaped multiline strings, or missing required fields.",
-      },
-      suggestion: {
-        zh: "把大文件拆成小块，先写骨架，再用 append 或 patch 分段补齐，然后重新验证。",
-        en: "Split large files into smaller chunks, write a skeleton first, then append or patch and validate again.",
-      },
-      firstLine,
-      details,
-    });
-  }
-
-  if (/\b(eaddrinuse|address already in use|port .* already|端口.*占用)\b/i.test(details)) {
-    return issue({
-      category: "port_in_use",
-      title: {
-        zh: "端口已经被占用",
-        en: "The port is already in use",
-      },
-      explanation: {
-        zh: "另一个服务已经占用了当前端口，所以新服务没有干净启动。",
-        en: "Another process is already using the target port, so the new service did not start cleanly.",
-      },
-      suggestion: {
-        zh: "检查已有服务，复用它或换一个端口后再验证。",
-        en: "Inspect the existing service, reuse it, or pick another port and verify again.",
-      },
-      firstLine,
-      details,
-    });
-  }
-
-  if (/\b(timed out|timeout|no progress|stale|still running|long-running|server started|listening on|localhost:\d+)\b/i.test(details)) {
-    return issue({
-      category: "long_running_process",
-      severity: lower.includes("timed out") || lower.includes("timeout") ? "warning" : "info",
-      title: {
-        zh: "命令看起来是长驻服务",
-        en: "The command appears to be a long-running service",
-      },
-      explanation: {
-        zh: "开发服务器启动后通常不会退出；如果一直等待命令结束，主任务会看起来卡住。",
-        en: "Dev servers usually keep running; waiting for run_command to exit makes the main task look stuck.",
-      },
-      suggestion: {
-        zh: "改用后台启动或项目验收流程，并用浏览器或 health check 检查服务是否可访问。",
-        en: "Use background launch or project verification, then check the service with a browser or health probe.",
-      },
-      firstLine,
-      details,
-    });
-  }
-
-  if (/\b(shell execution is disabled|permission|approval|denied|rejected|gate)\b/i.test(details)) {
-    return issue({
-      category: "permission_waiting",
-      severity: "warning",
-      title: {
-        zh: "正在等待权限确认",
-        en: "Waiting for permission",
-      },
-      explanation: {
-        zh: "当前步骤需要执行受限工具，必须由用户批准后才能继续。",
-        en: "This step needs a restricted tool and must wait for user approval.",
-      },
-      suggestion: {
-        zh: "在权限面板或远程审批里选择允许、拒绝或停止任务。",
-        en: "Use the permission panel or remote approval to allow, reject, or stop the task.",
-      },
-      firstLine,
-      details,
-    });
-  }
-
-  if (/\b(enoent|cannot find module|not found|could not read package\.json|找不到)\b/i.test(details)) {
-    return issue({
-      category: "file_not_found",
-      title: {
-        zh: "目标文件或模块不存在",
-        en: "A required file or module was not found",
-      },
-      explanation: {
-        zh: "命令访问的路径、入口文件或依赖模块不存在，可能是目录不对或前一步没有生成成功。",
-        en: "The command referenced a missing path, entry file, or module. The working directory may be wrong or an earlier generation step failed.",
-      },
-      suggestion: {
-        zh: "先确认项目目录和入口文件，再补齐缺失文件或重新安装依赖。",
-        en: "Check the project directory and entry files, then create missing files or reinstall dependencies.",
-      },
-      firstLine,
-      details,
-    });
-  }
-
-  if (/\b(npm err|npm error|install failed|dependency|dependencies)\b/i.test(details)) {
-    return issue({
-      category: "dependency_install_failed",
-      title: {
-        zh: "依赖安装失败",
-        en: "Dependency installation failed",
-      },
-      explanation: {
-        zh: "项目依赖没有安装成功，因此后续构建、启动或验收可能继续失败。",
-        en: "Project dependencies were not installed successfully, so later build, launch, or validation steps may fail.",
-      },
-      suggestion: {
-        zh: "查看第一条 npm 错误，调整依赖版本，或换成更容易在当前系统安装的方案。",
-        en: "Read the first npm error, adjust dependency versions, or choose a dependency that installs cleanly on this system.",
-      },
-      firstLine,
-      details,
-    });
-  }
-
-  return issue({
-    category: "unknown",
-    severity: lower.includes("failed") || lower.includes("error") ? "error" : "warning",
-    title: {
-      zh: "这个步骤遇到问题，需要进一步处理",
-      en: "This step needs attention",
-    },
+const CATEGORY_TEXT: Record<TechnicalErrorCategory, CategoryDefinition> = {
+  windows_shell_incompatible: {
+    title: { zh: "命令不适合当前 Windows shell", en: "Windows shell incompatibility" },
     explanation: {
-      zh: "工具返回了失败或异常信息，但暂时无法可靠归类。",
-      en: "The tool returned failure or diagnostic output that could not be classified reliably.",
+      zh: "这一步用了 Linux/bash 写法，但当前运行环境是 Windows PowerShell 或 cmd。",
+      en: "This step used Linux/bash syntax while the current environment is Windows PowerShell or cmd.",
     },
     suggestion: {
-      zh: "保留第一行错误和关键上下文，让模型换策略或进一步检查。",
-      en: "Keep the first error line and key context, then let the model change strategy or inspect further.",
+      zh: "改成 PowerShell 可执行写法，或者把切目录、建目录、管道等操作拆成独立命令。",
+      en: "Rewrite it as PowerShell-compatible commands, or split directory changes, folder creation, and pipes into separate commands.",
     },
-    firstLine,
-    details,
-  });
-}
+    strategy: {
+      zh: "把命令转换成当前系统能执行的形式，然后重试同一步。",
+      en: "Convert the command to a form this system can execute, then retry the same step.",
+    },
+  },
+  native_dependency_build_failed: {
+    title: { zh: "原生依赖编译失败", en: "Native dependency build failed" },
+    explanation: {
+      zh: "依赖包需要本机 C++/node-gyp 编译环境，或依赖本身不支持当前 Node 版本。",
+      en: "A package needs a local C++/node-gyp build environment, or the dependency does not support the current Node version.",
+    },
+    suggestion: {
+      zh: "优先换成纯 JavaScript 依赖、文件数据库或内存方案；确实需要原生依赖时再提示用户安装系统组件。",
+      en: "Prefer a pure JavaScript dependency, file database, or in-memory fallback; ask for system build tools only when the native dependency is required.",
+    },
+    strategy: {
+      zh: "避免反复安装同一个失败依赖，改用更稳定的实现方案。",
+      en: "Avoid repeating the same failing install and switch to a more reliable implementation.",
+    },
+  },
+  tool_schema_invalid: {
+    title: { zh: "模型给工具的参数格式不合法", en: "Invalid tool arguments" },
+    explanation: {
+      zh: "常见原因是一次写入内容过长、换行字符串没有正确编码，或缺少必填字段。",
+      en: "Common causes are overly large writes, incorrectly encoded multiline strings, or missing required fields.",
+    },
+    suggestion: {
+      zh: "先写较小的骨架，再用 append 或 patch 分段补齐，并在每段后验证。",
+      en: "Write a compact skeleton first, then append or patch in smaller chunks and validate after each chunk.",
+    },
+    strategy: {
+      zh: "拆小本轮工具调用，保留完整错误给模型继续修复。",
+      en: "Split this tool call into smaller calls and keep the full error available for repair.",
+    },
+  },
+  long_running_process: {
+    title: { zh: "服务可能已经启动", en: "Service may be running" },
+    explanation: {
+      zh: "启动命令进入了长期运行状态，通常表示服务或开发服务器在前台运行，不代表任务失败。",
+      en: "The start command entered a long-running state, which usually means a service or dev server is running in the foreground.",
+    },
+    suggestion: {
+      zh: "记录端口，用浏览器、健康检查或截图验证服务，而不是一直等待命令自然退出。",
+      en: "Record the port and verify it with a browser, health check, or screenshot instead of waiting for the command to exit.",
+    },
+    strategy: {
+      zh: "转入启动验证：检查端口、页面、控制台错误和关键功能。",
+      en: "Move to launch validation: check the port, page, console errors, and key behavior.",
+    },
+  },
+  permission_waiting: {
+    title: { zh: "正在等待权限", en: "Waiting for permission" },
+    explanation: {
+      zh: "当前步骤需要用户批准 shell、浏览器、文件或远程操作权限。",
+      en: "The current step needs user approval for shell, browser, file, or remote access.",
+    },
+    suggestion: {
+      zh: "在权限面板里选择允许一次、本会话允许、拒绝或停止任务。",
+      en: "Use the permission panel to allow once, allow for this session, reject, or stop the task.",
+    },
+    strategy: {
+      zh: "暂停敏感操作，等待用户决定。",
+      en: "Pause the sensitive action until the user decides.",
+    },
+  },
+  timeout: {
+    title: { zh: "步骤超时或疑似卡住", en: "Step timed out or may be stuck" },
+    explanation: {
+      zh: "一段时间内没有新的模型输出、工具结果或进度事件。",
+      en: "No new model output, tool result, or progress event has arrived for a while.",
+    },
+    suggestion: {
+      zh: "检查最近命令是否仍在运行；如果没有进展，重试当前步或停止任务。",
+      en: "Check whether the latest command is still running; if no progress is visible, retry the step or stop the task.",
+    },
+    strategy: {
+      zh: "标记卡住原因，并准备重试或交还用户决策。",
+      en: "Mark the stale reason and prepare to retry or hand back to the user.",
+    },
+  },
+  port_in_use: {
+    title: { zh: "端口已被占用", en: "Port already in use" },
+    explanation: {
+      zh: "要启动的服务端口已经被其他进程占用。",
+      en: "The port needed by the service is already occupied by another process.",
+    },
+    suggestion: {
+      zh: "查找占用进程，或换一个空闲端口后重新启动并验证。",
+      en: "Find the process using the port, or switch to a free port and verify again.",
+    },
+    strategy: {
+      zh: "寻找可用端口并重新启动服务。",
+      en: "Find an available port and restart the service.",
+    },
+  },
+  dependency_install_failed: {
+    title: { zh: "依赖安装失败", en: "Dependency install failed" },
+    explanation: {
+      zh: "包管理器安装依赖时失败，可能是网络、版本、锁文件、权限或依赖本身的问题。",
+      en: "The package manager failed to install dependencies, possibly due to network, version, lockfile, permission, or package issues.",
+    },
+    suggestion: {
+      zh: "读第一段关键错误，调整依赖或安装策略；不要无变化地反复执行同一个安装命令。",
+      en: "Read the first key error, adjust dependencies or install strategy, and avoid repeating the same install command unchanged.",
+    },
+    strategy: {
+      zh: "根据安装错误调整依赖方案。",
+      en: "Adjust the dependency strategy based on the install error.",
+    },
+  },
+  file_not_found: {
+    title: { zh: "文件或目录不存在", en: "File or directory not found" },
+    explanation: {
+      zh: "命令或工具访问了不存在的路径，或者当前工作目录和预期不一致。",
+      en: "A command or tool accessed a missing path, or the current working directory does not match the expected one.",
+    },
+    suggestion: {
+      zh: "确认工作目录，先列出文件，再用绝对路径或正确的相对路径重试。",
+      en: "Confirm the working directory, list files first, then retry with an absolute or correct relative path.",
+    },
+    strategy: {
+      zh: "重新定位文件路径和项目目录。",
+      en: "Recheck the file path and project directory.",
+    },
+  },
+  unknown: {
+    title: { zh: "执行步骤失败", en: "Execution step failed" },
+    explanation: {
+      zh: "当前工具或命令返回失败，需要根据第一行错误和完整日志继续判断。",
+      en: "The current tool or command failed and needs diagnosis from the first error line and full logs.",
+    },
+    suggestion: {
+      zh: "只向用户展示关键摘要，把完整日志保留在详情里，并把关键错误回放给模型修复。",
+      en: "Show users only the key summary, keep full logs in details, and feed the key error back to the model for repair.",
+    },
+    strategy: {
+      zh: "提取关键错误并准备修复。",
+      en: "Extract the key error and prepare a fix.",
+    },
+  },
+};
 
-export function formatTechnicalErrorForTerminal(value: string, options: { maxRawLines?: number } = {}): string {
-  const summary = summarizeTechnicalError(value);
-  const rawLines = summary.details
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .filter(Boolean)
-    .slice(0, options.maxRawLines ?? 4);
-  return [
-    `问题   ${summary.title.zh}`,
-    `原因   ${summary.explanation.zh}`,
-    `建议   ${summary.suggestion.zh}`,
-    summary.firstLine ? `首行   ${summary.firstLine}` : "",
-    rawLines.length ? "详情   展开日志或查看 run trace 可看完整输出；这里仅保留前几行。" : "",
-    ...rawLines.map((line) => `  ${clip(line, 180)}`),
-  ].filter(Boolean).join("\n");
-}
-
-export function firstMeaningfulLine(value: string): string {
-  const line = normalizeText(value)
-    .split(/\r?\n/)
-    .map((candidate) => candidate.trim())
-    .find((candidate) =>
-      candidate &&
-      !/^[\W_]+$/.test(candidate) &&
-      !/^npm (notice|warn cleanup)$/i.test(candidate)
-    );
-  return line ? clip(line, 220) : "";
-}
-
-export function compactHumanIssue(value: string, language: "zh" | "en" = "zh"): string {
-  const summary = summarizeTechnicalError(value);
-  return issueLabel(summary, language);
-}
-
-export function issueLabel(summary: TechnicalErrorSummary, language: "zh" | "en" = "zh"): string {
-  return `${summary.title[language]} - ${summary.suggestion[language]}`;
-}
-
-export function looksLikeTechnicalIssue(value: string): boolean {
-  return /\b(failed|error|invalid|denied|rejected|timeout|timed out|node-gyp|better-sqlite3|prebuild-install|visual studio|native tool call|schema validation|unexpected end of json|unterminated string|parsererror|parameterbindingexception|eaddrinuse|enoent|npm err|npm error|shell execution is disabled)\b/i.test(value);
-}
-
-function issue(input: Omit<TechnicalErrorSummary, "severity"> & { severity?: TechnicalErrorSummary["severity"] }): TechnicalErrorSummary {
+export function summarizeTechnicalError(input: unknown): TechnicalErrorSummary {
+  const text = stringifyInput(input);
+  const firstLine = firstMeaningfulLine(text);
+  const category = classify(text);
+  const definition = CATEGORY_TEXT[category];
   return {
-    severity: input.severity ?? "error",
-    category: input.category,
-    title: input.title,
-    explanation: input.explanation,
-    suggestion: input.suggestion,
-    firstLine: input.firstLine,
-    details: input.details,
+    category,
+    severity: category === "long_running_process" ? "info" : category === "permission_waiting" ? "warning" : "error",
+    firstLine,
+    title: definition.title,
+    explanation: definition.explanation,
+    suggestion: definition.suggestion,
+    strategy: definition.strategy,
+    details: meaningfulLines(text).slice(0, 12),
   };
 }
 
-function normalizeText(value: string): string {
-  return value.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "").replace(/\r/g, "\n").trim();
+export function formatTechnicalErrorForTerminal(
+  input: unknown,
+  localeOrOptions: "zh" | "en" | { locale?: "zh" | "en"; maxRawLines?: number } = "zh",
+): string {
+  const locale = typeof localeOrOptions === "string" ? localeOrOptions : (localeOrOptions.locale ?? "zh");
+  const maxRawLines = typeof localeOrOptions === "string" ? 4 : (localeOrOptions.maxRawLines ?? 4);
+  const summary = summarizeTechnicalError(input);
+  const labels = locale === "zh"
+    ? { issue: "问题", reason: "原因", next: "处理", first: "第一行", details: "详情", hidden: "完整日志已保留，这里只显示关键行。" }
+    : { issue: "Issue", reason: "Why", next: "Next", first: "First", details: "Details", hidden: "Full logs are preserved; only key lines are shown here." };
+  const lines = [
+    `${labels.issue}   ${summary.title[locale]}`,
+    `${labels.reason}   ${summary.explanation[locale]}`,
+    `${labels.next}   ${summary.strategy[locale]}`,
+    `${labels.first}   ${summary.firstLine || "(empty)"}`,
+  ];
+  if (summary.details.length > 1) {
+    lines.push(`${labels.details}   ${labels.hidden}`);
+    for (const line of summary.details.slice(1, Math.max(1, maxRawLines))) lines.push(`  ${line}`);
+  }
+  return lines.join("\n");
 }
 
-function clip(value: string, max: number): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized.length <= max ? normalized : `${normalized.slice(0, max - 3)}...`;
+export function firstMeaningfulLine(input: unknown): string {
+  return meaningfulLines(stringifyInput(input))[0] ?? "";
+}
+
+export function compactHumanIssue(input: unknown, locale: "zh" | "en" = "zh"): string {
+  const summary = summarizeTechnicalError(input);
+  return `${summary.title[locale]}: ${summary.explanation[locale]}${summary.firstLine ? ` first: ${summary.firstLine}` : ""}`;
+}
+
+export function issueLabel(input: unknown, locale: "zh" | "en" = "zh"): string {
+  return summarizeTechnicalError(input).title[locale];
+}
+
+export function looksLikeTechnicalIssue(input: unknown): boolean {
+  const text = stringifyInput(input).toLowerCase();
+  return /failed|failure|error|invalid|denied|rejected|timeout|stale|exception|enoent|eaddrinuse|node-gyp|npm error|permission|找不到|失败|错误|异常|不兼容|权限|超时|卡住|占用|依赖|端口|编译/.test(text);
+}
+
+function classify(text: string): TechnicalErrorCategory {
+  if (isWindowsShellMismatch(text)) return "windows_shell_incompatible";
+  if (/node-gyp|better-sqlite3|prebuild-install|vcinstalldir|visual studio|desktop development with c\+\+|msvs_version|native dependency|native addon/i.test(text)) {
+    return "native_dependency_build_failed";
+  }
+  if (/native tool call failed|invalid arguments for tool|local schema validation|unterminated string|unexpected end of json|invalid_type|expected.*received|"\s*path\s*"\s*:\s*\[\s*"to"\s*\]/i.test(text)) {
+    return "tool_schema_invalid";
+  }
+  if (/server started|listening on|localhost:\d+|vite .*ready|compiled successfully|服务已启动|正常运行/i.test(text)) {
+    return "long_running_process";
+  }
+  if (/eaddrinuse|port .*in use|address already in use|端口.*占用|端口已被占用/i.test(text)) {
+    return "port_in_use";
+  }
+  if (/shell execution is disabled|permission|approval|pending gate|denied|rejected|waiting for user decision|权限|审批|等待用户/i.test(text)) {
+    return "permission_waiting";
+  }
+  if (/timeout|timed out|stale|no progress|no dashboard event|疑似卡住|超时|卡住/i.test(text)) {
+    return "timeout";
+  }
+  if (/enoent|cannot find module|not found|could not read package\.json|no such file|找不到|不存在|文件名、目录名/i.test(text)) {
+    return "file_not_found";
+  }
+  if (/npm error|npm err|pnpm|yarn|install failed|dependency|dependencies|依赖|安装失败/i.test(text)) {
+    return "dependency_install_failed";
+  }
+  return "unknown";
+}
+
+function isWindowsShellMismatch(text: string): boolean {
+  const hasPosixCommand = /(^|\s)(mkdir\s+-p|rm\s+-rf|cat\s+|touch\s+|cp\s+-r|ls\s+-la)(\s|$)|&&|\|\||\|/.test(text);
+  const hasWindowsSignal = /powershell|parsererror|parameterbindingexception|parentcontainserrorrecordexception|invalidendofline|windows|cmd\.exe|当前 shell|不兼容/i.test(text);
+  return hasPosixCommand && hasWindowsSignal;
+}
+
+function meaningfulLines(text: string): string[] {
+  return text
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !/^-+$/.test(line))
+    .map((line) => line.replace(/\s+/g, " "))
+    .filter((line, index, lines) => index === 0 || line !== lines[index - 1]);
+}
+
+function stringifyInput(input: unknown): string {
+  if (input == null) return "";
+  if (typeof input === "string") return input;
+  if (input instanceof Error) return `${input.message}\n${input.stack ?? ""}`;
+  try {
+    return JSON.stringify(input, null, 2);
+  } catch {
+    return String(input);
+  }
 }

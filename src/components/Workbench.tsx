@@ -185,11 +185,11 @@ export function Workbench(props: {
     const selectedRunId = runId ?? props.state.listRuns(1)[0]?.id;
     if (!selectedRunId) {
       return isChineseUi(activeConfig.language)
-        ? "还没有可展示的 agent run。"
-        : "No agent run is available for the dashboard yet.";
+        ? "还没有可展示的多 Agent run。"
+        : "No agent run is available for the agent panel yet.";
     }
     const result = await getAgentDashboardServer({
-      state: props.state,
+      stateStore: props.state,
       projectPath: activeConfig.projectPath,
       dataDir: activeConfig.dataDir,
     }).open(selectedRunId, {
@@ -202,12 +202,12 @@ export function Workbench(props: {
       : "";
     const remoteNote = options?.share && result.remoteAccess === "local-only"
       ? (isChineseUi(activeConfig.language)
-          ? "\n远程访问需要配置 DEEPSEEKCODE_DASHBOARD_PUBLIC_BASE_URL 或安全隧道；当前链接仅本机可用。"
-          : "\nRemote access needs DEEPSEEKCODE_DASHBOARD_PUBLIC_BASE_URL or a secure tunnel; this link is local-only.")
+          ? "\n远程访问需要配置 DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL 或安全隧道；当前链接仅本机可用。"
+          : "\nRemote access needs DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL or a secure tunnel; this link is local-only.")
       : "";
     return isChineseUi(activeConfig.language)
-      ? `Agent Dashboard 已启动：${options?.share ? result.shareUrl : result.localUrl}${traceNote}${remoteNote}`
-      : `Agent Dashboard started: ${options?.share ? result.shareUrl : result.localUrl}${traceNote}${remoteNote}`;
+      ? `多 Agent 面板已启动：${options?.share ? result.shareUrl : result.localUrl}${traceNote}${remoteNote}`
+      : `Agent panel started: ${options?.share ? result.shareUrl : result.localUrl}${traceNote}${remoteNote}`;
   }, [activeConfig.dataDir, activeConfig.language, activeConfig.projectPath, props.state]);
   const engine = useMemo(
     () =>
@@ -360,7 +360,7 @@ export function Workbench(props: {
     if (key.ctrl && character === "c") {
       if (busy && engine.cancelActiveRun()) {
         setQueuedPrompts([]);
-        const text = isChineseUi(activeConfig.language) ? "姝ｅ湪鍙栨秷褰撳墠浠诲姟..." : "Cancelling current run...";
+        const text = isChineseUi(activeConfig.language) ? "正在取消当前任务..." : "Cancelling current run...";
         setItems((previous) => [
           ...previous,
           { role: "system", text, timestamp: Date.now() },

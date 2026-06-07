@@ -1,6 +1,6 @@
-# DeepSeekCode API Reference
+﻿# DeepSeekCode API Reference
 
-Version: `v0.3.0`
+Version: `v0.3.1`
 
 This reference covers the public CLI, slash commands, remote commands, tools, and extension surfaces that are stable enough to document.
 
@@ -143,7 +143,7 @@ WeCom:
 | `DEEPSEEKCODE_WECOM_ALLOWED_USERS` | Optional allowlist. |
 | `DEEPSEEKCODE_WECOM_ALLOWED_GROUPS` | Optional group allowlist. |
 | `DEEPSEEKCODE_WECOM_PROJECT_ROOTS` | Allowed project roots for remote switching. |
-| `DEEPSEEKCODE_DASHBOARD_PUBLIC_BASE_URL` | Optional public HTTPS base URL for read-only multi-agent dashboard sharing. |
+| `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` | Optional public HTTPS base URL for read-only multi-agent panel sharing. |
 
 Personal WeChat OpenClaw:
 
@@ -173,9 +173,9 @@ DeepSeekCode exposes tools through native provider `tools[]`. Important tool gro
 | Agents | `invoke_agent`, `start_agent_workflow`, `send_agent_message`, `agent_status`, `finish_agent_workflow` |
 | Memory | `memory_search`, `memory_capture`, `memory_raw_search` |
 
-## Agent Dashboard
+## Agent Panel
 
-The dashboard is a read-only observer for multi-agent runs. It is started automatically when a workflow begins and can be reopened with `/agents dashboard`.
+The Agent Panel is a read-only, Pixel-compatible observer for multi-agent runs. It is started automatically when a workflow begins and can be reopened with `/agents dashboard`.
 
 Snapshot shape:
 
@@ -217,7 +217,7 @@ interface AgentDashboardSnapshot {
 }
 ```
 
-Pixel-style compatibility is provided through `agent-trace.jsonl` and the SSE stream. The dashboard does not execute tools or approve permissions.
+Pixel-style compatibility is provided through `agent-trace.jsonl` and the SSE stream. The panel does not execute tools or approve permissions.
 
 ## `TaskCompletionContract`
 

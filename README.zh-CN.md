@@ -1,25 +1,10 @@
-# DeepSeekCode
-
-## 多 Agent 状态面板
-
-多 Agent 工作流启动时，DeepSeekCode 会自动启动一个只读 Dashboard。TUI 模式会在本机浏览器自动打开一次；微信/企微远程模式会在配置了 `DEEPSEEKCODE_DASHBOARD_PUBLIC_BASE_URL` 的情况下发送带 30 分钟 view token 的安全链接。没有公网隧道时会降级为本机链接和状态摘要。
-
-面板会显示：任务目标、当前阶段、是否卡住、最近工具、token/cache 概览；每个角色的职责、当前任务、已分配任务、完成证据、阻塞点、skills、tools、验收标准；任务板、协作时间线、产物入口、验证结论和 `agent-trace.jsonl`。
-
-备用命令：
-
-```text
-/agents dashboard
-/agents dashboard share
-/agents dashboard trace
-/agents dashboard close
-```
+﻿# DeepSeekCode
 
 [English](./README.md) | [使用指南](./GUIDE.md) | [架构](./ARCHITECTURE.md) | [CLI](./CLI_REFERENCE.md) | [开发文档](./DEVELOPMENT.md) | [接口文档](./API_REFERENCE.md) | [官网](https://xh20010913-svg.github.io/DeepSeekCode/)
 
 DeepSeekCode 是一个面向真实项目目录运行的本地通用 Agent runtime。它使用 DeepSeek native tool calling 驱动文件、shell、浏览器、skills、plugins、MCP、微信远程、多 agent 协作和任务验收。
 
-v0.3.0 的重点是把“会调用工具”推进到“能围绕任务契约执行、验收、失败回放和自修复”。网页只是可验收产物的一类；同一套 `verify_task` 也用于代码项目、CLI 脚本、Office/PDF、表格、研究报告、数据任务、图片媒体、MCP、插件和自动化任务。
+v0.3.1 的重点是把“会调用工具”推进到“能围绕任务契约执行、验收、失败回放和自修复”。网页只是可验收产物的一类；同一套 `verify_task` 也用于代码项目、CLI 脚本、Office/PDF、表格、研究报告、数据任务、图片媒体、MCP、插件和自动化任务。
 
 ## 安装
 
@@ -102,7 +87,18 @@ MCP 通过统一入口进入工具链路，结果走同一套权限、摘要、h
 
 用户可以自然语言要求多 agent 协作。若用户指定角色，runtime 保留用户角色；若未指定，默认生成 Planner、Builder、Tester、Reviewer。Reviewer 的责任不是只看网页，而是按通用任务契约确认产物、行为、启动/运行、文档、数据或其他目标是否达成。
 
-当前多 agent 是中心编排 + 共享黑板 + 可见状态的实现，仍在继续增强独立子 agent 执行深度和可视化面板。
+当前多 agent 是中心编排 + 共享黑板 + 可见状态的实现，仍在继续增强独立子 agent 执行深度。
+
+多 Agent 工作流启动时，DeepSeekCode 会自动启动只读的 Pixel-compatible Agent Panel。TUI 模式会在本机浏览器打开一次；微信/企微远程模式会在配置了 `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` 的情况下发送带 30 分钟 view token 的安全链接。没有公网隧道时会降级为本机链接和状态摘要。
+
+面板展示任务目标、当前阶段、是否卡住、最近工具、token/cache 概览；每个角色的职责、当前任务、已分配任务、完成证据、阻塞点、skills、tools、验收标准；任务板、协作时间线、产物入口、验证结论和 `agent-trace.jsonl`。备用命令：
+
+```text
+/agents dashboard
+/agents dashboard share
+/agents dashboard trace
+/agents dashboard close
+```
 
 ### 微信远程
 

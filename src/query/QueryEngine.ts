@@ -1004,7 +1004,7 @@ export class QueryEngine {
         source: "query_engine",
         message,
       });
-      return `Agent dashboard failed to open: ${message}`;
+      return `Agent panel failed to open: ${message}`;
     }
   }
 
@@ -1020,12 +1020,13 @@ export class QueryEngine {
       const status = service.status();
       if (status.record.status !== "running") return { classification };
 
+      const explicitlyStopping = explicitlyStopsAgentWorkflow(trimmed);
       service.message({
         runId: status.record.runId,
         workflowId: status.record.id,
         from: "user",
         to: "supervisor",
-        message: trimmed,
+        message: explicitlyStopping ? `User requested workflow stop: ${trimmed}` : trimmed,
       });
       this.state.appendEvent(status.record.runId, "agent_workflow_followup_received", {
         source_run_id: runId,
@@ -1033,15 +1034,24 @@ export class QueryEngine {
         classified_task_kind: classification.task_kind,
         classified_needs_local_tools: classification.needs_local_tools,
         message: trimmed,
+        explicit_stop: explicitlyStopping,
       });
       this.state.appendEvent(runId, "agent_workflow_followup_attached", {
         workflow_run_id: status.record.runId,
         workflow_id: status.record.id,
       });
 
-      if (!classification.needs_local_tools) {
+      if (explicitlyStopping) {
+        service.finish({
+          runId: status.record.runId,
+          workflowId: status.record.id,
+          status: "needs_followup",
+          summary: "User explicitly stopped or paused the multi-agent workflow.",
+          issues: [trimmed],
+        });
         return { classification, dashboardRunId: status.record.runId };
       }
+
       return {
         dashboardRunId: status.record.runId,
         classification: {
@@ -1050,7 +1060,7 @@ export class QueryEngine {
           needs_local_tools: true,
           reason: [
             classification.reason,
-            "An active multi-agent workflow is still running; task-bearing follow-up turns must continue that workflow until the user stops it or the reviewer finishes it.",
+            "An active multi-agent workflow is still running; normal follow-up turns must continue that workflow until the user explicitly stops it or the reviewer finishes it.",
           ].filter(Boolean).join(" "),
         },
       };
@@ -2170,6 +2180,14 @@ function explicitlyRequestsReadOnlyLocalTool(userMessage: string): boolean {
 function explicitlyRequestsMemoryTool(userMessage: string): boolean {
   const lower = userMessage.toLowerCase();
   return lower.includes("tdai_memory_search") || lower.includes("tdai_conversation_search");
+}
+
+function explicitlyStopsAgentWorkflow(userMessage: string): boolean {
+  const trimmed = userMessage.trim();
+  if (!trimmed) return false;
+  return /^(stop|cancel|end|finish)\s+(multi[-\s]?agent|agent\s+workflow|workflow|agents)\b/i.test(trimmed)
+    || /^(停止|取消|结束|关闭)(多\s*agent|多智能体|协作|agent\s*workflow|工作流)/.test(trimmed)
+    || /(停止|取消|结束|关闭).{0,12}(多\s*agent|多智能体|agent\s*workflow|协作工作流)/.test(trimmed);
 }
 
 const READ_ONLY_TOOL_NAMES = [

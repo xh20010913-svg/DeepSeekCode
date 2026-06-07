@@ -6,13 +6,16 @@
     <title>DeepSeekCode - DeepSeek 本地通用 Agent runtime</title>
     <meta
       name="description"
-      content="DeepSeekCode 是面向 DeepSeek native tool calling 的本地通用 Agent runtime，支持项目执行、权限、任务契约、通用验收、skills、MCP、微信远程和多 Agent 工作流。"
+      content="DeepSeekCode 是面向 DeepSeek native tool calling 的本地通用 Agent runtime，支持项目执行、权限审批、通用验收、skills、MCP、微信远程和多 Agent 工作流。"
     />
     <meta name="theme-color" content="#050605" />
     <meta name="color-scheme" content="dark" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="DeepSeekCode" />
-    <meta property="og:description" content="A DeepSeek-native local agent runtime with generic task verification, remote control, skills, MCP, and multi-agent workflows." />
+    <meta
+      property="og:description"
+      content="A DeepSeek-native local agent runtime with generic verification, remote control, skills, MCP, and multi-agent workflows."
+    />
     <meta property="og:image" content="assets/screenshots/wechat-desktop-sync.png" />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="stylesheet" href="src/styles.css" />
@@ -27,12 +30,12 @@
         <span class="brand-mark" aria-hidden="true"></span>
         <span class="brand-name">DeepSeekCode</span>
         <span class="brand-dot">DS</span>
-        <span class="brand-version">v0.3.0</span>
+        <span class="brand-version">v0.3.1</span>
       </a>
       <nav class="nav-links" aria-label="Primary navigation">
         <a href="#install" data-i18n="navInstall">安装</a>
-        <a href="#loop" data-i18n="navLoop">闭环</a>
-        <a href="#screenshots" data-i18n="navShots">截图</a>
+        <a href="#loop" data-i18n="navLoop">执行闭环</a>
+        <a href="#screenshots" data-i18n="navShots">真实截图</a>
         <a href="#capabilities" data-i18n="navCapabilities">能力</a>
         <a href="#remote" data-i18n="navRemote">远程</a>
         <a href="guide.html">Guide</a>
@@ -55,9 +58,9 @@
             <span class="line"></span>
             <span>NATIVE TOOLS</span>
           </div>
-          <h1 data-i18n="heroTitle">DeepSeek 驱动的本地通用 Agent runtime。</h1>
+          <h1 data-i18n="heroTitle">DeepSeek 本地通用 Agent runtime.</h1>
           <p class="hero-lede" data-i18n="heroLede">
-            DeepSeekCode 把 native tool calls、本地文件、shell/browser 权限、任务契约、通用验收、skills、MCP、微信远程和多 Agent 工作流放进同一条可恢复执行链路。
+            DeepSeekCode 用 native tool calls 连接本地文件、shell/browser、权限审批、任务契约、通用验收、skills、MCP、微信远程和多 Agent 协作。它面向真实项目执行，而不只是生成建议文本。
           </p>
           <div class="hero-actions">
             <a class="solid-button large" href="#install" data-i18n="heroPrimary">安装启动</a>
@@ -79,31 +82,39 @@
               <p><span class="ok">✓</span> native DeepSeek tool schema loaded</p>
               <p><span class="dim">contract</span> TaskCompletionContract generated</p>
               <p><span class="prompt">&gt;</span> 用多 agent 完成一个前后端任务，并自己验收</p>
-              <p>1 <span class="dim">Planner</span> defines roles and acceptance</p>
-              <p>2 <span class="dim">Builder</span> writes files and avoids native dependency traps</p>
-              <p>3 <span class="dim">Tester</span> runs build/start/script/document checks</p>
-              <p>4 <span class="dim">Reviewer</span> calls verify_task and reports evidence</p>
-              <p class="think">repair loop: failed tool_result -> model fix -> verify again</p>
-              <pre>run_state
+              <div class="spacer"></div>
+              <p><span class="dim">planner</span> roles: Planner / Builder / Tester / Reviewer</p>
+              <p><span class="dim">runtime</span> verify_task selects validators from real artifacts</p>
+              <p><span class="dim">repair</span> failed command result replayed to model</p>
+              <pre><code>agent-trace.jsonl
+run_state
 tool_result_summary
-task_contract
-remote_delivery_plan</pre>
+remote_delivery_plan</code></pre>
             </div>
           </div>
+          <span class="orbit orbit-one"></span>
+          <span class="orbit orbit-two"></span>
+        </div>
+
+        <div class="metric-strip reveal delay-2">
+          <div><strong>Native</strong><small>tool calls</small></div>
+          <div><strong>SQLite</strong><small>project state</small></div>
+          <div><strong>WeChat</strong><small>remote channel</small></div>
+          <div><strong>Skills</strong><small>auto invoke</small></div>
         </div>
       </section>
 
       <section id="install" class="split-section section-shell">
         <div class="section-copy reveal">
           <span class="eyebrow">INSTALL</span>
-          <h2 data-i18n="installTitle">全局安装，在当前工作目录启动。</h2>
+          <h2 data-i18n="installTitle">全局安装，在当前工作区启动。</h2>
           <p data-i18n="installText">
-            进入任意项目目录运行 deepseekcode。会话、runs、events、artifacts、approvals、memory 和远程绑定保存在该项目的 .deepseekcode 目录中，便于继续任务和恢复上下文。
+            进入任意项目目录运行 deepseekcode。会话、runs、events、artifacts、approvals、memory 和远程绑定会保存在该目录的 .deepseekcode 中，便于继续任务和恢复上下文。
           </p>
         </div>
         <div class="code-panel reveal delay-1">
           <button class="copy-button" type="button" data-copy="#install-code" data-i18n="copy">复制</button>
-          <pre id="install-code"><code>npm install -g @xh12312/deepseekcode --registry https://registry.npmjs.org/
+          <pre id="install-code"><code>npm install -g @xh12312/deepseekcode
 cd /d D:\code\DeepSeekTest
 deepseekcode --model deepseek-v4-flash</code></pre>
         </div>
@@ -111,40 +122,48 @@ deepseekcode --model deepseek-v4-flash</code></pre>
 
       <section id="loop" class="cache-section section-shell">
         <div class="section-copy reveal">
-          <span class="eyebrow">EXECUTION LOOP</span>
-          <h2 data-i18n="loopTitle">从任务契约到真实验收。</h2>
+          <span class="eyebrow">RUNTIME LOOP</span>
+          <h2 data-i18n="loopTitle">从目标理解到真实验收。</h2>
           <p data-i18n="loopText">
-            模型负责理解目标和选择工具，runtime 负责权限、平台诊断、产物识别、通用验收和错误回放。网页只是 validator 之一；同一套 verify_task 也检查代码、脚本、Office/PDF、数据、报告、插件、MCP 和自动化任务。
+            模型负责理解目标和选择工具；runtime 负责权限、安全、平台诊断、产物识别、通用验收和失败回放。网页只是其中一种验证器，同一套 verify_task 也覆盖代码、脚本、Office/PDF、数据、报告、插件、MCP 和自动化任务。
           </p>
         </div>
         <div class="cache-console reveal delay-1">
-          <p><b>1</b> TaskCompletionContract</p>
-          <p><b>2</b> native tool_calls</p>
-          <p><b>3</b> compact tool_result</p>
-          <p><b>4</b> verify_task</p>
-          <p><b>5</b> repair or final delivery</p>
+          <div class="radar">
+            <span>73%</span>
+            <small>cache hit</small>
+            <i class="radar-ring"></i>
+            <i class="radar-ring ring-2"></i>
+            <i class="radar-sweep"></i>
+          </div>
+          <div class="cache-bars">
+            <div><span>stable prompt prefix</span><i style="--w: 82%"></i></div>
+            <div><span>tool result summary</span><i style="--w: 68%"></i></div>
+            <div><span>dynamic context</span><i class="warn" style="--w: 42%"></i></div>
+            <div><span>artifact manifest</span><i class="safe" style="--w: 76%"></i></div>
+          </div>
         </div>
       </section>
 
       <section id="screenshots" class="section-shell">
         <div class="section-head reveal">
-          <span class="eyebrow">RUNTIME EVIDENCE</span>
+          <span class="eyebrow">SCREENSHOTS</span>
           <h2 data-i18n="shotsTitle">真实运行截图。</h2>
           <p data-i18n="shotsText">
-            三张截图展示本机 TUI 同步微信消息、个人微信远程结果、GSAP skill 自动调用和产物验证。
+            这些截图来自本机测试：TUI 同步微信消息、个人微信远程任务结果、GSAP skill 自动参与网页动画任务。
           </p>
         </div>
         <div class="screenshot-grid">
           <figure class="screenshot-card reveal">
-            <img src="assets/screenshots/wechat-desktop-sync.png" alt="DeepSeekCode desktop TUI mirroring WeChat messages" />
+            <img src="assets/screenshots/wechat-desktop-sync.png" alt="DeepSeekCode desktop TUI showing WeChat synchronization" />
             <figcaption data-i18n="shotDesktop">本机 TUI：微信输入、进度和最终回复同步显示。</figcaption>
           </figure>
           <figure class="screenshot-card reveal delay-1">
-            <img src="assets/screenshots/wechat-mobile-result.png" alt="Personal WeChat remote result" />
+            <img src="assets/screenshots/wechat-mobile-result.png" alt="WeChat remote task result" />
             <figcaption data-i18n="shotWechat">个人微信：远程任务的简洁进度和完成摘要。</figcaption>
           </figure>
           <figure class="screenshot-card reveal delay-2">
-            <img src="assets/screenshots/gsap-skill-run.png" alt="GSAP skill run inside DeepSeekCode" />
+            <img src="assets/screenshots/gsap-skill-run.png" alt="GSAP skill invocation in DeepSeekCode" />
             <figcaption data-i18n="shotSkill">Skill：GSAP 自动参与页面动画任务，并完成入口验证。</figcaption>
           </figure>
         </div>
@@ -158,33 +177,45 @@ deepseekcode --model deepseek-v4-flash</code></pre>
         <div class="feature-grid">
           <article class="feature-card reveal">
             <span>01</span>
-            <h3>Native tool loop</h3>
-            <p data-i18n="featureAction">模型通过 DeepSeek tools 数组请求本地工具；runtime 负责 Zod 校验、权限、执行、tool_result 回放和失败反馈。</p>
+            <h3>Native tools</h3>
+            <p data-i18n="featureAction">
+              模型通过 DeepSeek tools 数组请求本地工具，runtime 负责 Zod 校验、权限、执行、tool_result 回放和失败反馈。
+            </p>
           </article>
           <article class="feature-card reveal">
             <span>02</span>
-            <h3>Task verification</h3>
-            <p data-i18n="featureVerify">verify_task 根据任务契约和真实产物选择验证器，覆盖代码、脚本、文档、数据、媒体、插件、MCP 和自动化输出。</p>
+            <h3>Verification</h3>
+            <p data-i18n="featureVerify">
+              verify_task 根据任务契约和真实产物选择验证器，覆盖代码、脚本、文档、数据、媒体、插件、MCP 和自动化输出。
+            </p>
           </article>
           <article class="feature-card reveal">
             <span>03</span>
-            <h3>Windows diagnostics</h3>
-            <p data-i18n="featureWindows">run_command 会识别常见 PowerShell 不兼容命令和 node-gyp/native dependency 失败，并给模型可执行的修复方向。</p>
+            <h3>Windows runtime</h3>
+            <p data-i18n="featureWindows">
+              run_command 会识别常见 PowerShell 不兼容命令和 node-gyp/native dependency 失败，并给模型可执行的修复方向。
+            </p>
           </article>
           <article class="feature-card reveal">
             <span>04</span>
             <h3>Skills / plugins</h3>
-            <p data-i18n="featureSkills">支持本地、GitHub、Git URL 和 file:// skill/plugin 安装。模型可通过 search_skills 与 invoke_skill 自动调用。</p>
+            <p data-i18n="featureSkills">
+              支持本地、GitHub、Git URL 和 file:// skill/plugin 安装。模型可通过 search_skills 与 invoke_skill 自动调用。
+            </p>
           </article>
           <article class="feature-card reveal">
             <span>05</span>
             <h3>Multi-agent</h3>
-            <p data-i18n="featureAgents">主 agent 可以创建 Planner、Builder、Tester、Reviewer 等角色，用共享黑板记录分工、阻塞和验收结论。</p>
+            <p data-i18n="featureAgents">
+              多 Agent workflow 可创建 Planner、Builder、Tester、Reviewer 等角色，用共享黑板记录分工、阻塞和验收结论。
+            </p>
           </article>
           <article class="feature-card reveal">
             <span>06</span>
             <h3>Artifact delivery</h3>
-            <p data-i18n="featureArtifacts">远程回传按真实文件类型决定：图片预览、Office/PDF 文件、摘要、入口、manifest 和启动命令，不刷屏发源码。</p>
+            <p data-i18n="featureArtifacts">
+              远程回传按真实文件类型决定：图片预览、Office/PDF 文件、摘要、入口、manifest 和启动命令，不刷屏发送源码。
+            </p>
           </article>
         </div>
       </section>
@@ -236,16 +267,28 @@ deepseekcode --model deepseek-v4-flash</code></pre>
           <h2 data-i18n="roadmapTitle">下一步。</h2>
         </div>
         <div class="roadmap-list reveal">
-          <article><b data-i18n="roadVerifyTitle">通用验收</b><span data-i18n="roadVerify">继续扩大代码、Office、数据、MCP、自动化任务的真实验证覆盖。</span></article>
-          <article><b data-i18n="roadAgentsTitle">多 Agent</b><span data-i18n="roadAgents">补更清晰的角色状态面板、独立子上下文和 Reviewer 证据链。</span></article>
-          <article><b data-i18n="roadRemoteTitle">远程控制</b><span data-i18n="roadRemote">改进 OpenClaw 网络恢复、浏览器扫码稳定性和 TUI/微信同步细节。</span></article>
-          <article><b data-i18n="roadCacheTitle">缓存成本</b><span data-i18n="roadCache">继续优化 stable prompt prefix、tool_result 摘要和 /cache report。</span></article>
+          <article>
+            <b data-i18n="roadVerifyTitle">通用验收</b>
+            <span data-i18n="roadVerify">继续扩大代码、Office、数据、MCP、自动化任务的真实验证覆盖。</span>
+          </article>
+          <article>
+            <b data-i18n="roadAgentsTitle">多 Agent</b>
+            <span data-i18n="roadAgents">完善角色状态面板、独立子上下文、通信轨迹和 Reviewer 证据链。</span>
+          </article>
+          <article>
+            <b data-i18n="roadRemoteTitle">远程控制</b>
+            <span data-i18n="roadRemote">改进 OpenClaw 网络恢复、浏览器扫码稳定性和 TUI/微信同步细节。</span>
+          </article>
+          <article>
+            <b data-i18n="roadCacheTitle">缓存成本</b>
+            <span data-i18n="roadCache">继续优化 stable prompt prefix、tool_result 摘要和 /cache report。</span>
+          </article>
         </div>
       </section>
     </main>
 
     <footer class="site-footer">
-      <span>DeepSeekCode v0.3.0</span>
+      <span>DeepSeekCode v0.3.1</span>
       <span>Native tools · task contract · generic verification · remote runtime</span>
     </footer>
 

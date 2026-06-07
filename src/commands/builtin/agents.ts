@@ -33,14 +33,14 @@ export const agentsCommand: Command = {
       const parts = parseArgs(trimmed.startsWith("dashboard ") ? trimmed.slice("dashboard ".length) : "");
       const action = parts[0] ?? "";
       if (action === "close") {
-        await closeAgentDashboardServer(context.config.projectPath);
-        return { message: "Agent dashboard closed." };
+        await closeAgentDashboardServer();
+        return { message: "Agent panel closed." };
       }
       const share = action === "share";
       const trace = action === "trace";
       const selector = share || trace ? parts[1] : parts[0];
       const runId = resolveDashboardRunId(selector ?? "", context);
-      if (!runId) return { message: "No agent run is available for the dashboard yet." };
+      if (!runId) return { message: "No agent run is available for the agent panel yet." };
       if (context.openAgentDashboard) {
         const message = await context.openAgentDashboard(runId, {
           openBrowser: !share,
@@ -50,7 +50,7 @@ export const agentsCommand: Command = {
         return { message };
       }
       const result = await getAgentDashboardServer({
-        state: context.state,
+        stateStore: context.state,
         projectPath: context.config.projectPath,
         dataDir: context.config.dataDir,
       }).open(runId, {
@@ -60,10 +60,10 @@ export const agentsCommand: Command = {
       });
       return {
         message: [
-          `Agent dashboard: ${share ? result.shareUrl : result.localUrl}`,
+          `Agent panel: ${share ? result.shareUrl : result.localUrl}`,
           result.tracePath ? `trace: ${result.tracePath}` : "",
           share && result.remoteAccess === "local-only"
-            ? "remote: local-only; set DEEPSEEKCODE_DASHBOARD_PUBLIC_BASE_URL or a secure tunnel to share from WeChat."
+            ? "remote: local-only; set DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL or a secure tunnel to share from WeChat."
             : "",
         ].filter(Boolean).join("\n"),
       };

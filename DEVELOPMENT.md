@@ -1,6 +1,6 @@
-# DeepSeekCode Development Guide
+﻿# DeepSeekCode Development Guide
 
-Version: `v0.3.0`
+Version: `v0.3.1`
 
 This guide is for contributors and future maintenance work. The main rule is simple: DeepSeekCode is a generic local agent runtime. Do not turn it into a pile of task-specific keyword branches.
 
@@ -125,21 +125,21 @@ Default roles should include Planner, Builder, Tester, and Reviewer. User-provid
 
 Reviewer must check against the generic task contract. It should not only inspect web artifacts.
 
-## Agent Dashboard Development
+## Agent Panel Development
 
-The multi-agent dashboard is an observer, not a control plane. It is implemented by:
+The multi-agent panel is an observer, not a control plane. It is implemented by:
 
 - `src/services/agents/agentDashboardModel.ts`: converts durable state, workflow roles, tasks, events, usage, and artifacts into `AgentDashboardSnapshot`.
-- `src/services/agents/agentDashboardServer.ts`: starts a per-project local HTTP server, serves the dashboard HTML, snapshot JSON, SSE snapshots, and `agent-trace.jsonl`.
-- `QueryEngine.openAgentDashboard`: automatically opens the dashboard when a run is classified as multi-agent.
+- `src/services/agents/agentDashboardServer.ts`: starts a per-project local HTTP server, serves the Agent Panel HTML, snapshot JSON, SSE snapshots, and `agent-trace.jsonl`.
+- `QueryEngine.openAgentDashboard`: automatically opens the Agent Panel when a run is classified as multi-agent.
 - remote channel callbacks: WeChat/WeCom receive a share link when a public base URL is configured.
 
-Dashboard rules:
+Agent Panel rules:
 
 - Do not infer roles from free-form terminal text when durable task/workflow state exists.
-- Keep the dashboard read-only; permission approval stays in the TUI or remote approval bridge.
+- Keep the panel read-only; permission approval stays in the TUI or remote approval bridge.
 - Emit Pixel-style JSONL fields (`role`, `status`, `task`, `tool`, `message`, `artifact`, `parentRunId`, `childRunId`) without depending on the Pixel Agents extension.
-- Use `DEEPSEEKCODE_DASHBOARD_PUBLIC_BASE_URL` only for a trusted HTTPS tunnel; otherwise remote channels should say the dashboard is local-only.
+- Use `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` only for a trusted HTTPS tunnel; otherwise remote channels should say the panel is local-only.
 - The view token is short-lived and scoped to one run.
 
 ## Skills, Plugins, And MCP

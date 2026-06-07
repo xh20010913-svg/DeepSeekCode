@@ -1,428 +1,328 @@
 export function dashboardHtml(runId: string, token: string): string {
-  const encodedRunId = JSON.stringify(runId);
-  const encodedToken = JSON.stringify(token);
+  const runIdJson = JSON.stringify(runId);
+  const tokenJson = JSON.stringify(token);
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DeepSeekCode Agent Dashboard</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DeepSeekCode Agent Panel</title>
   <style>
     :root {
       color-scheme: dark;
-      --bg: #050706;
-      --bg-soft: #07100f;
-      --panel: rgba(12, 19, 17, 0.92);
-      --panel-2: rgba(15, 25, 23, 0.98);
-      --line: rgba(115, 255, 235, 0.18);
-      --line-strong: rgba(115, 255, 235, 0.34);
-      --text: #f7f1e6;
-      --muted: #9fb0aa;
-      --muted-2: #6f817b;
-      --brand: #45e6dd;
-      --accent: #ff9f45;
-      --ok: #4bdd89;
-      --warn: #ffc857;
-      --bad: #ff5570;
-      --shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
+      --bg: #050807;
+      --panel: rgba(8, 22, 19, 0.9);
+      --panel-2: rgba(4, 10, 9, 0.94);
+      --line: rgba(72, 232, 218, 0.22);
+      --line-strong: rgba(72, 232, 218, 0.48);
+      --text: #f7f2e7;
+      --muted: rgba(247, 242, 231, 0.68);
+      --subtle: rgba(247, 242, 231, 0.44);
+      --cyan: #3de8df;
+      --green: #6fe3a0;
+      --amber: #ffb55f;
+      --red: #ff6680;
+      --radius: 8px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
     }
     * { box-sizing: border-box; }
-    html, body { height: 100%; }
     body {
       margin: 0;
-      background:
-        radial-gradient(circle at 12% 8%, rgba(69, 230, 221, 0.18), transparent 28rem),
-        radial-gradient(circle at 90% 0%, rgba(255, 159, 69, 0.12), transparent 30rem),
-        var(--bg);
       color: var(--text);
-      font: 15px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background:
+        radial-gradient(circle at 0 0, rgba(48, 222, 201, 0.18), transparent 28%),
+        radial-gradient(circle at 100% 0, rgba(255, 140, 64, 0.14), transparent 26%),
+        linear-gradient(180deg, #060a09, #030504 72%);
       overflow: hidden;
     }
-    button { font: inherit; }
-    .shell { display: grid; grid-template-rows: 64px minmax(0, 1fr); height: 100%; }
+    .app { height: 100vh; display: grid; grid-template-rows: 64px 1fr; }
     header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      padding: 0 28px;
-      border-bottom: 1px solid var(--line);
-      background: rgba(5, 7, 6, 0.86);
-      backdrop-filter: blur(18px);
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      padding: 0 24px; border-bottom: 1px solid var(--line); background: rgba(3, 5, 4, 0.88);
     }
     .brand { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
-    .logo { color: var(--brand); font-weight: 850; font-size: 18px; letter-spacing: .01em; }
-    .sub { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .brand strong { color: var(--cyan); font-size: 22px; }
+    .brand span { color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .actions { display: flex; align-items: center; gap: 10px; }
-    .pill, .btn {
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      padding: 7px 11px;
-      color: var(--muted);
-      background: rgba(255, 255, 255, 0.03);
-      white-space: nowrap;
+    button, a.button {
+      border: 1px solid var(--line); color: var(--muted); background: rgba(255,255,255,0.03);
+      border-radius: 999px; padding: 8px 12px; text-decoration: none; cursor: pointer;
     }
-    .btn { cursor: pointer; color: var(--text); }
-    .btn.active { color: #04100f; background: var(--brand); border-color: var(--brand); font-weight: 800; }
-    .layout {
-      display: grid;
-      grid-template-columns: minmax(280px, 0.95fr) minmax(440px, 1.55fr) minmax(320px, 1fr);
-      gap: 14px;
-      min-height: 0;
-      padding: 18px;
+    button.active { background: var(--cyan); border-color: var(--cyan); color: #04100f; font-weight: 800; }
+    main {
+      min-height: 0; padding: 18px; display: grid;
+      grid-template-columns: 320px minmax(560px, 1.45fr) minmax(320px, 0.9fr);
+      grid-template-rows: 1fr; gap: 16px;
     }
-    .stack { display: grid; gap: 14px; min-height: 0; }
-    .panel {
-      min-height: 0;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: linear-gradient(180deg, rgba(13, 25, 22, .92), rgba(6, 9, 8, .96));
-      box-shadow: var(--shadow);
-      overflow: hidden;
+    .column { min-height: 0; display: grid; gap: 16px; }
+    .left { grid-template-rows: auto minmax(180px, 1fr); }
+    .center { grid-template-rows: minmax(290px, 1fr) minmax(240px, 0.9fr); }
+    .right { grid-template-rows: minmax(300px, 1fr) minmax(220px, 0.72fr); }
+    .card {
+      min-height: 0; border: 1px solid var(--line); border-radius: var(--radius);
+      background: linear-gradient(145deg, var(--panel), var(--panel-2)); overflow: hidden;
+      box-shadow: 0 18px 54px rgba(0,0,0,0.28);
     }
-    .panel-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 13px 15px;
-      border-bottom: 1px solid var(--line);
+    .card-head {
+      min-height: 50px; padding: 13px 16px; border-bottom: 1px solid var(--line);
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      color: var(--cyan); font-weight: 900; letter-spacing: 0.04em;
     }
-    h1, h2, h3, p { margin: 0; }
-    h1 { font-size: clamp(26px, 4vw, 54px); line-height: .98; letter-spacing: 0; }
-    h2 { color: var(--brand); font-size: 13px; text-transform: uppercase; letter-spacing: .12em; }
-    h3 { font-size: 17px; }
-    .scroll { overflow: auto; min-height: 0; scrollbar-color: rgba(115,255,235,.35) transparent; }
-    .pad { padding: 15px; }
-    .objective { min-height: 230px; display: flex; flex-direction: column; justify-content: space-between; gap: 18px; }
-    .meta { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); }
-    .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-    .metric {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 12px;
-      background: rgba(255,255,255,.025);
-      min-width: 0;
+    .card-body { height: calc(100% - 50px); overflow: auto; padding: 16px; }
+    .overview { padding: 18px; display: grid; gap: 14px; }
+    .eyebrow { color: var(--cyan); font-size: 12px; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; }
+    h1 {
+      margin: 0; font-size: clamp(24px, 2.35vw, 34px); line-height: 1.06; letter-spacing: 0;
+      display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
     }
-    .metric .label { color: var(--muted); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
-    .metric .value { margin-top: 6px; font-size: 27px; font-weight: 850; }
+    .meta, .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .pill, .chip {
+      border: 1px solid var(--line); border-radius: 999px; color: var(--muted);
+      background: rgba(255,255,255,0.03); padding: 6px 9px;
+    }
+    .chip { color: var(--cyan); border-radius: 6px; background: rgba(61,232,223,0.11); }
+    .metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .metric { border: 1px solid var(--line); border-radius: var(--radius); padding: 11px; background: rgba(255,255,255,0.025); }
+    .metric label { color: var(--subtle); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .metric strong { display: block; margin-top: 6px; font-size: 22px; }
     .issue {
-      border: 1px solid rgba(255, 85, 112, .35);
-      background: rgba(255, 85, 112, .08);
-      border-radius: 8px;
-      padding: 11px;
-      color: #ffd4dc;
+      border: 1px solid rgba(255,102,128,0.5); background: rgba(255,102,128,0.08);
+      border-radius: var(--radius); padding: 12px; display: grid; gap: 7px; color: #ffd9df;
     }
-    .issue-title { color: var(--bad); font-weight: 850; }
-    .issue p { margin-top: 6px; color: #f2c4cc; }
-    details { margin-top: 9px; color: var(--muted); }
-    summary { cursor: pointer; color: var(--text); }
+    .issue strong { color: var(--red); }
+    .issue p { margin: 0; color: var(--muted); line-height: 1.45; }
+    details summary { cursor: pointer; color: var(--cyan); }
     pre {
-      max-height: 240px;
-      overflow: auto;
-      margin: 8px 0 0;
-      padding: 10px;
-      border-radius: 7px;
-      background: rgba(0,0,0,.38);
-      color: #d7e6e2;
-      white-space: pre-wrap;
-      word-break: break-word;
-      font-size: 12px;
+      white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto;
+      background: rgba(0,0,0,0.26); border-radius: 6px; padding: 10px; color: var(--muted);
     }
     .roles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
     .role {
-      border: 1px solid var(--line);
-      border-radius: 9px;
-      padding: 13px;
-      background: rgba(255,255,255,.025);
-      min-width: 0;
+      border: 1px solid var(--line); border-radius: var(--radius); background: rgba(255,255,255,0.025);
+      padding: 13px; display: grid; gap: 10px;
     }
-    .role-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
-    .status { border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; color: var(--muted); font-size: 12px; }
-    .status.running { color: var(--warn); border-color: rgba(255,200,87,.36); }
-    .status.succeeded { color: var(--ok); border-color: rgba(75,221,137,.36); }
-    .status.failed, .status.cancelled { color: var(--bad); border-color: rgba(255,85,112,.36); }
-    .field { margin-top: 10px; }
-    .field-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
-    .field-value { margin-top: 3px; color: var(--text); }
-    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
-    .chip { border: 1px solid var(--line); border-radius: 999px; padding: 2px 7px; color: var(--brand); background: rgba(69,230,221,.08); font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
-    .board { display: grid; grid-template-columns: repeat(5, minmax(155px, 1fr)); gap: 10px; }
-    .lane {
-      min-height: 180px;
-      border: 1px solid var(--line);
-      border-radius: 9px;
-      background: rgba(255,255,255,.018);
-      overflow: hidden;
+    .role-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .role-top strong { font-size: 18px; }
+    .status { border: 1px solid var(--line); color: var(--muted); border-radius: 999px; padding: 4px 8px; }
+    .status.running { color: var(--amber); border-color: rgba(255,181,95,0.48); }
+    .status.succeeded { color: var(--green); border-color: rgba(111,227,160,0.48); }
+    .status.failed, .status.cancelled { color: var(--red); border-color: rgba(255,102,128,0.48); }
+    .label { color: var(--subtle); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .text { color: var(--muted); line-height: 1.45; }
+    .section { display: grid; gap: 5px; }
+    .board { height: 100%; display: grid; grid-template-columns: repeat(5, minmax(168px, 1fr)); gap: 10px; min-width: 940px; }
+    .lane { border: 1px solid var(--line); border-radius: var(--radius); padding: 11px; overflow: auto; background: rgba(0,0,0,0.14); }
+    .lane h3 { margin: 0 0 10px; color: var(--subtle); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
+    .task, .event, .artifact {
+      border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius);
+      padding: 10px; margin-bottom: 10px; background: rgba(255,255,255,0.025);
     }
-    .lane h3 { padding: 10px 12px; color: var(--muted); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; border-bottom: 1px solid var(--line); }
-    .task { padding: 10px 12px; border-bottom: 1px solid rgba(115,255,235,.09); }
-    .task strong { display: block; }
-    .task small { color: var(--muted); }
-    .timeline-list { display: grid; gap: 8px; }
-    .event {
-      border: 1px solid rgba(115,255,235,.13);
-      border-radius: 8px;
-      padding: 10px;
-      background: rgba(255,255,255,.022);
-    }
-    .event-head { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 12px; }
-    .event-message { margin-top: 4px; }
-    .arrow { color: var(--accent); font-weight: 800; }
-    .artifact { display: grid; gap: 8px; }
-    .artifact-row {
-      border: 1px solid rgba(115,255,235,.13);
-      border-radius: 8px;
-      padding: 10px;
-      background: rgba(255,255,255,.022);
-      word-break: break-word;
-    }
-    .empty { color: var(--muted-2); padding: 10px 0; }
-    @media (max-width: 1260px) {
+    .event-top { display: flex; justify-content: space-between; gap: 8px; color: var(--subtle); font-size: 12px; }
+    .event-name { margin-top: 5px; color: var(--amber); font-weight: 900; }
+    .empty { color: var(--subtle); }
+    @media (max-width: 1180px) {
       body { overflow: auto; }
-      .shell { min-height: 100%; height: auto; }
-      .layout { grid-template-columns: 1fr; }
-      .scroll { max-height: none; }
-    }
-    @media (max-width: 720px) {
-      header { padding: 0 14px; }
-      .layout { padding: 12px; }
-      .metric-grid, .roles, .board { grid-template-columns: 1fr; }
-      h1 { font-size: 34px; }
-      .actions .pill { display: none; }
+      .app { height: auto; min-height: 100vh; }
+      main { grid-template-columns: 1fr; }
+      .left, .center, .right { grid-template-rows: none; }
+      .card-body { max-height: 540px; }
+      .roles { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
-  <div class="shell">
+  <div class="app">
     <header>
-      <div class="brand">
-        <div class="logo">DeepSeekCode</div>
-        <div class="sub" id="project"></div>
-      </div>
+      <div class="brand"><strong>DeepSeekCode</strong><span id="project">loading</span></div>
       <div class="actions">
-        <span class="pill" id="updated"></span>
-        <button class="btn active" data-lang="zh">中文</button>
-        <button class="btn" data-lang="en">EN</button>
+        <span class="pill" id="updated">updated --</span>
+        <a class="button" id="trace" href="#">trace</a>
+        <button id="zh" class="active">中文</button>
+        <button id="en">EN</button>
       </div>
     </header>
-    <main class="layout">
-      <section class="stack">
-        <div class="panel objective">
-          <div class="pad">
-            <h2 id="overviewLabel"></h2>
-            <h1 id="objective"></h1>
-            <div class="meta" id="meta"></div>
-          </div>
-          <div class="pad">
-            <div class="metric-grid" id="metrics"></div>
-          </div>
-        </div>
-        <div class="panel">
-          <div class="panel-head"><h2 id="issuesLabel"></h2></div>
-          <div class="pad scroll" id="issues" style="max-height: 280px"></div>
-        </div>
+    <main>
+      <section class="column left">
+        <div class="card overview" id="overview"></div>
+        <div class="card"><div class="card-head" id="issuesTitle"></div><div class="card-body" id="issues"></div></div>
       </section>
-      <section class="stack">
-        <div class="panel" style="min-height: 310px">
-          <div class="panel-head"><h2 id="rolesLabel"></h2></div>
-          <div class="pad scroll" style="max-height: 430px"><div class="roles" id="roles"></div></div>
-        </div>
-        <div class="panel">
-          <div class="panel-head"><h2 id="boardLabel"></h2></div>
-          <div class="pad scroll" style="max-height: 330px"><div class="board" id="board"></div></div>
-        </div>
+      <section class="column center">
+        <div class="card"><div class="card-head" id="rolesTitle"></div><div class="card-body"><div class="roles" id="roles"></div></div></div>
+        <div class="card"><div class="card-head" id="boardTitle"></div><div class="card-body"><div class="board" id="board"></div></div></div>
       </section>
-      <section class="stack">
-        <div class="panel" style="min-height: 360px">
-          <div class="panel-head"><h2 id="timelineLabel"></h2><a class="pill" id="traceLink" target="_blank">trace</a></div>
-          <div class="pad scroll" id="timeline" style="max-height: 440px"></div>
-        </div>
-        <div class="panel">
-          <div class="panel-head"><h2 id="artifactLabel"></h2></div>
-          <div class="pad scroll" id="artifacts" style="max-height: 330px"></div>
-        </div>
+      <section class="column right">
+        <div class="card"><div class="card-head" id="timelineTitle"></div><div class="card-body" id="timeline"></div></div>
+        <div class="card"><div class="card-head" id="validationTitle"></div><div class="card-body" id="validation"></div></div>
       </section>
     </main>
   </div>
   <script>
-    const runId = ${encodedRunId};
-    const token = ${encodedToken};
-    const labels = {
+    const RUN_ID = ${runIdJson};
+    const TOKEN = ${tokenJson};
+    let locale = localStorage.getItem("deepseekcode.agentPanel.locale") || "zh";
+    let latest = null;
+    const L = {
       zh: {
-        overview: "总览", roles: "角色工作台", board: "任务板", timeline: "协作时间线",
-        artifacts: "产物与验收", issues: "当前问题", updated: "更新",
-        phase: "阶段", status: "状态", elapsed: "耗时", lastTool: "最近工具",
-        done: "完成", running: "进行中", pending: "待做", failed: "失败", cache: "缓存",
-        current: "当前任务", assigned: "已分配", completed: "已完成", skills: "Skills", tools: "工具", acceptance: "验收标准",
-        blocked: "阻塞", empty: "暂无", raw: "完整技术细节", validation: "验收", repaired: "已修复", failures: "失败项",
-        objectiveFallback: "等待多 Agent 任务目标",
+        overview: "总览", issues: "当前问题", roles: "角色工作台", board: "任务板", timeline: "协作时间线", validation: "产物与验收",
+        done: "完成", running: "进行中", pending: "待做", failed: "失败", cache: "缓存", phase: "阶段", status: "状态",
+        current: "当前任务", assigned: "已分配", completed: "已完成", blocked: "遇到的问题", lastTool: "最近工具",
+        lastMessage: "最近通信", skills: "Skills", tools: "工具", acceptance: "验收标准", explain: "说明", strategy: "处理策略",
+        first: "第一行", details: "完整日志", empty: "暂无", objective: "目标", trace: "trace"
       },
       en: {
-        overview: "Overview", roles: "Agent Workbench", board: "Task Board", timeline: "Collaboration Timeline",
-        artifacts: "Artifacts and Validation", issues: "Current Issues", updated: "Updated",
-        phase: "Phase", status: "Status", elapsed: "Elapsed", lastTool: "Last tool",
-        done: "Done", running: "Running", pending: "Pending", failed: "Failed", cache: "Cache",
-        current: "Current task", assigned: "Assigned", completed: "Completed", skills: "Skills", tools: "Tools", acceptance: "Acceptance",
-        blocked: "Blocked", empty: "None yet", raw: "Full technical details", validation: "Validation", repaired: "Repaired", failures: "Failures",
-        objectiveFallback: "Waiting for a multi-agent objective",
-      },
+        overview: "Overview", issues: "Current Issues", roles: "Role Workbench", board: "Task Board", timeline: "Collaboration Timeline", validation: "Artifacts & Validation",
+        done: "Done", running: "Running", pending: "Pending", failed: "Failed", cache: "Cache", phase: "Phase", status: "Status",
+        current: "Current task", assigned: "Assigned", completed: "Completed", blocked: "Issue", lastTool: "Last tool",
+        lastMessage: "Last message", skills: "Skills", tools: "Tools", acceptance: "Acceptance", explain: "Why", strategy: "Strategy",
+        first: "First line", details: "Full log", empty: "None yet", objective: "Objective", trace: "trace"
+      }
     };
-    let lang = localStorage.getItem("dscAgentDashboardLang") || "zh";
-    let latestSnapshot;
-
-    for (const button of document.querySelectorAll("[data-lang]")) {
-      button.addEventListener("click", () => {
-        lang = button.dataset.lang;
-        localStorage.setItem("dscAgentDashboardLang", lang);
-        render(latestSnapshot);
+    function t(key) { return L[locale][key] || key; }
+    function esc(value) {
+      return String(value == null ? "" : value).replace(/[&<>"']/g, function(ch) {
+        return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch];
       });
     }
-
-    function t(key) { return labels[lang][key] || labels.zh[key] || key; }
-    function local(value) {
-      if (!value) return "";
-      if (typeof value === "string") return value;
-      return value[lang] || value.zh || value.en || "";
+    function statusClass(value) { return "status " + esc(String(value || "defined")); }
+    function fmtTime(ms) { return ms ? new Date(ms).toLocaleTimeString() : "--"; }
+    function shortText(value, limit) {
+      const text = String(value || "").replace(/\\s+/g, " ").trim();
+      return text.length > limit ? text.slice(0, limit - 1) + "..." : text;
     }
-    function escapeHtml(value) {
-      return String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+    function list(items) {
+      if (!items || !items.length) return '<div class="empty">' + t("empty") + '</div>';
+      return '<ul>' + items.slice(0, 6).map(function(item) { return '<li>' + esc(shortText(item, 150)) + '</li>'; }).join("") + '</ul>';
     }
-    function compact(value, max = 160) {
-      const text = String(value ?? "").replace(/\\s+/g, " ").trim();
-      return text.length <= max ? text : text.slice(0, max - 1) + "…";
-    }
-    function formatMs(ms) {
-      if (!Number.isFinite(ms) || ms <= 0) return "0s";
-      const seconds = Math.floor(ms / 1000);
-      const minutes = Math.floor(seconds / 60);
-      const hours = Math.floor(minutes / 60);
-      if (hours) return hours + "h " + (minutes % 60) + "m";
-      if (minutes) return minutes + "m " + (seconds % 60) + "s";
-      return seconds + "s";
-    }
-    function metric(label, value) {
-      return '<div class="metric"><div class="label">' + escapeHtml(label) + '</div><div class="value">' + escapeHtml(value) + '</div></div>';
-    }
-    function issueBlock(issue, raw) {
-      if (!issue && !raw) return "";
-      const title = issue ? local(issue.title) : t("blocked");
-      const explanation = issue ? local(issue.explanation) : "";
-      const suggestion = issue ? local(issue.suggestion) : "";
-      const firstLine = issue?.firstLine || "";
-      const details = issue?.details || raw || "";
-      return '<div class="issue">'
-        + '<div class="issue-title">' + escapeHtml(title) + '</div>'
-        + (explanation ? '<p>' + escapeHtml(explanation) + '</p>' : '')
-        + (suggestion ? '<p>' + escapeHtml(suggestion) + '</p>' : '')
-        + (firstLine ? '<p><strong>first:</strong> ' + escapeHtml(compact(firstLine, 220)) + '</p>' : '')
-        + (details ? '<details><summary>' + escapeHtml(t("raw")) + '</summary><pre>' + escapeHtml(details) + '</pre></details>' : '')
-        + '</div>';
-    }
-    function list(values, empty = t("empty")) {
-      const items = (values || []).filter(Boolean).slice(0, 8);
-      if (!items.length) return '<div class="empty">' + escapeHtml(empty) + '</div>';
-      return '<ul>' + items.map((item) => '<li>' + escapeHtml(compact(item, 170)) + '</li>').join("") + '</ul>';
-    }
-    function chips(values) {
-      const items = (values || []).filter(Boolean).slice(0, 10);
-      if (!items.length) return '<div class="empty">' + escapeHtml(t("empty")) + '</div>';
-      return '<div class="chips">' + items.map((item) => '<span class="chip">' + escapeHtml(item) + '</span>').join("") + '</div>';
-    }
-    function roleCard(role) {
-      return '<article class="role">'
-        + '<div class="role-top"><h3>' + escapeHtml(role.role) + '</h3><span class="status ' + escapeHtml(role.status || "") + '">' + escapeHtml(role.status || "defined") + '</span></div>'
-        + '<p class="muted">' + escapeHtml(compact(role.responsibility, 230)) + '</p>'
-        + '<div class="field"><div class="field-label">' + t("current") + '</div><div class="field-value">' + escapeHtml(role.currentTask || "waiting") + '</div></div>'
-        + '<div class="field"><div class="field-label">' + t("assigned") + '</div>' + list(role.assignedTasks) + '</div>'
-        + '<div class="field"><div class="field-label">' + t("completed") + '</div>' + list(role.completedTasks) + '</div>'
-        + '<div class="field"><div class="field-label">' + t("skills") + '</div>' + chips(role.skills) + '</div>'
-        + '<div class="field"><div class="field-label">' + t("tools") + '</div>' + chips(role.tools) + '</div>'
-        + '<div class="field"><div class="field-label">' + t("acceptance") + '</div>' + list(role.acceptance) + '</div>'
-        + (role.lastMessage ? '<div class="field"><div class="field-label">message</div><div class="field-value">' + escapeHtml(compact(role.lastMessage, 180)) + '</div></div>' : '')
-        + (role.blockedIssue ? '<div class="field">' + issueBlock(role.blockedIssue) + '</div>' : '')
-        + '</article>';
-    }
-    function taskItem(task) {
-      return '<div class="task"><strong>' + escapeHtml(task.agent + ": " + task.title) + '</strong>'
-        + '<small>' + escapeHtml(task.status) + '</small>'
-        + (task.issue ? issueBlock(task.issue) : (task.detail ? '<p class="muted">' + escapeHtml(compact(task.detail, 180)) + '</p>' : ''))
-        + '</div>';
-    }
-    function eventItem(event) {
-      const route = [event.role, event.status].filter(Boolean).join(" · ");
-      const title = event.tool || event.kind || "event";
-      return '<div class="event">'
-        + '<div class="event-head"><span>' + escapeHtml(route || title) + '</span><span>' + new Date(event.createdAtMs || Date.now()).toLocaleTimeString() + '</span></div>'
-        + '<div class="event-message"><span class="arrow">' + escapeHtml(title) + '</span> ' + escapeHtml(compact(event.message || event.rawMessage || "", 210)) + '</div>'
-        + (event.issue ? issueBlock(event.issue, event.rawMessage) : (event.rawMessage && event.rawMessage !== event.message ? '<details><summary>' + escapeHtml(t("raw")) + '</summary><pre>' + escapeHtml(event.rawMessage) + '</pre></details>' : ''))
-        + '</div>';
-    }
-    function artifactItem(item) {
-      return '<div class="artifact-row"><strong>' + escapeHtml(item.kind || "artifact") + '</strong><br>'
-        + '<span class="muted">' + escapeHtml(item.path || "") + '</span>'
-        + (item.status ? '<br><span>' + escapeHtml(item.status) + '</span>' : '')
-        + '</div>';
+    function issueHtml(issue) {
+      if (!issue) return "";
+      const title = issue.title && (issue.title[locale] || issue.title.zh || issue.title.en) || t("blocked");
+      const explanation = issue.explanation && (issue.explanation[locale] || issue.explanation.zh || issue.explanation.en) || "";
+      const suggestion = issue.strategy && (issue.strategy[locale] || issue.strategy.zh || issue.strategy.en) ||
+        issue.suggestion && (issue.suggestion[locale] || issue.suggestion.zh || issue.suggestion.en) || "";
+      const details = issue.details && issue.details.length ? issue.details : (issue.firstLine ? [issue.firstLine] : []);
+      return '<div class="issue">' +
+        '<strong>' + esc(title) + '</strong>' +
+        (explanation ? '<p><b>' + t("explain") + ':</b> ' + esc(explanation) + '</p>' : '') +
+        (suggestion ? '<p><b>' + t("strategy") + ':</b> ' + esc(suggestion) + '</p>' : '') +
+        (issue.firstLine ? '<p><b>' + t("first") + ':</b> ' + esc(shortText(issue.firstLine, 220)) + '</p>' : '') +
+        (details.length ? '<details><summary>' + t("details") + '</summary><pre>' + esc(details.join("\\n")) + '</pre></details>' : '') +
+      '</div>';
     }
     function render(snapshot) {
-      if (!snapshot) return;
-      latestSnapshot = snapshot;
-      document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
-      for (const button of document.querySelectorAll("[data-lang]")) button.classList.toggle("active", button.dataset.lang === lang);
-      const overview = snapshot.overview || {};
+      latest = snapshot;
+      document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
+      document.getElementById("zh").className = locale === "zh" ? "active" : "";
+      document.getElementById("en").className = locale === "en" ? "active" : "";
       document.getElementById("project").textContent = snapshot.projectPath || "";
-      document.getElementById("updated").textContent = t("updated") + " " + new Date(snapshot.generatedAtMs || Date.now()).toLocaleTimeString();
-      document.getElementById("overviewLabel").textContent = t("overview");
-      document.getElementById("rolesLabel").textContent = t("roles");
-      document.getElementById("boardLabel").textContent = t("board");
-      document.getElementById("timelineLabel").textContent = t("timeline");
-      document.getElementById("artifactLabel").textContent = t("artifacts");
-      document.getElementById("issuesLabel").textContent = t("issues");
-      document.getElementById("objective").textContent = overview.objective || t("objectiveFallback");
-      document.getElementById("meta").innerHTML = [
-        t("phase") + ": " + (overview.phase || "-"),
-        t("status") + ": " + (overview.status || "-"),
-        t("elapsed") + ": " + formatMs(overview.elapsedMs || 0),
-        overview.lastTool ? t("lastTool") + ": " + overview.lastTool : "",
-      ].filter(Boolean).map((x) => '<span class="pill">' + escapeHtml(x) + '</span>').join("");
-      document.getElementById("metrics").innerHTML = [
-        metric(t("done"), (overview.done || 0) + "/" + (overview.total || 0)),
-        metric(t("running"), overview.running || 0),
-        metric(t("pending"), overview.pending || 0),
-        metric(t("failed"), overview.failed || 0),
-        metric(t("cache"), Number.isFinite(overview.cacheHitRate) ? Math.round(overview.cacheHitRate * 100) + "%" : "-"),
-        metric("USD", Number.isFinite(overview.estimatedCostUsd) ? overview.estimatedCostUsd.toFixed(4) : "-"),
-      ].join("");
+      document.getElementById("updated").textContent = "updated " + fmtTime(snapshot.generatedAtMs);
+      document.getElementById("trace").textContent = t("trace");
+      document.getElementById("trace").href = "/api/runs/" + encodeURIComponent(RUN_ID) + "/trace.jsonl?token=" + encodeURIComponent(TOKEN);
+      document.getElementById("issuesTitle").textContent = t("issues");
+      document.getElementById("rolesTitle").textContent = t("roles");
+      document.getElementById("boardTitle").textContent = t("board");
+      document.getElementById("timelineTitle").textContent = t("timeline");
+      document.getElementById("validationTitle").textContent = t("validation");
+      renderOverview(snapshot);
+      renderIssues(snapshot);
+      renderRoles(snapshot.roles || []);
+      renderBoard(snapshot.taskBoard || {});
+      renderTimeline(snapshot.timeline || []);
+      renderValidation(snapshot);
+    }
+    function renderOverview(snapshot) {
+      const o = snapshot.overview || {};
+      document.getElementById("overview").innerHTML =
+        '<div class="eyebrow">' + t("overview") + '</div>' +
+        '<h1>' + esc(o.objective || t("objective")) + '</h1>' +
+        '<div class="meta"><span class="pill">' + t("phase") + ': ' + esc(o.phase || "--") + '</span><span class="pill">' + t("status") + ': ' + esc(o.status || "--") + '</span></div>' +
+        (o.staleIssue ? issueHtml(o.staleIssue) : o.staleReason ? '<div class="issue"><strong>' + esc(o.staleReason) + '</strong></div>' : '') +
+        '<div class="metric-grid">' +
+          metric(t("done"), String(o.done || 0) + "/" + String(o.total || 0)) +
+          metric(t("running"), String(o.running || 0)) +
+          metric(t("pending"), String(o.pending || 0)) +
+          metric(t("failed"), String(o.failed || 0)) +
+          metric(t("cache"), o.cacheHitRate == null ? "--" : Math.round(o.cacheHitRate) + "%") +
+          metric("Cost", o.estimatedCostUsd == null ? "--" : "$" + Number(o.estimatedCostUsd).toFixed(4)) +
+        '</div>';
+    }
+    function metric(label, value) { return '<div class="metric"><label>' + esc(label) + '</label><strong>' + esc(value) + '</strong></div>'; }
+    function renderIssues(snapshot) {
       const issues = [];
-      if (overview.staleIssue) issues.push(issueBlock(overview.staleIssue));
-      for (const issue of (snapshot.validation?.failureIssues || []).slice(0, 4)) issues.push(issueBlock(issue));
-      for (const role of (snapshot.roles || [])) if (role.blockedIssue) issues.push(issueBlock(role.blockedIssue));
-      document.getElementById("issues").innerHTML = issues.length ? issues.join("") : '<div class="empty">' + t("empty") + '</div>';
-      document.getElementById("roles").innerHTML = (snapshot.roles || []).map(roleCard).join("") || '<div class="empty">' + t("empty") + '</div>';
-      const board = snapshot.taskBoard || {};
-      document.getElementById("board").innerHTML = ["queued", "running", "needs_review", "succeeded", "failed"].map((key) =>
-        '<section class="lane"><h3>' + escapeHtml(key) + '</h3>' + ((board[key] || []).map(taskItem).join("") || '<div class="task empty">' + t("empty") + '</div>') + '</section>'
-      ).join("");
-      document.getElementById("timeline").innerHTML = '<div class="timeline-list">' + ((snapshot.timeline || []).slice(-40).reverse().map(eventItem).join("") || '<div class="empty">' + t("empty") + '</div>') + '</div>';
+      if (snapshot.overview && snapshot.overview.staleIssue) issues.push(snapshot.overview.staleIssue);
+      (snapshot.roles || []).forEach(function(role) { if (role.blockedIssue) issues.push(role.blockedIssue); });
+      if (snapshot.validation && snapshot.validation.failureIssues) issues.push.apply(issues, snapshot.validation.failureIssues);
+      document.getElementById("issues").innerHTML = issues.length
+        ? issues.slice(0, 5).map(issueHtml).join("")
+        : '<div class="empty">' + t("empty") + '</div>';
+    }
+    function renderRoles(roles) {
+      document.getElementById("roles").innerHTML = roles.length ? roles.map(function(role) {
+        return '<article class="role">' +
+          '<div class="role-top"><strong>' + esc(role.role) + '</strong><span class="' + statusClass(role.status) + '">' + esc(role.status || "defined") + '</span></div>' +
+          '<div class="text">' + esc(role.responsibility || "") + '</div>' +
+          section(t("current"), role.currentTask || "waiting") +
+          section(t("assigned"), list(role.assignedTasks)) +
+          section(t("completed"), list(role.completedTasks)) +
+          (role.lastTool ? section(t("lastTool"), '<span class="chip">' + esc(role.lastTool) + '</span>') : '') +
+          (role.lastMessage ? section(t("lastMessage"), esc(shortText(role.lastMessage, 180))) : '') +
+          (role.skills && role.skills.length ? section(t("skills"), chips(role.skills)) : '') +
+          (role.tools && role.tools.length ? section(t("tools"), chips(role.tools)) : '') +
+          (role.acceptance && role.acceptance.length ? section(t("acceptance"), list(role.acceptance)) : '') +
+          (role.blockedIssue ? issueHtml(role.blockedIssue) : '') +
+        '</article>';
+      }).join("") : '<div class="empty">' + t("empty") + '</div>';
+    }
+    function section(label, content) { return '<div class="section"><div class="label">' + esc(label) + '</div><div class="text">' + content + '</div></div>'; }
+    function chips(items) { return '<div class="chips">' + items.slice(0, 8).map(function(item) { return '<span class="chip">' + esc(item) + '</span>'; }).join("") + '</div>'; }
+    function renderBoard(board) {
+      const lanes = ["queued", "running", "needs_review", "succeeded", "failed"];
+      document.getElementById("board").innerHTML = lanes.map(function(lane) {
+        const tasks = board[lane] || [];
+        return '<div class="lane"><h3>' + lane + '</h3>' + (tasks.length ? tasks.map(taskHtml).join("") : '<div class="empty">' + t("empty") + '</div>') + '</div>';
+      }).join("");
+    }
+    function taskHtml(task) {
+      return '<div class="task"><b>' + esc(task.agent || "agent") + '</b><div class="text">' + esc(task.title || "") + '</div>' +
+        (task.issue ? issueHtml(task.issue) : task.detail ? '<div class="text">' + esc(shortText(task.detail, 160)) + '</div>' : '') + '</div>';
+    }
+    function renderTimeline(events) {
+      const visible = events.slice(-32).reverse();
+      document.getElementById("timeline").innerHTML = visible.length ? visible.map(function(event) {
+        return '<div class="event"><div class="event-top"><span>' + esc(event.role || event.kind || "event") + '</span><span>' + fmtTime(event.createdAtMs) + '</span></div>' +
+          '<div class="event-name">' + esc(event.tool || event.kind || "") + '</div>' +
+          (event.message ? '<div class="text">' + esc(shortText(event.message, 180)) + '</div>' : '') +
+          (event.issue ? issueHtml(event.issue) : '') +
+        '</div>';
+      }).join("") : '<div class="empty">' + t("empty") + '</div>';
+    }
+    function renderValidation(snapshot) {
       const validation = snapshot.validation || {};
-      const artifactHtml = [
-        '<div class="artifact-row"><strong>' + t("validation") + ': ' + escapeHtml(validation.status || "unknown") + '</strong><p class="muted">' + escapeHtml(validation.summary || "") + '</p></div>',
-        ...(validation.repaired || []).slice(0, 6).map((item) => '<div class="artifact-row"><strong>' + t("repaired") + '</strong><br>' + escapeHtml(compact(item, 220)) + '</div>'),
-        ...(snapshot.artifacts || []).slice(0, 12).map(artifactItem),
-      ].join("");
-      document.getElementById("artifacts").innerHTML = artifactHtml || '<div class="empty">' + t("empty") + '</div>';
-      document.getElementById("traceLink").href = "/api/runs/" + encodeURIComponent(runId) + "/trace.jsonl?token=" + encodeURIComponent(token);
+      const artifacts = snapshot.artifacts || [];
+      document.getElementById("validation").innerHTML =
+        '<div class="artifact"><b>' + esc(validation.status || "unknown") + '</b><div class="text">' + esc(validation.summary || "") + '</div></div>' +
+        (validation.failureIssues && validation.failureIssues.length ? validation.failureIssues.slice(0, 4).map(issueHtml).join("") : '') +
+        (artifacts.length ? artifacts.slice(0, 8).map(function(artifact) {
+          return '<div class="artifact"><b>' + esc(artifact.kind || "artifact") + '</b><div class="text">' + esc(artifact.path || "") + '</div>' +
+            (artifact.status ? '<span class="pill">' + esc(artifact.status) + '</span>' : '') + '</div>';
+        }).join("") : '<div class="empty">' + t("empty") + '</div>');
     }
-    async function refresh() {
-      const response = await fetch("/api/runs/" + encodeURIComponent(runId) + "/snapshot?token=" + encodeURIComponent(token));
-      if (response.ok) render(await response.json());
+    async function load() {
+      const res = await fetch("/api/runs/" + encodeURIComponent(RUN_ID) + "/snapshot?token=" + encodeURIComponent(TOKEN));
+      if (!res.ok) throw new Error(await res.text());
+      render(await res.json());
     }
-    function connectEvents() {
-      const source = new EventSource("/api/runs/" + encodeURIComponent(runId) + "/events?token=" + encodeURIComponent(token));
-      source.addEventListener("snapshot", (event) => render(JSON.parse(event.data)));
-      source.onerror = () => setTimeout(refresh, 1500);
+    document.getElementById("zh").onclick = function() { locale = "zh"; localStorage.setItem("deepseekcode.agentPanel.locale", locale); if (latest) render(latest); };
+    document.getElementById("en").onclick = function() { locale = "en"; localStorage.setItem("deepseekcode.agentPanel.locale", locale); if (latest) render(latest); };
+    load().catch(function(error) {
+      document.getElementById("overview").innerHTML = '<div class="issue"><strong>Panel error</strong><p>' + esc(error.message) + '</p></div>';
+    });
+    try {
+      const events = new EventSource("/api/runs/" + encodeURIComponent(RUN_ID) + "/events?token=" + encodeURIComponent(TOKEN));
+      events.addEventListener("snapshot", function(event) { render(JSON.parse(event.data)); });
+      events.onerror = function() { setTimeout(load, 2000); };
+    } catch {
+      setInterval(load, 2000);
     }
-    refresh().then(connectEvents).catch(() => setTimeout(refresh, 1500));
   </script>
 </body>
 </html>`;
