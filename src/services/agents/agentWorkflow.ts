@@ -177,12 +177,12 @@ export class AgentWorkflowService {
     const now = Date.now();
     const id = `workflow_${randomUUID()}`;
     const contract = normalizeTaskCompletionContract(input.contract, input.objective, input.acceptanceCriteria ?? []);
-    const rolePlan = input.rolePlan ?? buildHeuristicWorkflowPlan(input.roles, input.objective, contract);
+    const rolePlan = input.rolePlan ?? buildCleanWorkflowPlan(input.roles, input.objective, contract);
     let roles = ensurePlannerAndAcceptanceReviewer(rolePlan.roles, input.objective, contract);
     let generatedSkills = normalizeGeneratedSkills(input.generatedSkills, roles, contract);
     roles = attachGeneratedSkillsToRoles(roles, generatedSkills);
     let subtaskGraph = normalizeSubtaskGraph(
-      input.subtaskGraph?.length ? input.subtaskGraph : buildHeuristicSubtasks(input.objective, contract, roles),
+      input.subtaskGraph?.length ? input.subtaskGraph : buildCleanSubtasks(input.objective, contract, roles),
       roles,
       contract,
       now,
@@ -396,12 +396,12 @@ export class AgentWorkflowService {
   }): AgentWorkflowRecord {
     const record = this.resolve(input.workflowId);
     const now = Date.now();
-    const rolePlan = input.rolePlan ?? buildHeuristicWorkflowPlan(undefined, record.objective, record.contract ?? normalizeTaskCompletionContract(undefined, record.objective));
+    const rolePlan = input.rolePlan ?? buildCleanWorkflowPlan(undefined, record.objective, record.contract ?? normalizeTaskCompletionContract(undefined, record.objective));
     let roles = ensurePlannerAndAcceptanceReviewer(rolePlan.roles, record.objective, record.contract ?? normalizeTaskCompletionContract(undefined, record.objective));
     const generatedSkills = normalizeGeneratedSkills(input.generatedSkills, roles, record.contract ?? normalizeTaskCompletionContract(undefined, record.objective));
     roles = attachGeneratedSkillsToRoles(roles, generatedSkills);
     let subtaskGraph = normalizeSubtaskGraph(
-      input.subtaskGraph?.length ? input.subtaskGraph : buildHeuristicSubtasks(record.objective, record.contract ?? normalizeTaskCompletionContract(undefined, record.objective), roles),
+      input.subtaskGraph?.length ? input.subtaskGraph : buildCleanSubtasks(record.objective, record.contract ?? normalizeTaskCompletionContract(undefined, record.objective), roles),
       roles,
       record.contract ?? normalizeTaskCompletionContract(undefined, record.objective),
       now,
@@ -918,8 +918,184 @@ export class AgentWorkflowService {
         summary: "All workflow subtasks completed and acceptance evidence was recorded.",
       });
     }
-    return next;
+  return next;
   }
+}
+
+function buildCleanWorkflowPlan(
+  roles: AgentRoleSpec[] | undefined,
+  objective: string,
+  contract: NormalizedTaskCompletionContract,
+): WorkflowRolePlan {
+  const explicitRoles = roles?.length
+    ? roles.map((role) => roleState({
+      role: safeRoleName(role.role ?? role.name ?? "agent"),
+      responsibility: role.responsibility.trim(),
+      contextScope: role.contextScope ?? "只读取任务契约、当前项目摘要、分配给自己的子任务、必要上游摘要、工具结果摘要和自己的 checkpoint。",
+      allowedTools: unique([...(role.allowedTools ?? []), ...(role.tools ?? [])]),
+      preloadedSkills: unique([...(role.preloadedSkills ?? []), ...(role.skills ?? [])]),
+      assignedTasks: unique(role.assignedTasks?.length ? role.assignedTasks : [role.responsibility]),
+      acceptance: unique([...(role.acceptance ?? []), ...(role.acceptanceCriteria ?? [])]),
+      requiredOutputs: unique(role.requiredOutputs ?? []),
+      riskChecks: unique(role.riskChecks ?? []),
+      handoffFormat: role.handoffFormat ?? "中文摘要；改动路径；产物/URL/命令；验证 evidence；阻塞与下一步。",
+      checkpoint: role.checkpoint ?? "",
+    }))
+    : [];
+  const planner = roleState({
+    role: "Planner",
+    responsibility: `为任务生成可审查计划、动态角色、子任务图、验收顺序和确认交接：${objective}`,
+    contextScope: "读取目标、任务契约、项目结构、用户约束和 runtime state；只持久化计划、角色、子任务与风险摘要。",
+    allowedTools: ["TodoWrite", "read_file", "list_files", "grep_files", "search_skills", "send_agent_message", "agent_status"],
+    preloadedSkills: ["workflow-planning", ...skillsForContract(contract)],
+    assignedTasks: ["执行前生成可确认的 plan gate payload。"],
+    acceptance: ["计划必须包含任务定制动态角色、角色本地 skill、子任务、依赖、evidence 要求和验收 gate。"],
+    requiredOutputs: ["rolePlan", "subtaskGraph", "generatedSkills", "verificationPlan"],
+    riskChecks: ["中间角色必须来自任务需求，不使用固定模板凑数。", "每个角色只读取自己的上下文、工具摘要和必要上游摘要。"],
+    handoffFormat: "用中文返回角色、子任务交接、验收标准和 evidence 要求。",
+  });
+  const middleRoles = explicitRoles.filter((role) => !isPlannerRole(role.role) && !isAcceptanceRole(role.role));
+  const dynamicRoles = middleRoles.length ? middleRoles : cleanExecutionRoles(objective, contract);
+  const reviewer = roleState({
+    role: "AcceptanceReviewer",
+    responsibility: "按任务契约、子任务 evidence、真实产物、verification hints 和用户约束验收每个子任务与最终结果。",
+    contextScope: "读取 contract、子任务 evidence、角色 checkpoint、验证摘要和产物；除非定位失败，不读取其他角色完整 transcript。",
+    allowedTools: ["read_file", "list_files", "glob_files", "grep_files", "validate_artifact", "verify_task", "verify_project", "launch_project", "browser_screenshot", "agent_status", "finish_agent_workflow"],
+    preloadedSkills: ["acceptance-review", "artifact-review", "runtime-verification", ...skillsForContract(contract)],
+    assignedTasks: ["验收 needs_review 子任务，并且只在真实 evidence 存在后结束 workflow。"],
+    acceptance: contract.acceptanceCriteria.length ? contract.acceptanceCriteria : [
+      "必须产物或行为真实存在。",
+      "验收使用真实文件、命令、启动、截图、validator 或明确 blocker。",
+      "已知限制必须如实报告。",
+    ],
+    requiredOutputs: ["acceptanceDecision", "remainingIssues", "artifactEvidence"],
+    riskChecks: ["不得只凭文字说明标记完成。", "产物缺失、打不开、按钮无响应或预览失败时必须拒绝验收。"],
+    handoffFormat: "逐项说明通过/拒绝、使用的 evidence，以及拒绝后的修复步骤。",
+  });
+  return {
+    source: middleRoles.length ? "user" : "heuristic",
+    plannerNotes: middleRoles.length
+      ? "用户提供了中间角色；系统只补齐 Planner 和 AcceptanceReviewer。"
+      : "本地兜底根据任务契约生成中文动态角色；模型可通过 start_agent_workflow 参数替换这份计划。",
+    roles: [planner, ...dynamicRoles, reviewer],
+  };
+}
+
+function cleanExecutionRoles(objective: string, contract: NormalizedTaskCompletionContract): AgentRoleState[] {
+  return cleanRoleSpecs(objective, contract)
+    .slice(0, roleLimitForContract(contract, objective))
+    .map((spec) => roleState({
+      role: spec.role,
+      responsibility: spec.responsibility,
+      contextScope: "只读取当前子任务、角色专属 skill、必要文件、上游摘要、工具反馈和自己的 checkpoint；不读取其他角色完整 transcript。",
+      allowedTools: unique(spec.tools),
+      preloadedSkills: unique(spec.skills),
+      assignedTasks: unique(spec.outputs.length ? spec.outputs.map((output) => `完成或修复：${output}`) : [spec.responsibility]),
+      acceptance: ["产物、命令、截图、日志摘要或明确 blocker 必须形成 evidence。", "交接必须写清路径、启动命令、验证结果和下一位角色需要关注的问题。"],
+      requiredOutputs: unique(spec.outputs.length ? spec.outputs : ["本地产物与验证 evidence"]),
+      riskChecks: unique(spec.risks),
+      handoffFormat: "中文摘要；改动路径；产物/URL/命令；验证 evidence；阻塞与建议。",
+    }));
+}
+
+function cleanRoleSpecs(objective: string, contract: NormalizedTaskCompletionContract): Array<{
+  role: string;
+  responsibility: string;
+  tools: string[];
+  skills: string[];
+  outputs: string[];
+  risks: string[];
+}> {
+  const commonRead = ["read_file", "list_files", "grep_files", "glob_files"];
+  const commonWrite = [...commonRead, "write_file", "append_file", "apply_patch", "run_command", "invoke_skill", "validate_artifact"];
+  const runtimeTools = [...commonWrite, "launch_project", "browser_screenshot", "verify_task"];
+  const text = [
+    objective,
+    ...contract.expectedOutputs.map((output) => `${output.kind} ${output.description}`),
+    ...contract.acceptanceCriteria,
+    ...contract.verificationHints,
+  ].join("\n").toLowerCase();
+  const specs: Array<{
+    role: string;
+    responsibility: string;
+    tools: string[];
+    skills: string[];
+    outputs: string[];
+    risks: string[];
+  }> = [];
+  const add = (role: string, responsibility: string, outputs: string[], skills: string[], tools = commonWrite, risks: string[] = []) => {
+    if (!specs.some((candidate) => candidate.role === role)) specs.push({ role, responsibility, tools, skills, outputs, risks });
+  };
+  const isWeb = /网站|网页|页面|前端|浏览器|html|css|react|vue|vite|next|商城|电商|web|frontend|browser|website|page|shop|ecommerce/.test(text);
+  const isGame = /游戏|小游戏|关卡|敌机|子弹|碰撞|分数|战机|game|level|enemy|bullet|collision|score/.test(text);
+  const hasMotion = /动效|动画|gsap|motion|scroll|过渡|特效|animate|animation/.test(text);
+  const hasBackend = /后端|接口|api|服务端|server|backend|express|fastify/.test(text);
+  const hasData = /数据库|数据|schema|seed|种子|商品|库存|catalog|csv|json|db|sqlite|mysql|postgres|data/.test(text);
+  if (isGame) {
+    add("玩法与关卡工程师", `实现游戏核心玩法、关卡节奏、状态循环、碰撞/计分/生命等可玩行为：${objective}`, ["玩法逻辑", "关卡状态", "可运行游戏 evidence"], ["implementation", "browser-verification"], runtimeTools, ["不能只做静态页面；必须能启动、可交互或记录明确 blocker。"]);
+  }
+  if (isWeb) {
+    add("界面与交互工程师", `实现浏览器入口、页面结构、响应式布局和用户可见交互：${objective}`, ["浏览器入口", "响应式界面", "主要交互流程"], ["ui-ux", "browser-verification"], runtimeTools, ["检查空白页、404、控制台错误、按钮无响应和手机端溢出。"]);
+  }
+  if (hasMotion) {
+    add("动效体验工程师", `实现 GSAP/动画时序、状态反馈、过渡和动效性能：${objective}`, ["动画时间线", "动效验证 evidence", "低动效模式说明"], ["gsap-core", "gsap-timeline", "gsap-performance", "ui-ux"], runtimeTools, ["优先 transform/opacity；避免布局抖动和无意义装饰动效。"]);
+  }
+  if (hasBackend) {
+    add("后端接口工程师", `实现服务端、API、启动脚本、端口和前后端联调：${objective}`, ["后端/API 代码", "启动命令", "接口验证 evidence"], ["implementation", "testing"], commonWrite, ["长服务必须走 launch_project；有限命令必须可退出。"]);
+  }
+  if (contract.expectedOutputs.some((output) => ["code", "cli"].includes(String(output.kind).toLowerCase())) && !specs.some((spec) => spec.role === "后端接口工程师")) {
+    add("项目实现工程师", `实现可执行代码、CLI、脚本、测试或包配置：${objective}`, ["代码实现", "有限命令验证 evidence"], ["implementation", "testing"], commonWrite, ["只使用可结束的有限命令；重试前先修复 Windows shell 不兼容。"]);
+  }
+  if (hasData) {
+    add("数据建模工程师", `实现数据库 schema、seed、数据文件和可复现实例数据：${objective}`, ["schema/seed 数据", "数据验证 evidence"], ["spreadsheets", "data-validation", "implementation"], commonWrite, ["不得伪造数据完成状态；记录初始化和读取验证。"]);
+  }
+  if (/mcp|model context protocol/.test(text)) {
+    add("MCP 协议工程师", `实现 MCP mock、discover/call、错误摘要和协议验证：${objective}`, ["MCP discover/call evidence", "失败摘要"], ["mcp", "integration-testing"], [...commonWrite, "mcp_call"], ["无凭据时使用 mock 并明确标注。"]);
+  }
+  if (/ppt|pptx|slides?|演示|幻灯/.test(text)) {
+    add("演示文稿设计师", `实现 PPTX 内容结构、版式和可打开性验证：${objective}`, ["PPTX 文件", "预览或验证 evidence"], ["presentations"], [...commonWrite, "create_pptx"], ["页数和文件可打开性必须验证。"]);
+  }
+  if (/docx?|word|文档|报告|markdown|pdf/.test(text)) {
+    add("文档产物编辑", `实现文档/PDF/Markdown 结构、内容和格式验证：${objective}`, ["文档产物", "格式验证 evidence"], ["documents", "pdf", "writing"], [...commonWrite, "create_docx"], ["结构和可读性必须验证。"]);
+  }
+  if (!specs.length) {
+    for (const output of contract.expectedOutputs.length ? contract.expectedOutputs : [{ kind: "code", description: objective, required: true }]) {
+      const kind = String(output.kind).toLowerCase();
+      if (kind === "cli" || kind === "code") {
+        add(kind === "cli" ? "命令行工程师" : "项目实现工程师", `实现可执行代码、CLI、脚本、测试或包配置：${objective}`, [`${output.kind}: ${output.description}`], ["implementation", "testing"], commonWrite, ["只使用可结束的有限命令；重试前先修复 Windows shell 不兼容。"]);
+      } else {
+        add("项目实现工程师", `实现用户请求的本地产物并提供真实 evidence：${objective}`, [`${output.kind}: ${output.description}`], skillsForContract(contract), commonWrite, ["不得用文字替代真实产物。"]);
+      }
+    }
+    add("运行修复工程师", `运行检查、归纳失败并修复可复现问题：${objective}`, ["检查记录", "修复 evidence"], ["testing", "browser-verification"], runtimeTools, ["失败必须保留第一行错误、完整日志位置和修复建议。"]);
+  }
+  return specs;
+}
+
+function buildCleanSubtasks(
+  objective: string,
+  contract: NormalizedTaskCompletionContract,
+  roles: AgentRoleState[],
+): WorkflowSubtaskState[] {
+  const now = Date.now();
+  const executionRoles = roles.filter((role) => !isPlannerRole(role.role) && !isAcceptanceRole(role.role));
+  return executionRoles.map((role, index) => {
+    const id = `subtask_${index + 1}`;
+    const dependsOn = index === 0 ? [] : [`subtask_${index}`];
+    return {
+      id,
+      title: role.assignedTasks[0] || `${role.role} 子任务`,
+      description: role.responsibility || objective,
+      assigneeRole: role.role,
+      dependencies: dependsOn,
+      status: "queued",
+      acceptanceCriteria: role.acceptance.length ? role.acceptance : contract.acceptanceCriteria,
+      expectedOutputs: role.requiredOutputs.length ? role.requiredOutputs : contract.expectedOutputs.map((output) => `${output.kind}: ${output.description}`),
+      evidence: [],
+      createdBy: "Planner",
+      updatedAtMs: now,
+    };
+  });
 }
 
 function buildHeuristicWorkflowPlan(
@@ -1204,10 +1380,10 @@ function ensurePlannerAndAcceptanceReviewer(
 ): AgentRoleState[] {
   const normalizedRoles = roles.map((role) => migrateRole(role));
   const middleRoles = normalizedRoles.filter((role) => !isPlannerRole(role.role) && !isAcceptanceRole(role.role));
-  const fallback = buildHeuristicWorkflowPlan([], objective, contract).roles;
+  const fallback = buildCleanWorkflowPlan([], objective, contract).roles;
   const planner = normalizedRoles.find((role) => isPlannerRole(role.role)) ?? fallback.find((role) => isPlannerRole(role.role))!;
   const reviewer = normalizedRoles.find((role) => isAcceptanceRole(role.role)) ?? fallback.find((role) => isAcceptanceRole(role.role))!;
-  return [planner, ...(middleRoles.length ? middleRoles : heuristicExecutionRoles(objective, contract)), { ...reviewer, role: "AcceptanceReviewer", name: "AcceptanceReviewer" }];
+  return [planner, ...(middleRoles.length ? middleRoles : cleanExecutionRoles(objective, contract)), { ...reviewer, role: "AcceptanceReviewer", name: "AcceptanceReviewer" }];
 }
 
 function normalizeGeneratedSkills(
@@ -1224,18 +1400,18 @@ function normalizeGeneratedSkills(
         ...found,
         id: found.id || `skill_${safeRoleName(role.role)}`,
         role: safeRoleName(found.role || role.role),
-        title: found.title || `${role.role} workflow-local skill`,
+        title: found.title || `${role.role} 工作流本地 skill`,
         summary: found.summary || compact(role.responsibility, 260),
         prompt: found.prompt || [
-          `Role: ${role.role}`,
-          `Mission: ${role.responsibility}`,
-          `Allowed tools: ${role.allowedTools.join(", ") || "runtime scoped tools"}`,
-          `Handoff format: ${role.handoffFormat || "summary, evidence, blockers, next handoff"}`,
+          `角色：${role.role}`,
+          `任务：${role.responsibility}`,
+          `允许工具：${role.allowedTools.join(", ") || "运行时限定工具"}`,
+          `交接格式：${role.handoffFormat || "中文摘要、evidence、阻塞、下一步交接"}`,
         ].join("\n"),
         allowedTools: unique(found.allowedTools?.length ? found.allowedTools : role.allowedTools),
-        outputFormat: found.outputFormat || "Concise checkpoint with artifacts, commands, evidence, blockers, and next handoff.",
+        outputFormat: found.outputFormat || "简洁 checkpoint：产物、命令、evidence、阻塞和下一步交接。",
         riskChecks: unique(found.riskChecks?.length ? found.riskChecks : role.riskChecks),
-        handoffFormat: found.handoffFormat || role.handoffFormat || "summary, evidence, blockers, next handoff",
+        handoffFormat: found.handoffFormat || role.handoffFormat || "中文摘要、evidence、阻塞、下一步交接",
         createdAtMs: found.createdAtMs || now,
       };
     }
@@ -1245,22 +1421,22 @@ function normalizeGeneratedSkills(
     return {
       id: `skill_${safeRoleName(role.role)}`,
       role: role.role,
-      title: `${role.role} workflow-local skill`,
-      summary: compact(`${role.responsibility} Outputs: ${outputHints || "assigned subtasks"}`, 260),
+      title: `${role.role} 工作流本地 skill`,
+      summary: compact(`${role.responsibility} 输出：${outputHints || "分配的子任务"}`, 260),
       prompt: [
-        `Role: ${role.role}`,
-        `Mission: ${role.responsibility}`,
-        `Context boundary: ${role.contextScope}`,
-        `Allowed tools: ${role.allowedTools.join(", ") || "runtime scoped tools"}`,
-        `Required outputs: ${outputHints || "assigned subtasks"}`,
-        `Quality bar: ${role.acceptance.join(" | ") || contract.acceptanceCriteria.join(" | ") || "match user request with concrete evidence"}`,
-        `Risk checks: ${role.riskChecks.join(" | ") || "do not claim completion without evidence"}`,
-        `Handoff format: ${role.handoffFormat || "summary, files/artifacts, evidence, blockers, next step"}`,
+        `角色：${role.role}`,
+        `任务：${role.responsibility}`,
+        `上下文边界：${role.contextScope}`,
+        `允许工具：${role.allowedTools.join(", ") || "运行时限定工具"}`,
+        `必需输出：${outputHints || "分配的子任务"}`,
+        `质量标准：${role.acceptance.join(" | ") || contract.acceptanceCriteria.join(" | ") || "必须用真实 evidence 满足用户请求"}`,
+        `风险检查：${role.riskChecks.join(" | ") || "没有真实 evidence 不得声明完成"}`,
+        `交接格式：${role.handoffFormat || "中文摘要、文件/产物、evidence、阻塞、下一步"}`,
       ].join("\n"),
       allowedTools: role.allowedTools,
-      outputFormat: "Concise checkpoint with artifacts, commands, evidence, blockers, and next handoff.",
+      outputFormat: "简洁 checkpoint：产物、命令、evidence、阻塞和下一步交接。",
       riskChecks: role.riskChecks,
-      handoffFormat: role.handoffFormat || "summary, evidence, blockers, next handoff",
+      handoffFormat: role.handoffFormat || "中文摘要、evidence、阻塞、下一步交接",
       createdAtMs: now,
     };
   });
@@ -1578,7 +1754,7 @@ function roleState(input: {
     name: role,
     role,
     responsibility: input.responsibility.trim(),
-    contextScope: input.contextScope?.trim() || "Role-local context: use task contract, assigned work, tool feedback, and checkpoint summaries.",
+    contextScope: input.contextScope?.trim() || "角色本地上下文：只使用任务契约、分配任务、工具反馈和 checkpoint 摘要。",
     allowedTools: unique(input.allowedTools ?? []),
     preloadedSkills: unique(input.preloadedSkills ?? []),
     assignedTasks: unique(input.assignedTasks?.length ? input.assignedTasks : [input.responsibility]),
@@ -1593,7 +1769,7 @@ function roleState(input: {
     acceptance: unique(input.acceptance ?? []),
     requiredOutputs: unique(input.requiredOutputs ?? []),
     riskChecks: unique(input.riskChecks ?? []),
-    handoffFormat: input.handoffFormat?.trim() || "Return summary, artifacts/evidence, blockers, and next handoff.",
+    handoffFormat: input.handoffFormat?.trim() || "返回中文摘要、产物/evidence、阻塞和下一步交接。",
     generatedSkillId: input.generatedSkillId,
   };
 }

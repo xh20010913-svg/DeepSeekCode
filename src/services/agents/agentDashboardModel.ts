@@ -147,16 +147,18 @@ export function buildAgentDashboardSnapshot(input: {
   runId?: string;
 }): AgentDashboardSnapshot {
   const activeStatus = activeWorkflowStatus(input.state, input.projectPath);
-  const workflowStatus = activeStatus && (!input.runId || input.runId === activeStatus.record.runId)
-    ? activeStatus
-    : undefined;
-  const runId = input.runId ?? workflowStatus?.record.runId ?? latestRunForProject(input.state, input.projectPath)?.id;
+  const requestedRunId = input.runId;
+  const workflowStatus = workflowStatusForRun(input.state, input.projectPath, activeStatus, requestedRunId);
+  const runId = workflowStatus?.record.runId ?? requestedRunId ?? latestRunForProject(input.state, input.projectPath)?.id;
   const run = runId ? input.state.getRun(runId) : undefined;
-  const tasks = runId ? input.state.listTasks(runId) : [];
-  const events = runId ? input.state.listEvents(runId, 160).reverse() : [];
+  const associatedRunIds = associatedRunIdsForSnapshot(input.state, input.projectPath, workflowStatus?.record, requestedRunId ?? runId);
+  const tasks = workflowStatus?.record.runId
+    ? input.state.listTasks(workflowStatus.record.runId)
+    : runId ? input.state.listTasks(runId) : [];
+  const events = mergeEvents(associatedRunIds.map((id) => input.state.listEvents(id, 160)));
   const validationGates = runId ? input.state.listValidationGates({ runId }, 20).reverse() : [];
   const usage = runId ? input.state.usageTotals(runId) : input.state.usageTotals();
-  const artifacts = runId ? readArtifacts(input.state, runId) : [];
+  const artifacts = associatedRunIds.flatMap((id) => readArtifacts(input.state, id));
   const messages = workflowStatus?.messages ?? [];
   const roles = buildRoles({
     roles: workflowStatus?.record.roles ?? inferRoles(tasks),
@@ -258,6 +260,60 @@ function activeWorkflowStatus(state: StateStore, projectPath: string): {
   } catch {
     return undefined;
   }
+}
+
+function workflowStatusForRun(
+  state: StateStore,
+  projectPath: string,
+  activeStatus: ReturnType<typeof activeWorkflowStatus>,
+  runId?: string,
+): ReturnType<typeof activeWorkflowStatus> {
+  if (!activeStatus) return undefined;
+  if (!runId || runId === activeStatus.record.runId) return activeStatus;
+  if (runLinksToWorkflow(state, runId, activeStatus.record)) return activeStatus;
+  const requestedRun = state.getRun(runId);
+  if (requestedRun && normalizePath(requestedRun.projectPath) === normalizePath(projectPath)) {
+    const latest = latestRunForProject(state, projectPath);
+    if (latest?.id === runId && activeStatus.record.status !== "succeeded") return activeStatus;
+  }
+  return undefined;
+}
+
+function runLinksToWorkflow(state: StateStore, runId: string, workflow: AgentWorkflowRecord): boolean {
+  return state.listEvents(runId, 80).some((event) => {
+    const payload = objectPayload(event.payload);
+    return stringValue(payload.workflow_id) === workflow.id
+      || stringValue(payload.workflow_run_id) === workflow.runId
+      || stringValue(payload.parent_run_id) === workflow.runId;
+  });
+}
+
+function associatedRunIdsForSnapshot(
+  state: StateStore,
+  projectPath: string,
+  workflow: AgentWorkflowRecord | undefined,
+  selectedRunId?: string,
+): string[] {
+  const ids = new Set<string>();
+  if (workflow?.runId) ids.add(workflow.runId);
+  if (selectedRunId) ids.add(selectedRunId);
+  if (workflow) {
+    const normalized = normalizePath(projectPath);
+    for (const run of state.listRuns(50)) {
+      if (normalizePath(run.projectPath) !== normalized) continue;
+      if (run.id === workflow.runId) continue;
+      if (runLinksToWorkflow(state, run.id, workflow)) ids.add(run.id);
+    }
+  }
+  return [...ids];
+}
+
+function mergeEvents(eventGroups: EventRecord[][]): EventRecord[] {
+  const byId = new Map<number, EventRecord>();
+  for (const event of eventGroups.flat()) {
+    byId.set(event.id, event);
+  }
+  return [...byId.values()].sort((a, b) => a.createdAtMs - b.createdAtMs || a.id - b.id).slice(-220);
 }
 
 function latestRunForProject(state: StateStore, projectPath: string): RunRecord | undefined {

@@ -123,6 +123,7 @@ export async function verifyTask(
   const launched: LaunchedProcess[] = [];
 
   const contract = normalizeTaskContract(input.contract, input.objective);
+  const strictRuntimeEvidence = contractRequiresRuntimeEvidence(contract);
   const goal = contract.objective;
   if (goal) {
     checks.push({ name: "task_contract", status: "passed", detail: goal.slice(0, 500) });
@@ -228,6 +229,10 @@ export async function verifyTask(
       launched,
       packages: findPackageJsons(root).slice(0, input.mode === "full" ? 6 : 3),
     });
+  }
+
+  if (strictRuntimeEvidence) {
+    applyRuntimeEvidenceGate(root, contract, checks, launched, previewPath);
   }
 
   if (!genericFiles.length && !scripts.length && expectedArtifacts.length === 0 && contract.expectedOutputs.length === 0 && projectReport.artifacts.length === 0) {
@@ -495,6 +500,81 @@ function validateExpectedOutputEvidence(input: {
       ? `${input.output.kind}: ${input.output.description} -> ${evidence}`
       : `${input.output.kind}: ${input.output.description} has no matching local evidence`,
   });
+}
+
+function contractRequiresRuntimeEvidence(contract: NormalizedTaskContract): boolean {
+  const text = [
+    contract.objective,
+    ...contract.acceptanceCriteria,
+    ...contract.verificationHints,
+    ...contract.expectedOutputs.map((output) => `${output.kind} ${output.description}`),
+  ].filter(Boolean).join("\n");
+  return contract.expectedOutputs.some((output) =>
+    output.required && /^(web|html|browser|app|site|game)$/i.test(output.kind)
+  ) || /网站|网页|页面|浏览器|预览|截图|打开|运行|启动|游戏|商城|前端|交互|按钮|排行榜|关卡|web|html|browser|frontend|vite|react|vue|next|game|canvas/i.test(text);
+}
+
+function applyRuntimeEvidenceGate(
+  root: string,
+  contract: NormalizedTaskContract,
+  checks: ProjectCheck[],
+  launched: LaunchedProcess[],
+  previewPath: string | undefined,
+): void {
+  const packages = findPackageJsons(root).slice(0, 6);
+  const hasRunnablePackage = packages.some((pkg) => Boolean(chooseLaunchCommand(pkg)));
+  const baseName = (name: string) => name.startsWith("launch_") ? name.slice("launch_".length) : name;
+  const hasPassed = (name: string) => checks.some((check) => baseName(check.name) === name && check.status === "passed");
+  const hasFailedOrWarning = (name: string) => checks.some((check) => baseName(check.name) === name && ["failed", "warning"].includes(check.status));
+  const servicePreviewPassed = hasPassed("service_preview");
+  const staticPreviewPassed = hasPassed("html_preview") || hasPassed("preview") || Boolean(previewPath);
+  const serviceHttpPassed = hasPassed("service_http");
+  const launchPassed = hasPassed("launch_command");
+  const anyRunningUrl = launched.some((item) => item.running && item.url);
+  const expected = contract.expectedOutputs
+    .filter((output) => output.required && /web|html|browser|app|site|game/i.test(output.kind))
+    .map((output) => output.description)
+    .join(" | ");
+
+  for (const check of checks) {
+    const name = baseName(check.name);
+    if (
+      check.status === "warning" &&
+      ["launch_command", "service_probe", "service_http", "service_preview", "service_blank_page", "html_preview", "html_content"].includes(name)
+    ) {
+      check.status = "failed";
+      check.detail = `${check.detail}\nStrict runtime verification required for web/app/game completion.`;
+    }
+  }
+
+  if (hasRunnablePackage && !launchPassed) {
+    checks.push({
+      name: "runtime_launch_required",
+      status: "failed",
+      detail: `Runnable web/app/game output must start successfully before completion. Expected: ${expected || contract.objective || "runtime output"}`,
+    });
+  }
+  if (hasRunnablePackage && !(serviceHttpPassed && servicePreviewPassed && anyRunningUrl)) {
+    checks.push({
+      name: "runtime_preview_required",
+      status: "failed",
+      detail: "Runnable web/app/game output must provide a reachable local URL plus browser screenshot evidence before it can be accepted.",
+    });
+  }
+  if (!hasRunnablePackage && !staticPreviewPassed) {
+    checks.push({
+      name: "runtime_preview_required",
+      status: "failed",
+      detail: "Static web/game output must at least render to a browser screenshot before it can be accepted.",
+    });
+  }
+  if (hasFailedOrWarning("service_blank_page")) {
+    checks.push({
+      name: "runtime_interaction_risk",
+      status: "failed",
+      detail: "The service looks blank or too thin for acceptance; the agent must inspect and repair the rendered UI before claiming completion.",
+    });
+  }
 }
 
 function expectedOutputEvidence(input: {

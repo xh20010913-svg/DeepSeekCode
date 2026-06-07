@@ -756,7 +756,13 @@ export class QueryEngine {
           reasoning: "DeepSeekCode scheduled artifact validation after the model-created artifact.",
         });
       }
-      const taskVerificationEnvelope = this.autoTaskVerificationEnvelope(envelope, combinedReport, artifactContract);
+      const taskVerificationEnvelope = this.autoTaskVerificationEnvelope(
+        envelope,
+        combinedReport,
+        artifactContract,
+        userMessage,
+        classification,
+      );
       if (taskVerificationEnvelope) {
         onEvent?.({
           type: "status",
@@ -924,6 +930,21 @@ export class QueryEngine {
           if (attempt + 1 >= maxActionTurns) {
             const missingArtifacts = missingArtifactExpectations(artifactContract, deliveredArtifacts);
             if (hasCompletionSignal(finalMessage, combinedReport)) {
+              const runtimeGateExpected = needsRuntimeCompletionGate(userMessage, classification, envelope);
+              if (runtimeGateExpected && !hasPassingTaskVerification(combinedReport)) {
+                const message = [
+                  summarizeReport(finalMessage || compactCombinedReport.final_message, runId, this.state.getRun(runId)?.actionCount ?? combinedReport.results.length),
+                  "Completion text was ignored because runtime verification has not passed yet.",
+                  `remaining=${remainingWork}`,
+                ].join("\n");
+                this.state.appendEvent(runId, "action_batch_limit_completion_rejected", {
+                  attempt: attempt + 1,
+                  remaining_work: remainingWork,
+                  reason: "missing passing verify_task result",
+                });
+                this.state.updateRunStatus(runId, "failed", message);
+                return withLatestRunDetails(message);
+              }
               this.state.appendEvent(runId, "action_batch_limit_completed", {
                 attempt: attempt + 1,
                 remaining_work: remainingWork,
@@ -990,10 +1011,25 @@ export class QueryEngine {
     runId: string,
     options: AgentDashboardRequestOptions,
   ): Promise<string | undefined> {
-    if (!this.openAgentDashboard || this.openedAgentDashboards.has(runId)) return undefined;
+    if (!this.openAgentDashboard) return undefined;
+    const autoOpenScope = `agent_dashboard:${path.resolve(this.config.projectPath)}`;
+    const autoOpenKey = `auto_opened:${runId}`;
+    const durableOpen = this.state.getUiState<{ openedAtMs?: number; message?: string }>(autoOpenScope, autoOpenKey);
+    const alreadyOpened = this.openedAgentDashboards.has(runId) || Boolean(durableOpen);
+    if (alreadyOpened && options.openBrowser && !options.share && !options.tunnel) {
+      options = { ...options, openBrowser: false };
+    }
+    if (this.openedAgentDashboards.has(runId) && !options.share && !options.tunnel) return undefined;
     this.openedAgentDashboards.add(runId);
     try {
       const message = await this.openAgentDashboard(runId, options);
+      this.state.setUiState(autoOpenScope, autoOpenKey, {
+        openedAtMs: Date.now(),
+        runId,
+        openBrowser: options.openBrowser ?? false,
+        share: options.share ?? false,
+        message,
+      });
       this.state.appendEvent(runId, "agent_dashboard_started", {
         source: "query_engine",
         open_browser: options.openBrowser ?? false,
@@ -1340,6 +1376,8 @@ export class QueryEngine {
     envelope: ActionEnvelope,
     report: ActionExecutionReport,
     artifactContract: Map<string, ArtifactExpectation>,
+    userMessage: string,
+    classification: TurnClassification,
   ): ActionEnvelope | undefined {
     if (report.status !== "succeeded" || envelope.continue_work) return undefined;
     if (envelope.actions.some((action) => action.type === "verify_task")) return undefined;
@@ -1347,6 +1385,11 @@ export class QueryEngine {
 
     const implementationExpected = expectsImplementation(envelope);
     const hasProgress = hasImplementationProgress(report);
+    const hardVerificationExpected = needsRuntimeCompletionGate(userMessage, classification, envelope);
+    const inferredContract = workflowContractFromMessage(
+      userMessage,
+      uniqueStrings(envelope.acceptance_criteria ?? []),
+    );
     const expectedArtifacts = uniqueStrings([
       ...[...artifactContract.values()].map((artifact) => artifact.path),
       ...report.results
@@ -1355,12 +1398,24 @@ export class QueryEngine {
         .map((result) => normalizeProjectRelativePath(this.config.projectPath, result.path!)),
     ]).slice(0, 30);
 
-    if (!implementationExpected && !hasProgress && expectedArtifacts.length === 0) return undefined;
+    if (!implementationExpected && !hasProgress && expectedArtifacts.length === 0 && !hardVerificationExpected) return undefined;
 
     const acceptance = uniqueStrings([
       ...(envelope.acceptance_criteria ?? []),
+      ...inferredContract.acceptanceCriteria,
       ...expectedArtifacts.map((artifact) => `expected artifact exists and validates: ${artifact}`),
+      ...(hardVerificationExpected ? [
+        "Completion requires real runtime evidence: build/test/launch/screenshot or a concrete blocker.",
+      ] : []),
     ]).slice(0, 20);
+    const outputDescriptions = uniqueExpectedOutputs([
+      ...inferredContract.expectedOutputs,
+      ...expectedArtifacts.map((artifact) => ({
+        kind: taskOutputKindFromPath(artifact),
+        description: artifact,
+        required: true,
+      })),
+    ]);
 
     return {
       task_kind: "validation",
@@ -1370,21 +1425,24 @@ export class QueryEngine {
       actions: [{
         type: "verify_task",
         path: "",
-        objective: envelope.final_message || envelope.remaining_work || "Verify the current task completion.",
+        objective: inferredContract.objective || envelope.final_message || envelope.remaining_work || "Verify the current task completion.",
         contract: {
-          objective: envelope.final_message || envelope.remaining_work || "Verify the current task completion.",
-          expectedOutputs: expectedArtifacts.map((artifact) => ({
-            kind: taskOutputKindFromPath(artifact),
-            description: artifact,
-            required: true,
-          })),
+          objective: inferredContract.objective || envelope.final_message || envelope.remaining_work || "Verify the current task completion.",
+          expectedOutputs: outputDescriptions,
           acceptanceCriteria: acceptance,
-          userConstraints: [],
-          verificationHints: [],
+          userConstraints: inferredContract.userConstraints,
+          verificationHints: uniqueStrings([
+            ...inferredContract.verificationHints,
+            ...(hardVerificationExpected ? [
+              "Run the project if it is runnable.",
+              "Capture a browser/service preview when web UI is expected.",
+              "Treat startup failure, 404, blank page, console/runtime crash, missing controls, or no interaction response as verification failure.",
+            ] : []),
+          ]),
           expected_artifacts: expectedArtifacts,
           acceptance_criteria: acceptance,
-          verifiable_behaviors: [],
-          user_constraints: [],
+          verifiable_behaviors: inferredContract.verificationHints,
+          user_constraints: inferredContract.userConstraints,
         },
         mode: "auto",
         install_dependencies: true,
@@ -1424,7 +1482,12 @@ export class QueryEngine {
     const hasPlannedWork = envelope.needs_local_tools && envelope.actions.length > 0;
     if (activeWorkflow) {
       const planDecision = workflowPlanDecisionFromMessage(userMessage);
-      const planActions: ActionRequest[] = planDecision === "approve"
+      const refreshGenericPlan = !planDecision
+        && activeWorkflow.phase !== "awaiting_approval"
+        && activeWorkflow.needsPlanRefresh
+        && asksForMultiAgentContinuation(userMessage);
+      const effectivePlanDecision = refreshGenericPlan ? "regenerate" : planDecision;
+      const planActions: ActionRequest[] = effectivePlanDecision === "approve"
         ? [
           {
             type: "approve_agent_workflow_plan",
@@ -1438,26 +1501,27 @@ export class QueryEngine {
             max_turns_per_role: 2,
           },
         ]
-        : planDecision === "revise"
+        : effectivePlanDecision === "revise"
           ? [{
             type: "revise_agent_workflow_plan",
             workflow_id: activeWorkflow.id,
             instructions: workflowPlanRevisionText(userMessage) || userMessage,
           }]
-          : planDecision === "regenerate"
+          : effectivePlanDecision === "regenerate"
             ? [{
               type: "regenerate_agent_workflow_plan",
               workflow_id: activeWorkflow.id,
-              instructions: workflowPlanRevisionText(userMessage),
+              instructions: workflowPlanRevisionText(userMessage)
+                || "旧 workflow 使用了通用角色或 unknown 子任务。请根据当前项目和用户最新要求重新生成中文动态角色、专属 skills、任务图、验收计划，并再次等待用户确认。",
             }]
-            : planDecision === "cancel"
+            : effectivePlanDecision === "cancel"
               ? [{
                 type: "cancel_agent_workflow_plan",
                 workflow_id: activeWorkflow.id,
                 reason: userMessage,
               }]
             : [];
-      const askForApprovalAgain = planDecision === "revise" || planDecision === "regenerate" || (!planDecision && activeWorkflow.phase === "awaiting_approval");
+      const askForApprovalAgain = effectivePlanDecision === "revise" || effectivePlanDecision === "regenerate" || (!effectivePlanDecision && activeWorkflow.phase === "awaiting_approval");
       const appendOriginalActions = activeWorkflow.phase !== "awaiting_approval" && planActions.length === 0;
       return {
         injected: true,
@@ -1490,7 +1554,7 @@ export class QueryEngine {
           continue_work: activeWorkflow.phase === "awaiting_approval" || planActions.length > 0
             ? false
             : envelope.continue_work ?? !hasPlannedWork,
-          remaining_work: planDecision === "revise" || planDecision === "regenerate"
+          remaining_work: effectivePlanDecision === "revise" || effectivePlanDecision === "regenerate"
             ? "Plan was changed and is waiting for user approval again before execution."
             : activeWorkflow.phase === "awaiting_approval" && !planActions.length
             ? "Waiting for user approval, plan revision, regeneration, or cancellation."
@@ -1522,11 +1586,26 @@ export class QueryEngine {
     };
   }
 
-  private activeRunningAgentWorkflow(): { id: string; runId: string; phase: string; status: string } | undefined {
+  private activeRunningAgentWorkflow(): {
+    id: string;
+    runId: string;
+    phase: string;
+    status: string;
+    needsPlanRefresh: boolean;
+  } | undefined {
     try {
       const status = new AgentWorkflowService(this.state, this.config.projectPath).status();
       if (["succeeded", "failed", "cancelled"].includes(status.record.status)) return undefined;
-      return { id: status.record.id, runId: status.record.runId, phase: status.record.phase, status: status.record.status };
+      const roleNames = status.record.roles.map((role) => role.role).join("\n");
+      const subtaskText = status.record.subtaskGraph.map((subtask) => `${subtask.title}\n${subtask.assigneeRole}`).join("\n");
+      const needsPlanRefresh = /ImplementationSpecialist|Required unknown output|unknown output/i.test(`${roleNames}\n${subtaskText}`);
+      return {
+        id: status.record.id,
+        runId: status.record.runId,
+        phase: status.record.phase,
+        status: status.record.status,
+        needsPlanRefresh,
+      };
     } catch {
       return undefined;
     }
@@ -1860,6 +1939,14 @@ function hasCompletionSignal(finalMessage: string, report: ActionExecutionReport
     "no remaining issues",
     "no remaining work",
   ].some((marker) => text.includes(marker));
+}
+
+function hasPassingTaskVerification(report: ActionExecutionReport): boolean {
+  return report.results.some((result) =>
+    result.action_type === "verify_task" &&
+    result.status === "succeeded" &&
+    !/failed=\s*[1-9]/i.test(result.message ?? "")
+  );
 }
 
 function expectsImplementation(envelope: { task_kind?: string; acceptance_criteria?: string[] }): boolean {
@@ -2357,6 +2444,37 @@ function workflowPlanDecisionFromMessage(userMessage: string): "approve" | "revi
   if (/^(修改|调整|改一下| revise|revise|change|update)\s*[:：]/i.test(trimmed)) return "revise";
   if (/^(修改|调整|改一下|revise|change|update)\b/i.test(trimmed) && trimmed.length > 4) return "revise";
   return undefined;
+}
+
+function asksForMultiAgentContinuation(userMessage: string): boolean {
+  return /(多\s*agent|multi[-\s]?agent|多智能体|协作|继续|完善|修复|再改|接着|resume|continue|repair|improve)/i.test(userMessage);
+}
+
+function needsRuntimeCompletionGate(
+  userMessage: string,
+  classification: TurnClassification,
+  envelope: { task_kind?: string; acceptance_criteria?: string[] },
+): boolean {
+  const text = [
+    userMessage,
+    classification.reason,
+    envelope.task_kind,
+    ...(envelope.acceptance_criteria ?? []),
+  ].join("\n");
+  if (classification.needs_local_tools && classification.task_kind !== "chat") return true;
+  return /网站|网页|页面|浏览器|打不开|没反应|卡住|空白|游戏|商城|前端|后端|数据库|接口|api|server|service|launch|start|browser|web|html|react|vue|vite|next|cli|命令行|脚本|office|ppt|docx|pdf|mcp/i.test(text);
+}
+
+function uniqueExpectedOutputs<T extends { kind?: string; description: string; required?: boolean }>(outputs: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const output of outputs) {
+    const key = `${output.kind ?? "unknown"}:${output.description}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(output);
+  }
+  return out.slice(0, 20);
 }
 
 function workflowPlanApprovalQuestion(): ActionRequest {
