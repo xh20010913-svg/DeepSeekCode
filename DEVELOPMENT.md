@@ -204,7 +204,9 @@ Baseline:
 ```cmd
 npm.cmd run typecheck
 npm.cmd run build
+npm.cmd run test
 npm.cmd pack --dry-run
+npm.cmd pack
 ```
 
 Targeted checks:

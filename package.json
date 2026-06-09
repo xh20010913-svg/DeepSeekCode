@@ -31,6 +31,8 @@
     "build": "tsc -p tsconfig.json && node scripts/copy-vendor.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:keys": "node --test scripts/test-input-keys.mjs",
+    "test:unit": "node --test dist/services/testing/*.test.js",
+    "test": "npm run test:keys && npm run test:unit",
     "prepare": "npm run build",
     "dev": "tsx src/cli/main.tsx",
     "start": "node dist/cli/main.js",

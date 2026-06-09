@@ -90,7 +90,9 @@ import type { ProjectProcessRecord } from "../state/sqlite.js";
 import { discoverSkills } from "../skills/discovery.js";
 import { loadSkill } from "../skills/loader.js";
 import { buildContextBundle, contextBundlePrompt } from "../context/contextBundle.js";
+import { buildStablePromptBlock } from "../query/promptCache.js";
 import { buildActionSystemPrompt } from "../query/systemPrompt.js";
+import { buildResonixPromptPlan } from "../services/cache/resonixPolicy.js";
 import { summarizeValidation, validateArtifact } from "./artifact.js";
 import { startBrowserSession } from "./browser.js";
 import { appendFile, applyTextPatch, globFiles, grepFiles, listFiles, readFileForTool, writeFile } from "./fs.js";
@@ -1873,52 +1875,71 @@ async function buildWorkflowPlanWithProvider(input: {
   revisionInstructions: string;
   context: ToolExecutionContext;
 }): Promise<WorkflowPlanParts> {
-  try {
-    const reply = await input.context.provider!.completeChat([
-      {
-        role: "system",
-        content: [
-          "Return JSON only. You are the Planner for a plan-gated local multi-agent coding workflow.",
-          "Planner and AcceptanceReviewer are fixed runtime roles, but they are added by the runtime. In the JSON roles array, return only the task-specific middle execution roles.",
-          "If the objective is Chinese or mostly Chinese, all user-facing role names, subtask titles, role responsibilities, skill summaries, risk notes, and handoff text must be Simplified Chinese. Keep only real tool names/code paths in their original language.",
-          "Generate enough middle roles for clear division of labor. Complex website/game/full-stack/data tasks should normally have 3-5 middle roles; never collapse them into one ImplementationSpecialist-style role.",
-          "Role names must describe the domain work, for example 玩法关卡工程师, 动效体验工程师, 前端界面工程师, 后端数据工程师, MCP协议工程师. Avoid generic names such as ImplementationSpecialist, Builder, Worker, Frontend, Backend, Tester unless the user explicitly asked for that exact label.",
-          "Every role needs responsibility, contextScope, allowedTools, requiredOutputs, riskChecks, handoffFormat, and a workflow-local generatedSkill.",
-          "Each generatedSkill must be specific to that role and this workflow; include matching installed skills such as gsap-core, gsap-timeline, gsap-performance, ui-ux, browser-verification, presentations, documents, spreadsheets, pdf, mcp, or plugin-creator when relevant.",
-          "Generate a subtask graph with assigneeRole, dependencies, acceptanceCriteria, expectedOutputs, and evidence requirements.",
-          "No tool execution is allowed in this planning response.",
-        ].join("\n"),
-      },
-      {
-        role: "user",
-        content: [
-          `Objective:\n${input.objective}`,
-          `TaskCompletionContract:\n${JSON.stringify(input.contract)}`,
-          input.existingPlan ? `Existing/hinted plan:\n${input.existingPlan}` : "",
-          input.revisionInstructions ? `Revision instructions:\n${input.revisionInstructions}` : "",
-          [
-            "Return this JSON shape:",
-            "{",
-            '  "plannerNotes": "short useful note",',
-            '  "roles": [{"role":"TaskSpecificRole","responsibility":"...","contextScope":"...","allowedTools":["read_file"],"preloadedSkills":["..."],"requiredOutputs":["..."],"riskChecks":["..."],"handoffFormat":"..."}],',
-            '  "subtasks": [{"id":"subtask_1","title":"...","description":"...","assigneeRole":"TaskSpecificRole","dependencies":[],"acceptanceCriteria":["..."],"expectedOutputs":["..."],"evidenceRequirements":["..."]}],',
-            '  "generatedSkills": [{"role":"TaskSpecificRole","summary":"...","prompt":"...","allowedTools":["read_file"],"outputFormat":"...","riskChecks":["..."],"handoffFormat":"..."}],',
-            '  "expectedArtifacts": ["..."],',
-            '  "verificationPlan": ["..."],',
-            '  "riskAndPermissionNotes": ["..."]',
-            "}",
-          ].join("\n"),
-        ].filter(Boolean).join("\n\n"),
-      },
-    ], { signal: input.context.abortSignal });
-    input.context.recordUsage?.(input.context.provider!.takeLastUsage(), "agent_workflow_plan_gate");
-    return normalizeProviderWorkflowPlan(parseJsonObject(reply.text), input.contract, input.objective);
-  } catch (error) {
-    input.context.state?.appendEvent(input.context.runId ?? null, "agent_workflow_model_plan_failed", {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return {};
+  let qualityFeedback = "";
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const reply = await input.context.provider!.completeChat([
+        {
+          role: "system",
+          content: [
+            "Return JSON only. You are the Planner for a plan-gated local multi-agent coding workflow.",
+            "Planner and AcceptanceReviewer are fixed runtime roles, but they are added by the runtime. In the JSON roles array, return only the task-specific middle execution roles.",
+            "If the objective is Chinese or mostly Chinese, all user-facing role names, subtask titles, role responsibilities, skill summaries, risk notes, and handoff text must be Simplified Chinese. Keep only real tool names/code paths in their original language.",
+            "Generate enough middle roles for clear division of labor. Complex website/game/full-stack/data tasks should normally have 3-5 middle roles; never collapse them into one ImplementationSpecialist-style role.",
+            "Role names must describe the domain work, for example 玩法关卡工程师, 动效体验工程师, 前端界面工程师, 后端数据工程师, 文档交付工程师, MCP协议工程师. Avoid generic names such as ImplementationSpecialist, Builder, Worker, Frontend, Backend, Tester unless the user explicitly asked for that exact label.",
+            "Every role needs responsibility, contextScope, allowedTools, requiredOutputs, riskChecks, handoffFormat, and a workflow-local generatedSkill.",
+            "Each generatedSkill must be specific to that role and this workflow; include matching installed skills such as gsap-core, gsap-timeline, gsap-performance, ui-ux, browser-verification, presentations, documents, spreadsheets, pdf, mcp, or plugin-creator when relevant.",
+            "Generate a subtask graph with assigneeRole, dependencies, acceptanceCriteria, expectedOutputs, and evidence requirements.",
+            "No tool execution is allowed in this planning response.",
+            qualityFeedback ? `Previous plan was rejected by the runtime quality gate: ${qualityFeedback}` : "",
+          ].filter(Boolean).join("\n"),
+        },
+        {
+          role: "user",
+          content: [
+            `Objective:\n${input.objective}`,
+            `TaskCompletionContract:\n${JSON.stringify(input.contract)}`,
+            input.existingPlan ? `Existing/hinted plan:\n${input.existingPlan}` : "",
+            input.revisionInstructions ? `Revision instructions:\n${input.revisionInstructions}` : "",
+            qualityFeedback ? `Runtime quality gate feedback:\n${qualityFeedback}\nRewrite the plan with different task-specific roles and complete workflow-local skills.` : "",
+            [
+              "Return this JSON shape:",
+              "{",
+              '  "plannerNotes": "short useful note",',
+              '  "roles": [{"role":"TaskSpecificRole","responsibility":"...","contextScope":"...","allowedTools":["read_file"],"preloadedSkills":["..."],"requiredOutputs":["..."],"riskChecks":["..."],"handoffFormat":"..."}],',
+              '  "subtasks": [{"id":"subtask_1","title":"...","description":"...","assigneeRole":"TaskSpecificRole","dependencies":[],"acceptanceCriteria":["..."],"expectedOutputs":["..."],"evidenceRequirements":["..."]}],',
+              '  "generatedSkills": [{"role":"TaskSpecificRole","summary":"...","prompt":"...","allowedTools":["read_file"],"outputFormat":"...","riskChecks":["..."],"handoffFormat":"..."}],',
+              '  "expectedArtifacts": ["..."],',
+              '  "verificationPlan": ["..."],',
+              '  "riskAndPermissionNotes": ["..."]',
+              "}",
+            ].join("\n"),
+          ].filter(Boolean).join("\n\n"),
+        },
+      ], { signal: input.context.abortSignal });
+      input.context.recordUsage?.(input.context.provider!.takeLastUsage(), `agent_workflow_plan_gate_attempt_${attempt}`);
+      const parsed = parseJsonObject(reply.text);
+      const normalized = normalizeProviderWorkflowPlan(parsed, input.contract, input.objective);
+      if (normalized.rolePlan?.roles.length && normalized.subtaskGraph?.length && normalized.generatedSkills?.length) {
+        return normalized;
+      }
+      qualityFeedback = providerPlanQualitySummary(parsed, input.contract, input.objective);
+      input.context.state?.appendEvent(input.context.runId ?? null, "agent_workflow_model_plan_rejected", {
+        attempt,
+        max_attempts: maxAttempts,
+        feedback: qualityFeedback,
+      });
+    } catch (error) {
+      qualityFeedback = error instanceof Error ? error.message : String(error);
+      input.context.state?.appendEvent(input.context.runId ?? null, "agent_workflow_model_plan_failed", {
+        attempt,
+        max_attempts: maxAttempts,
+        message: qualityFeedback,
+      });
+    }
   }
+  return {};
 }
 
 function normalizeProviderWorkflowPlan(
@@ -1952,6 +1973,43 @@ function normalizeProviderWorkflowPlan(
     verificationPlan: stringArray(candidate.verificationPlan),
     riskAndPermissionNotes: stringArray(candidate.riskAndPermissionNotes),
   };
+}
+
+function providerPlanQualitySummary(
+  value: unknown,
+  contract: ReturnType<typeof normalizeTaskCompletionContract>,
+  objective: string,
+): string {
+  const candidate = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const now = Date.now();
+  const roles = asArray(candidate.roles)
+    .map((role) => roleFromModel(role))
+    .filter((role): role is AgentRoleState => Boolean(role));
+  const generatedSkills = asArray(candidate.generatedSkills)
+    .map((skill, index) => generatedSkillFromModel(skill, roles, index, now))
+    .filter((skill): skill is GeneratedRoleSkill => Boolean(skill));
+  const subtaskGraph = asArray(candidate.subtasks)
+    .map((subtask, index) => subtaskFromModel(subtask, roles, contract, index, now))
+    .filter((subtask): subtask is WorkflowSubtaskState => Boolean(subtask));
+  const issues: string[] = [];
+  const requiredMiddleRoles = minimumProviderMiddleRoleCount(contract, objective);
+  if (roles.length === 0) issues.push("roles array is empty or invalid");
+  if (roles.length < requiredMiddleRoles) issues.push(`middle role count ${roles.length} is below required ${requiredMiddleRoles}`);
+  const generic = roles.filter((role) => isGenericProviderRoleName(role.role)).map((role) => role.role);
+  if (generic.length > 0) issues.push(`generic role names are not allowed: ${generic.join(", ")}`);
+  if (prefersChineseLabels(objective)) {
+    const nonChinese = roles.filter((role) => !/[\u4e00-\u9fa5]/.test(role.role)).map((role) => role.role);
+    if (nonChinese.length > 0) issues.push(`Chinese objective requires Chinese role names: ${nonChinese.join(", ")}`);
+  }
+  const skillRoles = new Set(generatedSkills.map((skill) => safeModelName(skill.role).toLowerCase()));
+  const missingSkills = roles.filter((role) => !skillRoles.has(safeModelName(role.role).toLowerCase())).map((role) => role.role);
+  if (missingSkills.length > 0) issues.push(`roles missing workflow-local generatedSkill: ${missingSkills.join(", ")}`);
+  const usefulSkills = generatedSkills.filter((skill) => skill.summary.trim() && skill.prompt.trim());
+  if (usefulSkills.length < roles.length) issues.push(`generatedSkills with summary+prompt ${usefulSkills.length} is below roles ${roles.length}`);
+  if (subtaskGraph.length < Math.min(roles.length, requiredMiddleRoles)) {
+    issues.push(`subtask graph length ${subtaskGraph.length} is too small for role count ${roles.length}`);
+  }
+  return issues.join("; ") || "unknown provider plan quality failure";
 }
 
 function providerPlanPassesQualityGate(
@@ -2226,12 +2284,36 @@ async function runWorkflowStep(
 
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     const prompt = workflowRolePrompt(record, role, subtask, service.status(record.id).messages, turn, maxTurns, feedback);
+    const systemPrompt = buildActionSystemPrompt();
+    const stable = buildStablePromptBlock([{ title: "deepseekcode_immutable_runtime", body: systemPrompt }]);
+    const promptPlan = buildResonixPromptPlan([
+      { title: "workflow_role_task", priority: "request", body: prompt },
+      { title: "selected_context", priority: "context", body: contextBundlePrompt(buildContextBundle(context.root, 8_000, record.objective)) },
+      ...(feedback ? [{ title: "previous_tool_feedback", priority: "feedback" as const, body: feedback.final_message }] : []),
+    ], {
+      maxDynamicChars: 8_000,
+      stableHash: stable.hash,
+      phase: `workflow_${role.role}_turn_${turn}`,
+    });
+    context.state.appendEvent(record.runId, "agent_workflow_prompt_budget", {
+      workflow_id: record.id,
+      role: role.role,
+      subtask_id: subtask.id,
+      task_id: task?.id,
+      turn,
+      stable_hash: promptPlan.stableHash,
+      dynamic_hash: promptPlan.dynamicHash,
+      dynamic_chars: promptPlan.dynamicChars,
+      dropped_chars: promptPlan.droppedChars,
+      dropped_blocks: promptPlan.droppedBlocks,
+      diagnostics: promptPlan.diagnostics,
+    });
     let envelope: ActionEnvelope;
     try {
       envelope = await context.provider.planActions({
-        userMessage: prompt,
-        systemPrompt: buildActionSystemPrompt(),
-        contextSummary: contextBundlePrompt(buildContextBundle(context.root, 10_000, record.objective)),
+        userMessage: promptPlan.userMessage,
+        systemPrompt,
+        contextSummary: "",
         feedback,
         availableToolNames: allowedToolNames,
       }, { signal: context.abortSignal });

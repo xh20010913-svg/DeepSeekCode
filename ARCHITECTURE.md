@@ -28,8 +28,12 @@ Provider-facing execution does not rely on model-emitted `ActionEnvelope JSON`. 
 
 | Subsystem | Responsibility |
 | --- | --- |
+| Agent Kernel | Normalizes run lifecycle into intent, contract, plan, execution, evidence, verification, repair/final events so chat, tools, workflows, remote, and UI observe the same truth. |
 | QueryEngine | Builds messages, calls the provider, executes native tool calls, records usage/events, schedules verification, and feeds failures back. |
+| Prompt Budget Governor | Splits prompts into stable, project, context, feedback, and request blocks; applies deterministic ordering, hashes, token/char budgets, and dropped-block diagnostics before provider calls. |
+| Context capsule | Compresses long sessions into user goals, completed facts, blockers, key artifacts, next steps, and recent tool summaries. |
 | Tool registry | Exposes file, shell, browser, real PDF, Office, skills, MCP, project process, verification, and workflow tools. |
+| Capability registry | Describes tool purpose, risk, long-running behavior, remote safety, and expected verification so events and UI do not guess from tool names. |
 | Task contract | Stores model-authored goals, expected artifacts, verifiable behavior, user constraints, and acceptance criteria. |
 | Verification | `verify_task` selects checks from real artifacts and project shape. HTML is one validator, not the center of the system. |
 | Permission service | Gates shell, browser, MCP, SSH, and risky actions across TUI and remote channels. |
@@ -111,6 +115,8 @@ DeepSeek cache hit rate depends heavily on stable prefixes. DeepSeekCode keeps s
 7. compact tool-result summaries
 
 Long stdout, diffs, logs, and raw artifacts are stored as events or files; only compact summaries are replayed.
+
+All provider calls should go through the prompt budget governor. The governor keeps user requests last, stable prefixes first, and records `stableHash`, `dynamicHash`, dynamic character share, dropped blocks, and cache hit/miss usage when the provider reports it. Long conversations use the five-part context capsule instead of replaying full transcripts. `/cache report` and Pixel snapshots expose the same budget/cache evidence so cost regressions are visible.
 
 ## Capability Status
 

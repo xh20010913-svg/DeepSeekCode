@@ -126,6 +126,33 @@ export interface AgentDashboardConnectionState {
   offlineReason?: string;
 }
 
+export interface AgentDashboardReadyQueueItem {
+  id: string;
+  title: string;
+  role: string;
+  priority: number;
+  dependencies: string[];
+  evidenceRequirements: string[];
+}
+
+export interface AgentDashboardEvidence {
+  evidenceId?: string;
+  kind: string;
+  summary: string;
+  role?: string;
+  subtaskId?: string;
+  path?: string;
+  url?: string;
+  createdAtMs: number;
+}
+
+export interface AgentDashboardLayoutModel {
+  desktop: "split-ops-room";
+  mobile: "summary-drawer";
+  zones: Array<{ id: string; label: string; purpose: string }>;
+  roleLocations: Record<string, "workbench" | "dispatch" | "lounge" | "review" | "blocked">;
+}
+
 export interface AgentDashboardCacheSummary {
   inputTokens: number;
   outputTokens: number;
@@ -133,7 +160,13 @@ export interface AgentDashboardCacheSummary {
   cacheMissTokens: number;
   cacheHitRate: number | null;
   approxPromptTokens?: number;
+  dynamicChars?: number;
+  maxDynamicChars?: number;
+  dynamicShare?: number;
+  stableHash?: string;
+  dynamicHash?: string;
   droppedChars?: number;
+  droppedBlocks?: unknown[];
   lowHitReason?: string;
 }
 
@@ -150,6 +183,9 @@ export interface AgentDashboardSnapshot {
   rolePlan?: AgentWorkflowRecord["rolePlan"];
   subtaskGraph: WorkflowSubtaskState[];
   generatedSkills: GeneratedRoleSkill[];
+  readyQueue: AgentDashboardReadyQueueItem[];
+  evidence: AgentDashboardEvidence[];
+  layoutModel: AgentDashboardLayoutModel;
   completionSummary: AgentDashboardCompletionSummary;
   mobileSummary: AgentDashboardMobileSummary;
   agentDiagnostics: Record<string, unknown>;
@@ -222,6 +258,9 @@ export function buildAgentDashboardSnapshot(input: {
     rolePlan: workflowStatus?.record.rolePlan,
     subtaskGraph: workflowStatus?.record.subtaskGraph ?? [],
     generatedSkills: workflowStatus?.record.generatedSkills ?? [],
+    readyQueue: buildReadyQueue(workflowStatus?.record),
+    evidence: buildEvidence(events),
+    layoutModel: buildLayoutModel(roles),
     completionSummary: buildCompletionSummary(workflowStatus?.record.subtaskGraph ?? []),
     mobileSummary: buildMobileSummary({
       workflow: workflowStatus?.record,
@@ -498,6 +537,7 @@ function buildCacheSummary(usage: UsageTotals, latestCachePromptEvent?: EventRec
   const payload = latestCachePromptEvent ? objectPayload(latestCachePromptEvent.payload) : {};
   const droppedChars = numberValue(payload.dropped_chars);
   const approxPromptTokens = numberValue(payload.approx_tokens);
+  const dynamicShare = numberValue(payload.dynamic_share);
   const cacheHitRate = totalCacheTokens > 0 ? usage.cacheHitTokens / totalCacheTokens : null;
   return {
     inputTokens: usage.inputTokens,
@@ -506,10 +546,18 @@ function buildCacheSummary(usage: UsageTotals, latestCachePromptEvent?: EventRec
     cacheMissTokens: usage.cacheMissTokens,
     cacheHitRate,
     approxPromptTokens,
+    dynamicChars: numberValue(payload.dynamic_chars),
+    maxDynamicChars: numberValue(payload.max_dynamic_chars),
+    dynamicShare,
+    stableHash: stringValue(payload.stable_hash),
+    dynamicHash: stringValue(payload.dynamic_hash),
     droppedChars,
+    droppedBlocks: Array.isArray(payload.dropped_blocks) ? payload.dropped_blocks : undefined,
     lowHitReason: cacheHitRate !== null && cacheHitRate < 0.35
       ? "稳定前缀命中偏低：可能是动态上下文、memory 或 skill 摘要过大。"
-      : droppedChars && droppedChars > 0
+      : dynamicShare !== undefined && dynamicShare > 0.85
+        ? "动态 prompt 占比过高，容易破坏 DeepSeek prefix cache 复用。"
+        : droppedChars && droppedChars > 0
         ? "动态 prompt 超预算，部分上下文已裁剪。"
         : undefined,
   };
@@ -523,8 +571,82 @@ function tokenBudgetFromEvent(event?: EventRecord): Record<string, unknown> | un
     attempt: numberValue(payload.attempt),
     effort: stringValue(payload.effort),
     approxTokens: numberValue(payload.approx_tokens),
+    dynamicChars: numberValue(payload.dynamic_chars),
+    maxDynamicChars: numberValue(payload.max_dynamic_chars),
+    dynamicShare: numberValue(payload.dynamic_share),
+    stableHash: stringValue(payload.stable_hash),
+    dynamicHash: stringValue(payload.dynamic_hash),
     droppedChars: numberValue(payload.dropped_chars),
+    droppedBlocks: Array.isArray(payload.dropped_blocks) ? payload.dropped_blocks : undefined,
     blockCount: blocks?.length,
+  };
+}
+
+function buildReadyQueue(workflow?: AgentWorkflowRecord): AgentDashboardReadyQueueItem[] {
+  if (!workflow) return [];
+  const done = new Set(workflow.subtaskGraph
+    .filter((subtask) => subtask.status === "succeeded" || subtask.status === "skipped")
+    .map((subtask) => subtask.id));
+  return workflow.subtaskGraph
+    .filter((subtask) => subtask.status === "queued")
+    .filter((subtask) => subtask.dependencies.every((dependency) => done.has(dependency)))
+    .map((subtask, index) => ({
+      id: subtask.id,
+      title: subtask.title,
+      role: subtask.assigneeRole,
+      priority: index + 1,
+      dependencies: subtask.dependencies,
+      evidenceRequirements: [
+        ...subtask.acceptanceCriteria,
+        ...subtask.expectedOutputs.map((output) => `产物: ${output}`),
+      ],
+    }));
+}
+
+function buildEvidence(events: EventRecord[]): AgentDashboardEvidence[] {
+  return events
+    .filter((event) => event.kind === "agent_kernel_evidence" || event.kind === "tool_end")
+    .slice(-40)
+    .map((event) => {
+      const payload = objectPayload(event.payload);
+      const result = objectPayload(payload.result);
+      return {
+        evidenceId: stringValue(payload.evidenceId),
+        kind: stringValue(payload.kind) ?? stringValue(result.artifact_kind) ?? stringValue(result.action_type) ?? event.kind,
+        summary: compact(stringValue(payload.summary) ?? stringValue(result.message) ?? event.kind, 260),
+        role: stringValue(payload.role),
+        subtaskId: stringValue(payload.subtaskId) ?? stringValue(payload.subtask_id),
+        path: stringValue(payload.path) ?? stringValue(result.path),
+        url: stringValue(payload.url),
+        createdAtMs: event.createdAtMs,
+      };
+    });
+}
+
+function buildLayoutModel(roles: AgentDashboardRole[]): AgentDashboardLayoutModel {
+  const roleLocations: AgentDashboardLayoutModel["roleLocations"] = {};
+  for (const role of roles) {
+    roleLocations[role.role] = role.blockedBy
+      ? "blocked"
+      : role.status === "running"
+        ? "workbench"
+        : /验收|验证|测试|质检|review|acceptance|verify|test|qa/i.test(`${role.role} ${role.responsibility}`)
+          ? "review"
+          : role.status === "queued" || role.status === "paused"
+            ? "dispatch"
+            : "lounge";
+  }
+  return {
+    desktop: "split-ops-room",
+    mobile: "summary-drawer",
+    zones: [
+      { id: "blackboard", label: "会议室任务黑板", purpose: "展示全部任务、负责人、依赖、优先级和未接任务" },
+      { id: "workbench", label: "工位区", purpose: "运行中的角色在这里执行工具和交付产物" },
+      { id: "dispatch", label: "派发区", purpose: "排队、可执行和等待确认的任务在这里流转" },
+      { id: "lounge", label: "休息区", purpose: "空闲、完成或等待下一轮的角色回到这里" },
+      { id: "evidence", label: "产物角", purpose: "汇总路径、URL、截图、日志和验收 evidence" },
+    ],
+    roleLocations,
   };
 }
 

@@ -1,6 +1,7 @@
 import type { ChatMessage } from "../../protocol/provider.js";
 import type { TranscriptRecord } from "./sessionStorage.js";
 import { sanitizeLegacyPlannerContext } from "./legacyContextSanitizer.js";
+import { buildContextCapsuleFromRecords, formatContextCapsule } from "../compact/contextCapsule.js";
 
 export interface SessionContextBuildOptions {
   keepTailMessages?: number;
@@ -39,12 +40,11 @@ export function buildSessionContext(
     .sort((a, b) => a.index - b.index)
     .map((entry) => entry.record);
 
-  const summary = dedupeSummaryRecords(selectedRecords)
-    .map(formatSummaryRecord)
-    .filter(Boolean)
-    .join("\n")
-    .slice(-maxSummaryChars)
-    .trim();
+  const capsule = buildContextCapsuleFromRecords(dedupeSummaryRecords(selectedRecords), {
+    maxItemsPerSection: 6,
+    maxItemChars: 260,
+  });
+  const summary = formatContextCapsule(capsule).slice(-maxSummaryChars).trim();
 
   return {
     history: tailRecords.map(recordToChatMessage),
@@ -81,12 +81,12 @@ export function scoreTranscriptRecord(record: TranscriptRecord, index = 0, total
   if (record.role === "user") score += 70;
   if (record.role === "assistant") score += 35;
   if (record.role === "system") score += /resume|compact|validation|approval|cache|session/i.test(text) ? 30 : -20;
-  if (/failed|error|exception|traceback|stderr|失败|错误|异常|未通过/i.test(text)) score += 90;
+  if (/failed|error|exception|traceback|stderr|失败|错误|异常|未通过|阻塞|缺少|无法|报错/i.test(text)) score += 90;
   if (/\b[\w./\\-]+\.(ts|tsx|js|mjs|json|md|html|docx|pptx|pdf|py|css)\b/i.test(text)) score += 45;
-  if (/write_file|apply_patch|run_command|validate_artifact|create_docx|create_pptx|artifact|产物|验证/i.test(text)) {
+  if (/write_file|apply_patch|run_command|validate_artifact|verify_task|create_docx|create_pptx|create_pdf|artifact|产物|验证|验收/i.test(text)) {
     score += 45;
   }
-  if (/todo|remaining|continue|下一步|继续|未完成/i.test(text)) score += 35;
+  if (/todo|remaining|continue|下一步|继续|未完成|待办|修复|完善/i.test(text)) score += 35;
   return Math.max(0, score);
 }
 

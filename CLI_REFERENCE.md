@@ -40,6 +40,7 @@ The npm package only installs `deepseekcode`.
 | `/status` | Current run summary. |
 | `/status full` | Detailed run state, recent events, waiting item, and issues. |
 | `/ask <question>` | Read-only side question while a task is running. |
+| `/compact [session-id] [keep-tail]` | Build a five-part local session capsule preview for long-context recovery. |
 | `/cache report` | Cache hit/miss, stable prefix, dynamic context, and suggestions. |
 | `/memory doctor` | TencentDB memory backend, recall/capture, inserted chars, latency, and failure diagnostics. |
 | `/skills` | List installed skills. |

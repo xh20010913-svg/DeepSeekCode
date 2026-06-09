@@ -161,6 +161,7 @@ Remote messages share the same project runtime and permission gates. WeChat rece
 | `/remote-control` | WeChat/WeCom remote binding |
 | `/ask <question>` | Read-only side question while a long task runs |
 | `/status`, `/status full` | Task progress |
+| `/compact` | Build a five-part session capsule for long-context recovery |
 | `/cache report` | Cache hit/miss and prompt-shape diagnostics |
 | `/memory doctor` | TencentDB memory recall/capture diagnostics |
 | `/project processes` | List services started by `launch_project` |
@@ -189,7 +190,9 @@ Remote messages share the same project runtime and permission gates. WeChat rece
 ```cmd
 npm.cmd run typecheck
 npm.cmd run build
+npm.cmd run test
 npm.cmd pack --dry-run
+npm.cmd pack
 ```
 
 Real scenario tests should be run in `D:\code\DeepSeekTest`. Do not publish `.env`, prompt audit logs, test reports, node_modules, or generated scenario artifacts.

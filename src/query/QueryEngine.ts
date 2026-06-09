@@ -39,12 +39,14 @@ import { compactActionReport, formatToolResultSummary } from "../services/sessio
 import { runSkillTask } from "../services/skills/skillRunner.js";
 import { getTencentMemoryService, type TencentMemoryRecall } from "../services/memory/tencentMemoryService.js";
 import { buildRequestDiagnostics } from "../services/telemetry/requestDiagnostics.js";
+import { AgentKernel } from "../services/agentKernel/agentKernel.js";
 import type { ApprovalGateRecord, StateStore } from "../state/sqlite.js";
 import { discoverSkills } from "../skills/discovery.js";
 import type { AgentDashboardRequestOptions, CommandContext } from "../types/command.js";
 import type { QueryActivityPhase } from "../types/activity.js";
 import { executeEnvelope, type ExecutionOptions } from "../tools/executor.js";
 import { baseTools } from "../tools/registry.js";
+import { CapabilityRegistry } from "../services/tools/capabilityRegistry.js";
 import { defaultShellPolicy } from "../tools/shell.js";
 import { abortReasonText, isAbortError, throwIfAborted } from "../utils/abort.js";
 import { FileStateCache } from "../utils/fileStateCache.js";
@@ -108,6 +110,8 @@ export class QueryEngine {
   private readonly rollingSummary = new RollingSummary();
   private readonly fileStateCache = new FileStateCache();
   private readonly memoryService: ReturnType<typeof getTencentMemoryService>;
+  private readonly kernel: AgentKernel;
+  private readonly capabilities = new CapabilityRegistry();
   private readonly openedAgentDashboards = new Set<string>();
   private loadedSessionId?: string;
   private activeAbortController?: AbortController;
@@ -134,6 +138,7 @@ export class QueryEngine {
     this.awaitUserDecisions = Boolean(options.awaitUserDecisions);
     this.sessionPersistence = options.sessionPersistence ?? "managed";
     this.memoryService = getTencentMemoryService(this.config, this.provider, this.state);
+    this.kernel = new AgentKernel(this.state);
   }
 
   commandContext(): CommandContext {
@@ -215,6 +220,16 @@ export class QueryEngine {
       projectPath: this.config.projectPath,
       model: this.provider.model,
       message: trimmed,
+    });
+    this.kernel.record({
+      runId,
+      stage: "intent",
+      status: "started",
+      summary: trimmed,
+      details: {
+        projectPath: this.config.projectPath,
+        model: this.provider.model,
+      },
     });
     this.ensureSessionContext(runId);
     const abortController = new AbortController();
@@ -472,6 +487,7 @@ export class QueryEngine {
     const artifactContract = new Map<string, ArtifactExpectation>();
     const deliveredArtifacts = new Set<string>();
     let visibleWorkflowEnsured = false;
+    this.kernel.recordContract(runId, workflowContractFromMessage(userMessage), "query_engine_inferred");
 
     for (let attempt = 0; attempt < maxActionTurns; attempt += 1) {
       throwIfAborted(signal);
@@ -500,12 +516,23 @@ export class QueryEngine {
         ...(explicitlyRequestsMemoryTool(userMessage) ? [] : this.conversationPromptBlocks()),
         ...workspaceContextPromptBlocks(contextBundle, actionBudget.contextChars > 0),
         { title: "current_user_request", body: userMessage, priority: "request" },
-      ], { maxDynamicChars: actionBudget.dynamicChars });
+      ], {
+        maxDynamicChars: actionBudget.dynamicChars,
+        stableHash: stablePrompt.hash,
+        phase: `native_tool_plan_attempt_${attempt + 1}`,
+      });
       this.state.appendEvent(runId, "cache_prompt_plan", {
         attempt: attempt + 1,
         effort: inference.effort,
         approx_tokens: promptPlan.approxTokens,
+        dynamic_chars: promptPlan.dynamicChars,
+        max_dynamic_chars: promptPlan.maxDynamicChars,
+        dynamic_share: promptPlan.dynamicShare,
+        stable_hash: promptPlan.stableHash,
+        dynamic_hash: promptPlan.dynamicHash,
         dropped_chars: promptPlan.droppedChars,
+        dropped_blocks: promptPlan.droppedBlocks,
+        diagnostics: promptPlan.diagnostics,
         blocks: promptPlan.blocks,
       });
       onEvent?.({
@@ -693,6 +720,7 @@ export class QueryEngine {
           if (rendered) onEvent?.(rendered);
           this.state.appendEvent(runId, `tool_${event.phase}`, {
             action: event.action,
+            capability: this.capabilities.get(event.action.type),
             result: event.result,
             started_at_ms: event.startedAtMs,
             finished_at_ms: event.finishedAtMs,
@@ -745,6 +773,18 @@ export class QueryEngine {
         detail: summarizeActionTypes(envelope.actions),
       });
       let report = await executeEnvelope(this.config.projectPath, envelope, executionOptions);
+      this.kernel.record({
+        runId,
+        stage: "execution",
+        status: report.status === "succeeded" ? "succeeded" : "failed",
+        summary: report.final_message || `Executed ${report.results.length} tool result(s).`,
+        details: {
+          attempt: attempt + 1,
+          action_count: envelope.actions.length,
+          result_count: report.results.length,
+        },
+      });
+      this.kernel.recordToolEvidence(runId, report);
       const validationTrajectoryTurns: ActionPlanTurn[] = [];
       let combinedReport = report;
       const validationEnvelope = this.autoValidationEnvelope(userMessage, report);
@@ -756,6 +796,17 @@ export class QueryEngine {
           detail: summarizeActionTypes(validationEnvelope.actions),
         });
         const validationReport = await executeEnvelope(this.config.projectPath, validationEnvelope, executionOptions);
+        this.kernel.record({
+          runId,
+          stage: "verification",
+          status: validationReport.status === "succeeded" ? "succeeded" : "failed",
+          summary: validationReport.final_message || "Runtime artifact validation completed.",
+          details: {
+            attempt: attempt + 1,
+            action_count: validationEnvelope.actions.length,
+          },
+        });
+        this.kernel.recordToolEvidence(runId, validationReport);
         combinedReport = mergeReports(report, validationReport);
         validationTrajectoryTurns.push({
           attempt: attempt + 10_001,
@@ -780,6 +831,17 @@ export class QueryEngine {
           detail: summarizeActionTypes(taskVerificationEnvelope.actions),
         });
         const taskVerificationReport = await executeEnvelope(this.config.projectPath, taskVerificationEnvelope, executionOptions);
+        this.kernel.record({
+          runId,
+          stage: "verification",
+          status: taskVerificationReport.status === "succeeded" ? "succeeded" : "failed",
+          summary: taskVerificationReport.final_message || "Task verification completed.",
+          details: {
+            attempt: attempt + 1,
+            action_count: taskVerificationEnvelope.actions.length,
+          },
+        });
+        this.kernel.recordToolEvidence(runId, taskVerificationReport);
         combinedReport = mergeReports(combinedReport, taskVerificationReport);
         validationTrajectoryTurns.push({
           attempt: attempt + 20_001,

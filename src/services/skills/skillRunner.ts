@@ -4,12 +4,14 @@ import { buildContextBundle, contextBundlePrompt } from "../../context/contextBu
 import type { ActionEnvelope, ActionExecutionReport, ActionRequest, ActionResult } from "../../protocol/actions.js";
 import type { DeepSeekProviderClient, UsageSnapshot } from "../../protocol/provider.js";
 import { buildActionSystemPrompt } from "../../query/systemPrompt.js";
+import { buildStablePromptBlock } from "../../query/promptCache.js";
 import type { StateStore } from "../../state/sqlite.js";
 import { loadSkill, type LoadedSkill } from "../../skills/loader.js";
 import { executeEnvelope } from "../../tools/executor.js";
 import { defaultShellPolicy } from "../../tools/shell.js";
 import type { RuntimePermissionState } from "../permissions/permissionProfiles.js";
 import { buildRequestDiagnostics } from "../telemetry/requestDiagnostics.js";
+import { buildResonixPromptPlan } from "../cache/resonixPolicy.js";
 
 export interface SkillRunResult {
   skill: LoadedSkill;
@@ -49,33 +51,51 @@ export async function runSkillTask(input: {
 
   for (let index = 1; index <= maxTurns; index += 1) {
     const systemPrompt = buildActionSystemPrompt();
-    const userMessage = [
-      `Skill: ${skill.name}`,
-      `Task: ${input.task}`,
-      `Turn: ${index}/${maxTurns}`,
-      `Description: ${skill.description || skill.frontmatter.description || "(none)"}`,
-      "You are already inside this forked skill run. Do not invoke this same skill again; use concrete tools to complete the task.",
-      "",
-      "<skill_instructions>",
-      skill.prompt,
-      "</skill_instructions>",
-    ].join("\n");
+    const stable = buildStablePromptBlock([{ title: "deepseekcode_immutable_runtime", body: systemPrompt }]);
+    const promptPlan = buildResonixPromptPlan([
+      {
+        title: "skill_task",
+        priority: "request",
+        body: [
+          `Skill: ${skill.name}`,
+          `Task: ${input.task}`,
+          `Turn: ${index}/${maxTurns}`,
+          `Description: ${skill.description || skill.frontmatter.description || "(none)"}`,
+          "You are already inside this forked skill run. Do not invoke this same skill again; use concrete tools to complete the task.",
+        ].join("\n"),
+      },
+      { title: "skill_instructions", priority: "project", body: skill.prompt },
+      { title: "selected_context", priority: "context", body: contextBundlePrompt(bundle) },
+      ...(feedback ? [{ title: "previous_tool_feedback", priority: "feedback" as const, body: feedback.final_message }] : []),
+    ], {
+      maxDynamicChars: 8_000,
+      stableHash: stable.hash,
+      phase: `skill_${skill.name}_turn_${index}`,
+    });
     input.state?.appendEvent(input.runId ?? null, "provider_request_diagnostics", buildRequestDiagnostics({
       provider: input.provider.providerName,
       model: input.provider.model,
       kind: "native_tool_plan",
       systemText: systemPrompt,
-      userText: userMessage,
+      userText: promptPlan.userMessage,
+      stablePrefixHash: stable.hash,
     }));
     input.state?.appendEvent(input.runId ?? null, "skill_native_tool_plan_started", {
       skill: skill.name,
       turn: index,
       max_turns: maxTurns,
+      prompt_budget: {
+        stable_hash: promptPlan.stableHash,
+        dynamic_hash: promptPlan.dynamicHash,
+        dynamic_chars: promptPlan.dynamicChars,
+        dropped_chars: promptPlan.droppedChars,
+        dropped_blocks: promptPlan.droppedBlocks,
+      },
     });
     const envelope = await input.provider.planActions({
-      userMessage,
+      userMessage: promptPlan.userMessage,
       systemPrompt,
-      contextSummary: contextBundlePrompt(bundle),
+      contextSummary: "",
       feedback,
     }, {
       signal: input.signal,

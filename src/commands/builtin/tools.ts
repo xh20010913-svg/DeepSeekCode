@@ -44,7 +44,6 @@ export const toolsCommand: Command = {
 
 function capabilityStatus(name: string): "supported" | "partial" | "experimental" | "reserved" {
   if (name === "computer_use") return "reserved";
-  if (name === "create_pdf") return "experimental";
   if (name.startsWith("browser_") || name === "mcp_call" || name === "invoke_agent") return "partial";
   return "supported";
 }

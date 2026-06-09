@@ -955,7 +955,7 @@ function buildCleanWorkflowPlan(
     handoffFormat: "用中文返回角色、子任务交接、验收标准和 evidence 要求。",
   });
   const middleRoles = explicitRoles.filter((role) => !isPlannerRole(role.role) && !isAcceptanceRole(role.role));
-  const dynamicRoles = middleRoles.length ? middleRoles : cleanExecutionRoles(objective, contract);
+  const dynamicRoles = middleRoles.length ? middleRoles : cleanExecutionRolesV2(objective, contract);
   const reviewer = roleState({
     role: "AcceptanceReviewer",
     responsibility: "按任务契约、子任务 evidence、真实产物、verification hints 和用户约束验收每个子任务与最终结果。",
@@ -1081,7 +1081,7 @@ function buildCleanSubtasks(
   const executionRoles = roles.filter((role) => !isPlannerRole(role.role) && !isAcceptanceRole(role.role));
   return executionRoles.map((role, index) => {
     const id = `subtask_${index + 1}`;
-    const dependsOn = index === 0 ? [] : [`subtask_${index}`];
+    const dependsOn = fallbackSubtaskDependencies(role, index);
     return {
       id,
       title: role.assignedTasks[0] || `${role.role} 子任务`,
@@ -1096,6 +1096,101 @@ function buildCleanSubtasks(
       updatedAtMs: now,
     };
   });
+}
+
+function fallbackSubtaskDependencies(role: AgentRoleState, index: number): string[] {
+  if (index === 0) return [];
+  const text = [
+    role.role,
+    role.responsibility,
+    role.assignedTasks.join(" "),
+    role.requiredOutputs.join(" "),
+  ].join(" ");
+  return /验收|验证|测试|质检|review|acceptance|verify|test|qa/i.test(text)
+    ? Array.from({ length: index }, (_value, dependencyIndex) => `subtask_${dependencyIndex + 1}`)
+    : [];
+}
+
+function heuristicExecutionRolesV2(objective: string, contract: NormalizedTaskCompletionContract): AgentRoleState[] {
+  return cleanExecutionRolesV2(objective, contract);
+}
+
+function cleanExecutionRolesV2(objective: string, contract: NormalizedTaskCompletionContract): AgentRoleState[] {
+  return cleanRoleSpecsV2(objective, contract)
+    .slice(0, roleLimitForContract(contract, objective))
+    .map((spec) => roleState({
+      role: spec.role,
+      responsibility: spec.responsibility,
+      contextScope: "\u53ea\u8bfb\u53d6\u5f53\u524d\u5b50\u4efb\u52a1\u3001\u89d2\u8272\u4e13\u5c5e skill\u3001\u5fc5\u8981\u4e0a\u6e38\u6458\u8981\u3001\u6700\u8fd1\u5de5\u5177\u6458\u8981\u548c\u81ea\u5df1\u7684 checkpoint\uff1b\u4e0d\u8bfb\u53d6\u5176\u4ed6\u89d2\u8272\u5b8c\u6574 transcript\u3002",
+      allowedTools: unique(spec.tools),
+      preloadedSkills: unique(spec.skills),
+      assignedTasks: unique(spec.outputs.length ? spec.outputs.map((output) => `\u5b8c\u6210\u6216\u4fee\u590d\uff1a${output}`) : [spec.responsibility]),
+      acceptance: [
+        "\u5fc5\u987b\u4ea7\u751f\u771f\u5b9e evidence\uff1a\u6587\u4ef6\u3001\u547d\u4ee4\u3001URL\u3001\u622a\u56fe\u3001\u65e5\u5fd7\u6458\u8981\u6216\u660e\u786e blocker\u3002",
+        "\u4ea4\u63a5\u5fc5\u987b\u5199\u6e05\u8def\u5f84\u3001\u542f\u52a8\u547d\u4ee4\u3001\u9a8c\u8bc1\u7ed3\u679c\u548c\u4e0b\u4e00\u4e2a\u89d2\u8272\u9700\u5173\u6ce8\u7684\u95ee\u9898\u3002",
+      ],
+      requiredOutputs: unique(spec.outputs.length ? spec.outputs : ["\u672c\u5730\u4ea7\u7269\u4e0e\u9a8c\u8bc1 evidence"]),
+      riskChecks: unique(spec.risks),
+      handoffFormat: "\u4e2d\u6587\u6458\u8981\uff1b\u6539\u52a8\u8def\u5f84\uff1b\u4ea7\u7269/URL/\u547d\u4ee4\uff1b\u9a8c\u8bc1 evidence\uff1b\u963b\u585e\u4e0e\u5efa\u8bae\u3002",
+    }));
+}
+
+function cleanRoleSpecsV2(objective: string, contract: NormalizedTaskCompletionContract): Array<{
+  role: string;
+  responsibility: string;
+  tools: string[];
+  skills: string[];
+  outputs: string[];
+  risks: string[];
+}> {
+  const commonRead = ["read_file", "list_files", "grep_files", "glob_files"];
+  const commonWrite = [...commonRead, "write_file", "append_file", "apply_patch", "run_command", "invoke_skill", "validate_artifact"];
+  const runtimeTools = [...commonWrite, "launch_project", "browser_screenshot", "verify_task"];
+  const text = [
+    objective,
+    ...contract.expectedOutputs.map((output) => `${output.kind} ${output.description}`),
+    ...contract.acceptanceCriteria,
+    ...contract.verificationHints,
+  ].join("\n").toLowerCase();
+  const specs: Array<{
+    role: string;
+    responsibility: string;
+    tools: string[];
+    skills: string[];
+    outputs: string[];
+    risks: string[];
+  }> = [];
+  const add = (role: string, responsibility: string, outputs: string[], skills: string[], tools = commonWrite, risks: string[] = []) => {
+    if (!specs.some((candidate) => sameRole(candidate.role, role))) specs.push({ role, responsibility, tools, skills, outputs, risks });
+  };
+  const isWeb = /\u7f51\u7ad9|\u7f51\u9875|\u9875\u9762|\u524d\u7aef|\u6d4f\u89c8\u5668|html|css|react|vue|vite|next|\u5546\u57ce|\u7535\u5546|web|frontend|browser|website|page|shop|ecommerce/.test(text);
+  const isGame = /\u6e38\u620f|\u5c0f\u6e38\u620f|\u5173\u5361|\u654c\u673a|\u5b50\u5f39|\u78b0\u649e|\u5206\u6570|\u6218\u673a|game|level|enemy|bullet|collision|score/.test(text);
+  const hasMotion = /\u52a8\u6548|\u52a8\u753b|gsap|motion|scroll|\u8fc7\u6e21|\u7279\u6548|animate|animation/.test(text);
+  const hasBackend = /\u540e\u7aef|\u63a5\u53e3|api|\u670d\u52a1\u7aef|server|backend|express|fastify/.test(text);
+  const hasData = /\u6570\u636e\u5e93|\u6570\u636e|schema|seed|\u79cd\u5b50|\u5546\u54c1|\u5e93\u5b58|catalog|csv|json|db|sqlite|mysql|postgres|data/.test(text);
+  const wantsPdf = /\bpdf\b|\u9879\u76ee\u6587\u6863/.test(text) || contract.expectedOutputs.some((output) => output.kind === "pdf");
+  const wantsOffice = /ppt|pptx|slides?|\u6f14\u793a|\u5e7b\u706f|docx?|word|\u6587\u6863|\u62a5\u544a|xlsx|spreadsheet/.test(text);
+  const wantsMcp = /mcp|model context protocol/.test(text);
+
+  if (isGame) add("\u73a9\u6cd5\u5173\u5361\u5de5\u7a0b\u5e08", `\u5b9e\u73b0\u6838\u5fc3\u73a9\u6cd5\u3001\u5173\u5361\u8282\u594f\u3001\u72b6\u6001\u5faa\u73af\u3001\u78b0\u649e/\u8ba1\u5206/\u751f\u547d\u7b49\u53ef\u73a9\u884c\u4e3a\uff1a${objective}`, ["\u73a9\u6cd5\u903b\u8f91", "\u5173\u5361\u72b6\u6001", "\u53ef\u8fd0\u884c\u6e38\u620f evidence"], ["implementation", "browser-verification"], runtimeTools, ["\u4e0d\u80fd\u53ea\u505a\u9759\u6001\u9875\u9762\uff1b\u5fc5\u987b\u80fd\u542f\u52a8\u3001\u4ea4\u4e92\u6216\u8bb0\u5f55\u660e\u786e blocker\u3002"]);
+  if (isWeb) add("\u754c\u9762\u4ea4\u4e92\u5de5\u7a0b\u5e08", `\u5b9e\u73b0\u6d4f\u89c8\u5668\u5165\u53e3\u3001\u9875\u9762\u7ed3\u6784\u3001\u54cd\u5e94\u5f0f\u5e03\u5c40\u548c\u7528\u6237\u53ef\u89c1\u4ea4\u4e92\uff1a${objective}`, ["\u6d4f\u89c8\u5668\u5165\u53e3", "\u54cd\u5e94\u5f0f\u754c\u9762", "\u4e3b\u8981\u4ea4\u4e92\u6d41\u7a0b"], ["ui-ux", "browser-verification"], runtimeTools, ["\u68c0\u67e5\u7a7a\u767d\u9875\u3001404\u3001\u63a7\u5236\u53f0\u9519\u8bef\u3001\u6309\u94ae\u65e0\u54cd\u5e94\u548c\u624b\u673a\u7aef\u6ea2\u51fa\u3002"]);
+  if (hasMotion) add("\u52a8\u6548\u4f53\u9a8c\u5de5\u7a0b\u5e08", `\u5b9e\u73b0 GSAP/\u52a8\u753b\u65f6\u5e8f\u3001\u72b6\u6001\u53cd\u9988\u3001\u8fc7\u6e21\u548c\u52a8\u6548\u6027\u80fd\uff1a${objective}`, ["\u52a8\u753b\u65f6\u95f4\u7ebf", "\u52a8\u6548\u9a8c\u8bc1 evidence", "\u4f4e\u52a8\u6548\u6a21\u5f0f\u8bf4\u660e"], ["gsap-core", "gsap-timeline", "gsap-performance", "ui-ux"], runtimeTools, ["\u4f18\u5148 transform/opacity\uff1b\u907f\u514d\u5e03\u5c40\u6296\u52a8\u548c\u65e0\u610f\u4e49\u88c5\u9970\u52a8\u6548\u3002"]);
+  if (hasBackend) add("\u540e\u7aef\u63a5\u53e3\u5de5\u7a0b\u5e08", `\u5b9e\u73b0\u670d\u52a1\u7aef\u3001API\u3001\u542f\u52a8\u811a\u672c\u3001\u7aef\u53e3\u548c\u524d\u540e\u7aef\u8054\u8c03\uff1a${objective}`, ["\u540e\u7aef/API \u4ee3\u7801", "\u542f\u52a8\u547d\u4ee4", "\u63a5\u53e3\u9a8c\u8bc1 evidence"], ["implementation", "testing"], commonWrite, ["\u957f\u670d\u52a1\u5fc5\u987b\u8d70 launch_project\uff1b\u6709\u9650\u547d\u4ee4\u5fc5\u987b\u53ef\u9000\u51fa\u3002"]);
+  if (hasData) add("\u6570\u636e\u5efa\u6a21\u5de5\u7a0b\u5e08", `\u5b9e\u73b0\u6570\u636e\u5e93 schema\u3001seed\u3001\u6570\u636e\u6587\u4ef6\u548c\u53ef\u590d\u73b0\u5b9e\u4f8b\u6570\u636e\uff1a${objective}`, ["schema/seed \u6570\u636e", "\u6570\u636e\u9a8c\u8bc1 evidence"], ["spreadsheets", "data-validation", "implementation"], commonWrite, ["\u4e0d\u5f97\u4f2a\u9020\u6570\u636e\u5b8c\u6210\u72b6\u6001\uff1b\u8bb0\u5f55\u521d\u59cb\u5316\u548c\u8bfb\u53d6\u9a8c\u8bc1\u3002"]);
+  if (wantsMcp) add("MCP\u534f\u8bae\u5de5\u7a0b\u5e08", `\u5b9e\u73b0 MCP mock\u3001discover/call\u3001\u9519\u8bef\u6458\u8981\u548c\u534f\u8bae\u9a8c\u8bc1\uff1a${objective}`, ["MCP discover/call evidence", "\u5931\u8d25\u6458\u8981"], ["mcp", "integration-testing"], [...commonWrite, "mcp_call"], ["\u65e0\u5916\u90e8\u51ed\u636e\u65f6\u4f7f\u7528 mock \u5e76\u660e\u786e\u6807\u6ce8\u3002"]);
+  if (wantsPdf) add("PDF\u4ea7\u7269\u5de5\u7a0b\u5e08", `\u751f\u6210\u548c\u6821\u9a8c\u771f\u5b9e PDF\uff0c\u5305\u542b\u9875\u6570\u3001\u6587\u672c\u548c\u9884\u89c8 evidence\uff1a${objective}`, ["PDF \u6587\u4ef6", "PDF \u9a8c\u8bc1 evidence"], ["pdf", "documents", "artifact-review"], [...commonWrite, "create_pdf", "validate_artifact"], ["\u7528\u6237\u8981 PDF \u65f6\u4e0d\u5f97\u7528 DOCX/Markdown \u5192\u5145\u5b8c\u6210\u3002"]);
+  else if (wantsOffice) add("\u6587\u6863\u4ea7\u7269\u5de5\u7a0b\u5e08", `\u5b9e\u73b0 Office/Markdown \u4ea7\u7269\u7ed3\u6784\u3001\u5185\u5bb9\u548c\u53ef\u6253\u5f00\u6027\u9a8c\u8bc1\uff1a${objective}`, ["\u6587\u6863\u4ea7\u7269", "\u683c\u5f0f\u9a8c\u8bc1 evidence"], ["documents", "presentations", "spreadsheets"], [...commonWrite, "create_docx", "create_pptx", "create_xlsx", "validate_artifact"], ["\u7ed3\u6784\u548c\u53ef\u8bfb\u6027\u5fc5\u987b\u9a8c\u8bc1\u3002"]);
+  if (contract.expectedOutputs.some((output) => ["code", "cli"].includes(String(output.kind).toLowerCase())) && !specs.some((spec) => /接口|实现|命令行/.test(spec.role))) {
+    add("\u9879\u76ee\u5b9e\u73b0\u5de5\u7a0b\u5e08", `\u5b9e\u73b0\u53ef\u6267\u884c\u4ee3\u7801\u3001CLI\u3001\u811a\u672c\u3001\u6d4b\u8bd5\u6216\u5305\u914d\u7f6e\uff1a${objective}`, ["\u4ee3\u7801\u5b9e\u73b0", "\u6709\u9650\u547d\u4ee4\u9a8c\u8bc1 evidence"], ["implementation", "testing"], commonWrite, ["\u53ea\u4f7f\u7528\u53ef\u7ed3\u675f\u7684\u6709\u9650\u547d\u4ee4\uff1b\u91cd\u8bd5\u524d\u5148\u4fee\u590d Windows shell \u4e0d\u517c\u5bb9\u3002"]);
+  }
+  if (specs.length >= 2 && !specs.some((spec) => /验证|验收|测试/.test(spec.role))) {
+    add("\u8fd0\u884c\u9a8c\u8bc1\u5de5\u7a0b\u5e08", `\u8fd0\u884c\u6784\u5efa\u3001\u542f\u52a8\u3001\u622a\u56fe\u3001\u4ea4\u4e92 smoke test \u548c\u5931\u8d25\u5f52\u7eb3\uff1a${objective}`, ["\u9a8c\u8bc1\u8bb0\u5f55", "\u4fee\u590d evidence"], ["testing", "browser-verification"], runtimeTools, ["\u5931\u8d25\u5fc5\u987b\u4fdd\u7559\u7b2c\u4e00\u884c\u9519\u8bef\u3001\u5b8c\u6574\u65e5\u5fd7\u4f4d\u7f6e\u548c\u4fee\u590d\u5efa\u8bae\u3002"]);
+  }
+  if (!specs.length) {
+    add("\u9879\u76ee\u5b9e\u73b0\u5de5\u7a0b\u5e08", `\u5b9e\u73b0\u7528\u6237\u8bf7\u6c42\u7684\u672c\u5730\u4ea7\u7269\u5e76\u63d0\u4f9b\u771f\u5b9e evidence\uff1a${objective}`, ["\u672c\u5730\u4ea7\u7269", "\u9a8c\u8bc1 evidence"], skillsForContract(contract), commonWrite, ["\u4e0d\u5f97\u7528\u6587\u5b57\u66ff\u4ee3\u771f\u5b9e\u4ea7\u7269\u3002"]);
+    add("\u8fd0\u884c\u9a8c\u8bc1\u5de5\u7a0b\u5e08", `\u8fd0\u884c\u68c0\u67e5\u3001\u5f52\u7eb3\u5931\u8d25\u5e76\u4fee\u590d\u53ef\u590d\u73b0\u95ee\u9898\uff1a${objective}`, ["\u68c0\u67e5\u8bb0\u5f55", "\u4fee\u590d evidence"], ["testing", "browser-verification"], runtimeTools, ["\u5931\u8d25\u5fc5\u987b\u4fdd\u7559\u7b2c\u4e00\u884c\u9519\u8bef\u548c\u4fee\u590d\u5efa\u8bae\u3002"]);
+  }
+  return specs;
 }
 
 function buildHeuristicWorkflowPlan(
@@ -1131,7 +1226,7 @@ function buildHeuristicWorkflowPlan(
     handoffFormat: "用中文返回角色/子任务交接、验收标准和 evidence 要求。",
   });
   const executionRoles = explicitRoles.filter((role) => !isPlannerRole(role.role) && !isAcceptanceRole(role.role));
-  const dynamicRoles = executionRoles.length ? executionRoles : heuristicExecutionRoles(objective, contract);
+  const dynamicRoles = executionRoles.length ? executionRoles : heuristicExecutionRolesV2(objective, contract);
   const reviewer = roleState({
     role: "AcceptanceReviewer",
     responsibility: "按任务契约、子任务 evidence、真实产物、verification hints 和用户约束验收每个子任务与最终结果。",
@@ -1386,7 +1481,7 @@ function ensurePlannerAndAcceptanceReviewer(
   const fallback = buildCleanWorkflowPlan([], objective, contract).roles;
   const planner = normalizedRoles.find((role) => isPlannerRole(role.role)) ?? fallback.find((role) => isPlannerRole(role.role))!;
   const reviewer = normalizedRoles.find((role) => isAcceptanceRole(role.role)) ?? fallback.find((role) => isAcceptanceRole(role.role))!;
-  return [planner, ...(middleRoles.length ? middleRoles : cleanExecutionRoles(objective, contract)), { ...reviewer, role: "AcceptanceReviewer", name: "AcceptanceReviewer" }];
+  return [planner, ...(middleRoles.length ? middleRoles : cleanExecutionRolesV2(objective, contract)), { ...reviewer, role: "AcceptanceReviewer", name: "AcceptanceReviewer" }];
 }
 
 function normalizeGeneratedSkills(
@@ -1479,7 +1574,9 @@ function buildHeuristicSubtasks(
         title: role.assignedTasks[0] || `${role.role} 子任务`,
         description: role.responsibility,
         assigneeRole: role.role,
-        dependencies: index === 0 ? [] : [`subtask_${index}_${safeRoleName(executionRoles[index - 1]?.role ?? "").toLowerCase()}`].filter(Boolean),
+        dependencies: fallbackSubtaskDependencies(role, index)
+          .map((dependency) => `${dependency}_${safeRoleName(executionRoles[Number(dependency.replace("subtask_", "")) - 1]?.role ?? "").toLowerCase()}`)
+          .filter(Boolean),
         status: "queued",
         acceptanceCriteria: role.acceptance.length ? role.acceptance : contract.acceptanceCriteria,
         expectedOutputs: role.requiredOutputs.length ? role.requiredOutputs : ["本地产物与验证 evidence"],

@@ -1,4 +1,10 @@
 import type { ChatMessage } from "../../protocol/provider.js";
+import {
+  buildContextCapsuleFromMessages,
+  formatContextCapsule,
+  mergeContextCapsules,
+  parseContextCapsule,
+} from "./contextCapsule.js";
 
 export class RollingSummary {
   private summary = "";
@@ -16,11 +22,11 @@ export class RollingSummary {
     const keepFrom = Math.max(0, history.length - keepTail);
     const older = history.slice(0, keepFrom);
     const tail = history.slice(keepFrom);
-    const fragment = older
-      .map((message) => `${message.role}: ${message.content}`)
-      .join("\n")
-      .slice(-2400);
-    this.summary = [this.summary, fragment].filter(Boolean).join("\n").slice(-3600);
+    const previous = this.summary.trim()
+      ? parseContextCapsule(this.summary)
+      : buildContextCapsuleFromMessages([]);
+    const next = buildContextCapsuleFromMessages(older);
+    this.summary = formatContextCapsule(mergeContextCapsules(previous, next));
     return tail;
   }
 }

@@ -67,7 +67,7 @@ export function scoreActionResult(result: ActionResult, index = 0, total = 1): n
   if (/validate|test|lint|typecheck|build|artifact/i.test(result.action_type)) score += 35;
   if (/run_command|ssh_run|mcp_call/i.test(result.action_type)) score += 30;
   if (/write_file|apply_patch|create_docx|create_pptx|create_pdf/i.test(result.action_type)) score += 40;
-  if (result.message && /error|failed|exception|traceback|stderr|失败|错误|异常|未通过/i.test(result.message)) {
+  if (result.message && /error|failed|exception|traceback|stderr|失败|错误|异常|未通过|阻塞|缺少|无法|报错/i.test(result.message)) {
     score += 55;
   }
   return score;

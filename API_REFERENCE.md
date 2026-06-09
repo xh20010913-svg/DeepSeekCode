@@ -41,6 +41,7 @@ Core:
 /shell on
 /browser on
 /permissions
+/compact
 /cache
 /cache report
 /memory doctor
@@ -251,6 +252,32 @@ interface AgentDashboardSnapshot {
     constraints: string[];
     outputFormat: string;
   }>;
+  readyQueue: Array<{
+    id: string;
+    title: string;
+    ownerRole: string;
+    priority: number;
+    dependencies: string[];
+    evidenceRequirements: string[];
+  }>;
+  evidence: Array<{
+    id: string;
+    role?: string;
+    subtaskId?: string;
+    tool?: string;
+    summary: string;
+    artifact?: string;
+    createdAt: string;
+  }>;
+  layoutModel: {
+    roles: Array<{
+      role: string;
+      location: "workbench" | "dispatch" | "lounge" | "review" | "blocked";
+      status: string;
+      shortLabel: string;
+    }>;
+    zones: Array<{ id: string; label: string }>;
+  };
   connectionState: {
     status: "online" | "offline";
     serverHeartbeat: number;

@@ -1,6 +1,6 @@
 import type { ChatMessage } from "../../protocol/provider.js";
 import { SessionStorage, type TranscriptRecord } from "../session/sessionStorage.js";
-import { RollingSummary } from "./rollingSummary.js";
+import { buildContextCapsuleFromRecords, formatContextCapsule } from "./contextCapsule.js";
 
 export interface SessionCompactSummary {
   sessionId: string;
@@ -22,14 +22,14 @@ export function compactSessionTranscript(
       role: record.role === "user" ? "user" : record.role === "assistant" ? "assistant" : "system",
       content: record.text,
     }));
-  const rolling = new RollingSummary();
-  rolling.absorb(chatMessages, keepTail);
+  void chatMessages;
+  const capsule = buildContextCapsuleFromRecords(records.slice(0, Math.max(0, records.length - keepTail)));
   return {
     sessionId,
     totalRecords: records.length,
     summarizedRecords: Math.max(0, records.length - keepTail),
     tailRecords: records.slice(-keepTail),
-    summary: rolling.text,
+    summary: formatContextCapsule(capsule),
   };
 }
 

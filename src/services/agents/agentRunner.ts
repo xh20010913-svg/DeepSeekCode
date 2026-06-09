@@ -10,6 +10,8 @@ import { executeEnvelope } from "../../tools/executor.js";
 import { defaultShellPolicy } from "../../tools/shell.js";
 import { loadAgent, type LoadedAgent } from "../../agents/loader.js";
 import { buildActionSystemPrompt } from "../../query/systemPrompt.js";
+import { buildStablePromptBlock } from "../../query/promptCache.js";
+import { buildResonixPromptPlan } from "../cache/resonixPolicy.js";
 
 export interface AgentRunResult {
   agent: LoadedAgent;
@@ -47,32 +49,44 @@ export async function runAgentTask(input: {
   for (let index = 1; index <= maxTurns; index += 1) {
     let envelope: ActionEnvelope;
     try {
+      const systemPrompt = buildActionSystemPrompt();
+      const stable = buildStablePromptBlock([{ title: "deepseekcode_immutable_runtime", body: systemPrompt }]);
+      const promptPlan = buildResonixPromptPlan([
+        {
+          title: "subagent_task",
+          priority: "request",
+          body: [
+            `Subagent: ${agent.name}`,
+            `Task: ${input.task}`,
+            `Turn: ${index}/${maxTurns}`,
+            `Description: ${agent.description || "(none)"}`,
+            `Allowed tools: ${agent.tools?.join(", ") || "inherited"}`,
+            `Disallowed tools: ${agent.frontmatter.disallowedTools?.join(", ") || "(none)"}`,
+            `Runtime permissions: shell=${input.permissions.allowShell ? "enabled" : "disabled"} browser=${input.permissions.allowBrowser ? "enabled" : "disabled"} profile=${input.permissions.profile ?? input.config.permissionProfile}`,
+            "If shell is disabled, do not use run_command, ssh_run, or shell-backed MCP calls.",
+            implementationTask
+              ? "This is an implementation task. A successful result must write, patch, create, or validate the requested artifact."
+              : "",
+            implementationTask
+              ? "If the task names an exact output path, call write_file or apply_patch for that path no later than turn 2. For a single-file HTML/Markdown artifact, create a concise complete version first, then validate it."
+              : "",
+            implementationTask && feedback
+              ? "Previous feedback already covers inspection. Do not spend this turn only reading/listing/searching files; use write_file, apply_patch, create_*, or validate_artifact now. If you cannot improve the plan, write a minimal correct artifact that satisfies the explicit request."
+              : "",
+          ].filter(Boolean).join("\n"),
+        },
+        { title: "agent_system_prompt", priority: "project", body: agent.prompt },
+        { title: "selected_context", priority: "context", body: contextBundlePrompt(bundle) },
+        ...(feedback ? [{ title: "previous_tool_feedback", priority: "feedback" as const, body: feedback.final_message }] : []),
+      ], {
+        maxDynamicChars: 8_000,
+        stableHash: stable.hash,
+        phase: `subagent_${agent.name}_turn_${index}`,
+      });
       envelope = await input.provider.planActions({
-        userMessage: [
-          `Subagent: ${agent.name}`,
-          `Task: ${input.task}`,
-          `Turn: ${index}/${maxTurns}`,
-          `Description: ${agent.description || "(none)"}`,
-          `Allowed tools: ${agent.tools?.join(", ") || "inherited"}`,
-          `Disallowed tools: ${agent.frontmatter.disallowedTools?.join(", ") || "(none)"}`,
-          `Runtime permissions: shell=${input.permissions.allowShell ? "enabled" : "disabled"} browser=${input.permissions.allowBrowser ? "enabled" : "disabled"} profile=${input.permissions.profile ?? input.config.permissionProfile}`,
-          "If shell is disabled, do not use run_command, ssh_run, or shell-backed MCP calls.",
-          implementationTask
-            ? "This is an implementation task. A successful result must write, patch, create, or validate the requested artifact."
-            : "",
-          implementationTask
-            ? "If the task names an exact output path, call write_file or apply_patch for that path no later than turn 2. For a single-file HTML/Markdown artifact, create a concise complete version first, then validate it."
-            : "",
-          implementationTask && feedback
-            ? "Previous feedback already covers inspection. Do not spend this turn only reading/listing/searching files; use write_file, apply_patch, create_*, or validate_artifact now. If you cannot improve the plan, write a minimal correct artifact that satisfies the explicit request."
-            : "",
-          "",
-          "<agent_system_prompt>",
-          agent.prompt,
-          "</agent_system_prompt>",
-        ].join("\n"),
-        systemPrompt: buildActionSystemPrompt(),
-        contextSummary: contextBundlePrompt(bundle),
+        userMessage: promptPlan.userMessage,
+        systemPrompt,
+        contextSummary: "",
         feedback,
       }, {
         signal: input.signal,
@@ -176,7 +190,7 @@ function expectsImplementation(task: string): boolean {
     /(只需要读|只读|给出结论|审查|评审|review|inspect)/i.test(task) &&
     !/(实现|生成|创建|写入|修改|修复|build|create|generate|write|implement|modify|fix)/i.test(task);
   if (reviewOnly) return false;
-  return /(实现|生成|创建|写入|修改|修复|验证|build|create|generate|write|implement|modify|fix|validate|html|docx|pptx|markdown)/i
+  return /(实现|生成|创建|写入|修改|修复|验证|验收|build|create|generate|write|implement|modify|fix|validate|html|docx|pptx|pdf|markdown)/i
     .test(task);
 }
 
@@ -187,7 +201,9 @@ function hasImplementationProgress(report: ActionExecutionReport): boolean {
       "apply_patch",
       "create_docx",
       "create_pptx",
+      "create_pdf",
       "validate_artifact",
+      "verify_task",
       "run_command",
       "browser_screenshot",
     ].includes(result.action_type) && result.status === "succeeded");
