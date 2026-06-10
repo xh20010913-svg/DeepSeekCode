@@ -348,7 +348,7 @@ export class AgentPanelServer {
     const folderNames: Record<string, string> = {};
     for (let index = 0; index < ids.length; index++) {
       const id = ids[index] ?? index + 1;
-      agentMeta[String(id)] = { palette: id % 8, hueShift: 0, seatId: seatIdForRole(bootstrapRoles[index], id) };
+      agentMeta[String(id)] = { palette: id % 8, hueShift: 0, seatId: seatIdForRole(bootstrapRoles[index], id, snapshot.layoutModel?.roleLocations) };
       folderNames[String(id)] = folderName;
     }
     const layout = buildDeepSeekPixelLayout(assets.layout);
@@ -601,7 +601,11 @@ export class AgentPanelServer {
   }
 }
 
-function seatIdForRole(role: AgentDashboardRole | undefined, id: number): string | null {
+function seatIdForRole(
+  role: AgentDashboardRole | undefined,
+  id: number,
+  roleLocations?: Record<string, "workbench" | "dispatch" | "lounge" | "review" | "blocked">,
+): string | null {
   const workSeats = [
     "f-1773356768339-eo6u",
     "f-1773356769007-a8jm",
@@ -616,7 +620,19 @@ function seatIdForRole(role: AgentDashboardRole | undefined, id: number): string
     "f-1773354664329-hxsh",
     "f-1773354670818-r1q2",
   ];
+  const dispatchSeats = [
+    "f-1773354880309-yphd",
+    "f-1773354879805-px9b",
+  ];
+  const blockedSeats = [
+    "f-1773354877474-kt9s",
+  ];
   if (!role) return restSeats[(id - 1) % restSeats.length] ?? null;
+  const location = roleLocations?.[role.role];
+  if (location === "workbench") return workSeats[(id - 1) % workSeats.length] ?? null;
+  if (location === "dispatch" || location === "review") return dispatchSeats[(id - 1) % dispatchSeats.length] ?? workSeats[(id - 1) % workSeats.length] ?? null;
+  if (location === "blocked") return blockedSeats[(id - 1) % blockedSeats.length] ?? workSeats[(id - 1) % workSeats.length] ?? null;
+  if (location === "lounge") return restSeats[(id - 1) % restSeats.length] ?? null;
   if (role.status === "running" || role.status === "paused") {
     return workSeats[(id - 1) % workSeats.length] ?? null;
   }
@@ -1401,9 +1417,9 @@ function pixelMessagesFromSnapshot(snapshot: AgentDashboardSnapshot): PixelMessa
 function rolesForSnapshot(snapshot: AgentDashboardSnapshot): AgentDashboardRole[] {
   if (snapshot.roles.length) return snapshot.roles;
   const defaultRoles = [
-    ["Planner", "Create the reviewable plan gate and task-specific role plan."],
-    ["DynamicSpecialist", "Execute a task-specific role generated from the contract."],
-    ["AcceptanceReviewer", "Verify subtasks and final evidence against the contract."],
+    ["Planner", "生成可审查计划、任务图和角色分工。"],
+    ["任务执行角色", "等待任务契约生成具体动态角色。"],
+    ["AcceptanceReviewer", "按真实 evidence 验收子任务和最终结果。"],
   ];
   return defaultRoles.map(([role, responsibility]) => ({
     role,

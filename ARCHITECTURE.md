@@ -88,6 +88,8 @@ Multi-agent mode is a project-scoped workflow, not a chat gimmick. It starts wit
 
 The scheduler chooses the next runnable subtask by dependency and status, not by a fixed role sequence. `run_agent_workflow_step` and `drain_agent_workflow` run role-local provider/tool loops while the supervisor layer receives only summaries, artifacts, blockers, and validation conclusions. `AcceptanceReviewer` acceptance must refer back to the task contract, subtask evidence, and the relevant validators.
 
+Required artifact roles have a runtime safety pass. If the contract requires PDF, MCP, or Office outputs, the fallback planner preserves or injects a role with the matching tools/skills before execution so a complex website/game plan cannot silently drop document or integration deliverables.
+
 When a new workflow starts, `AgentDashboardServer` serves the bundled Pixel Agents panel and writes `agent-trace.jsonl`. Continue, repair, and refine requests reuse the same run page instead of opening another browser tab. The panel is built from durable run/task/event/artifact state, not terminal scraping. It presents the plan preview, stage, dynamic roles, subtask graph, dependencies, evidence, blockers, artifacts, process/cache summary, offline state, and a responsive phone layout for WeChat viewing. Remote channels can share the same view through `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL`; `/agents dashboard tunnel` can create a temporary Cloudflare Quick Tunnel for one tokenized run page. Without a secure public URL the link remains local-only. The panel is read-only and never approves tools or executes commands.
 
 ## Remote Runtime

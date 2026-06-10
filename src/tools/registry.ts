@@ -1992,10 +1992,10 @@ function providerPlanQualitySummary(
     .map((subtask, index) => subtaskFromModel(subtask, roles, contract, index, now))
     .filter((subtask): subtask is WorkflowSubtaskState => Boolean(subtask));
   const issues: string[] = [];
-  const requiredMiddleRoles = minimumProviderMiddleRoleCount(contract, objective);
+  const requiredMiddleRoles = minimumProviderMiddleRoleCountV2(contract, objective);
   if (roles.length === 0) issues.push("roles array is empty or invalid");
   if (roles.length < requiredMiddleRoles) issues.push(`middle role count ${roles.length} is below required ${requiredMiddleRoles}`);
-  const generic = roles.filter((role) => isGenericProviderRoleName(role.role)).map((role) => role.role);
+  const generic = roles.filter((role) => isGenericProviderRoleNameV2(role.role)).map((role) => role.role);
   if (generic.length > 0) issues.push(`generic role names are not allowed: ${generic.join(", ")}`);
   if (prefersChineseLabels(objective)) {
     const nonChinese = roles.filter((role) => !/[\u4e00-\u9fa5]/.test(role.role)).map((role) => role.role);
@@ -2020,9 +2020,9 @@ function providerPlanPassesQualityGate(
   objective: string,
 ): boolean {
   if (roles.length === 0) return false;
-  const requiredMiddleRoles = minimumProviderMiddleRoleCount(contract, objective);
+  const requiredMiddleRoles = minimumProviderMiddleRoleCountV2(contract, objective);
   if (roles.length < requiredMiddleRoles) return false;
-  if (roles.some((role) => isGenericProviderRoleName(role.role))) return false;
+  if (roles.some((role) => isGenericProviderRoleNameV2(role.role))) return false;
   if (prefersChineseLabels(objective) && roles.some((role) => !/[\u4e00-\u9fa5]/.test(role.role))) return false;
   const skillRoles = new Set(generatedSkills.map((skill) => safeModelName(skill.role).toLowerCase()));
   if (roles.some((role) => !skillRoles.has(safeModelName(role.role).toLowerCase()))) return false;
@@ -2050,6 +2050,22 @@ function isGenericProviderRoleName(role: string): boolean {
 
 function prefersChineseLabels(text: string): boolean {
   return /[\u4e00-\u9fa5]/.test(text);
+}
+
+function minimumProviderMiddleRoleCountV2(contract: ReturnType<typeof normalizeTaskCompletionContract>, objective: string): number {
+  const text = `${objective}\n${contract.expectedOutputs.map((output) => `${output.kind} ${output.description}`).join("\n")}\n${contract.acceptanceCriteria.join("\n")}`.toLowerCase();
+  const requiredOutputs = contract.expectedOutputs.filter((output) => output.required).length;
+  if (/游戏|小游戏|网站|网页|商城|电商|前后端|后端|数据库|接口|动效|动画|全栈|game|website|web|shop|ecommerce|full.?stack|backend|database|api|animation|gsap/.test(text)) {
+    return 3;
+  }
+  if (requiredOutputs >= 2 || contract.acceptanceCriteria.length >= 3 || objective.length > 160) return 2;
+  return 1;
+}
+
+function isGenericProviderRoleNameV2(role: string): boolean {
+  const normalized = safeModelName(role).toLowerCase();
+  return /^(implementationspecialist|dynamicspecialist|builder|worker|frontend|backend|tester|reviewer|coordinator|developer|engineer|coder|agent)$/i.test(normalized)
+    || /^(项目实现工程师|实现工程师|通用工程师|执行工程师|开发工程师|验证修复工程师)$/.test(role.trim());
 }
 
 function roleFromModel(value: unknown): AgentRoleState | undefined {

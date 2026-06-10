@@ -177,12 +177,12 @@ export class AgentWorkflowService {
     const now = Date.now();
     const id = `workflow_${randomUUID()}`;
     const contract = normalizeTaskCompletionContract(input.contract, input.objective, input.acceptanceCriteria ?? []);
-    const rolePlan = input.rolePlan ?? buildCleanWorkflowPlan(input.roles, input.objective, contract);
+    const rolePlan = input.rolePlan ?? buildCleanWorkflowPlanV3(input.roles, input.objective, contract);
     let roles = ensurePlannerAndAcceptanceReviewer(rolePlan.roles, input.objective, contract);
     let generatedSkills = normalizeGeneratedSkills(input.generatedSkills, roles, contract);
     roles = attachGeneratedSkillsToRoles(roles, generatedSkills);
     let subtaskGraph = normalizeSubtaskGraph(
-      input.subtaskGraph?.length ? input.subtaskGraph : buildCleanSubtasks(input.objective, contract, roles),
+      input.subtaskGraph?.length ? input.subtaskGraph : buildCleanSubtasksV3(input.objective, contract, roles),
       roles,
       contract,
       now,
@@ -396,12 +396,12 @@ export class AgentWorkflowService {
   }): AgentWorkflowRecord {
     const record = this.resolve(input.workflowId);
     const now = Date.now();
-    const rolePlan = input.rolePlan ?? buildCleanWorkflowPlan(undefined, record.objective, record.contract ?? normalizeTaskCompletionContract(undefined, record.objective));
+    const rolePlan = input.rolePlan ?? buildCleanWorkflowPlanV3(undefined, record.objective, record.contract ?? normalizeTaskCompletionContract(undefined, record.objective));
     let roles = ensurePlannerAndAcceptanceReviewer(rolePlan.roles, record.objective, record.contract ?? normalizeTaskCompletionContract(undefined, record.objective));
     const generatedSkills = normalizeGeneratedSkills(input.generatedSkills, roles, record.contract ?? normalizeTaskCompletionContract(undefined, record.objective));
     roles = attachGeneratedSkillsToRoles(roles, generatedSkills);
     let subtaskGraph = normalizeSubtaskGraph(
-      input.subtaskGraph?.length ? input.subtaskGraph : buildCleanSubtasks(record.objective, record.contract ?? normalizeTaskCompletionContract(undefined, record.objective), roles),
+      input.subtaskGraph?.length ? input.subtaskGraph : buildCleanSubtasksV3(record.objective, record.contract ?? normalizeTaskCompletionContract(undefined, record.objective), roles),
       roles,
       record.contract ?? normalizeTaskCompletionContract(undefined, record.objective),
       now,
@@ -922,6 +922,168 @@ export class AgentWorkflowService {
   }
 }
 
+export function buildCleanWorkflowPlanV3(
+  roles: AgentRoleSpec[] | undefined,
+  objective: string,
+  contract: NormalizedTaskCompletionContract,
+): WorkflowRolePlan {
+  const explicitRoles = roles?.length
+    ? roles.map((role) => roleState({
+      role: safeRoleName(role.role ?? role.name ?? "agent"),
+      responsibility: role.responsibility.trim(),
+      contextScope: role.contextScope ?? "只读取任务契约、当前项目摘要、分配给自己的子任务、必要上游摘要、工具结果摘要和自己的 checkpoint。",
+      allowedTools: unique([...(role.allowedTools ?? []), ...(role.tools ?? [])]),
+      preloadedSkills: unique([...(role.preloadedSkills ?? []), ...(role.skills ?? [])]),
+      assignedTasks: unique(role.assignedTasks?.length ? role.assignedTasks : [role.responsibility]),
+      acceptance: unique([...(role.acceptance ?? []), ...(role.acceptanceCriteria ?? [])]),
+      requiredOutputs: unique(role.requiredOutputs ?? []),
+      riskChecks: unique(role.riskChecks ?? []),
+      handoffFormat: role.handoffFormat ?? "中文摘要；改动路径；产物/URL/命令；验证 evidence；阻塞与下一步。",
+      checkpoint: role.checkpoint ?? "",
+    }))
+    : [];
+  const planner = roleState({
+    role: "Planner",
+    responsibility: `为任务生成可审查计划、动态角色、子任务图、验收顺序和确认交接：${objective}`,
+    contextScope: "读取目标、任务契约、项目结构、用户约束和 runtime state；只持久化计划、角色、子任务与风险摘要。",
+    allowedTools: ["TodoWrite", "read_file", "list_files", "grep_files", "search_skills", "send_agent_message", "agent_status"],
+    preloadedSkills: ["workflow-planning", ...skillsForContract(contract)],
+    assignedTasks: ["执行前生成可确认的 plan gate payload。"],
+    acceptance: ["计划必须包含任务定制动态角色、角色本地 skill、子任务、依赖、evidence 要求和验收 gate。"],
+    requiredOutputs: ["rolePlan", "subtaskGraph", "generatedSkills", "verificationPlan"],
+    riskChecks: ["中间角色必须来自任务需求，不使用固定模板凑数。", "每个角色只读取自己的上下文、工具摘要和必要上游摘要。"],
+    handoffFormat: "用中文返回角色、子任务交接、验收标准和 evidence 要求。",
+  });
+  const middleRoles = explicitRoles.filter((role) => !isPlannerRole(role.role) && !isAcceptanceRole(role.role));
+  const dynamicRoles = ensureRequiredArtifactRoleStates(
+    middleRoles.length ? middleRoles : cleanExecutionRolesV2(objective, contract),
+    contract,
+    objective,
+  );
+  const reviewer = roleState({
+    role: "AcceptanceReviewer",
+    responsibility: "按任务契约、子任务 evidence、真实产物、verification hints 和用户约束验收每个子任务与最终结果。",
+    contextScope: "读取 contract、子任务 evidence、角色 checkpoint、验证摘要和产物；除非定位失败，不读取其他角色完整 transcript。",
+    allowedTools: ["read_file", "list_files", "glob_files", "grep_files", "validate_artifact", "verify_task", "verify_project", "launch_project", "browser_screenshot", "agent_status", "finish_agent_workflow"],
+    preloadedSkills: ["acceptance-review", "artifact-review", "runtime-verification", ...skillsForContract(contract)],
+    assignedTasks: ["验收 needs_review 子任务，并且只在真实 evidence 存在后结束 workflow。"],
+    acceptance: contract.acceptanceCriteria.length ? contract.acceptanceCriteria : [
+      "必需产物或行为真实存在。",
+      "验收使用真实文件、命令、启动、截图、validator 或明确 blocker。",
+      "已知限制必须如实报告。",
+    ],
+    requiredOutputs: ["acceptanceDecision", "remainingIssues", "artifactEvidence"],
+    riskChecks: ["不得只凭文字说明标记完成。", "产物缺失、打不开、按钮无响应或预览失败时必须拒绝验收。"],
+    handoffFormat: "逐项说明通过/拒绝、使用的 evidence，以及拒绝后的修复步骤。",
+  });
+  return {
+    source: middleRoles.length ? "user" : "heuristic",
+    plannerNotes: middleRoles.length
+      ? "用户提供了中间角色；系统只补齐 Planner 和 AcceptanceReviewer。"
+      : "本地兜底根据任务契约生成中文动态角色；模型可通过 start_agent_workflow 参数替换这份计划。",
+    roles: [planner, ...dynamicRoles, reviewer],
+  };
+}
+
+export function buildCleanSubtasksV3(
+  objective: string,
+  contract: NormalizedTaskCompletionContract,
+  roles: AgentRoleState[],
+): WorkflowSubtaskState[] {
+  const now = Date.now();
+  const executionRoles = roles.filter((role) => !isPlannerRole(role.role) && !isAcceptanceRole(role.role));
+  return executionRoles.map((role, index) => {
+    const id = `subtask_${index + 1}`;
+    const dependsOn = fallbackSubtaskDependenciesV3(role, index);
+    return {
+      id,
+      title: role.assignedTasks[0] || `${role.role} 子任务`,
+      description: role.responsibility || objective,
+      assigneeRole: role.role,
+      dependencies: dependsOn,
+      status: "queued",
+      acceptanceCriteria: role.acceptance.length ? role.acceptance : contract.acceptanceCriteria,
+      expectedOutputs: role.requiredOutputs.length ? role.requiredOutputs : contract.expectedOutputs.map((output) => `${output.kind}: ${output.description}`),
+      evidence: [],
+      createdBy: "Planner",
+      updatedAtMs: now,
+    };
+  });
+}
+
+function fallbackSubtaskDependenciesV3(role: AgentRoleState, index: number): string[] {
+  if (index === 0) return [];
+  const text = [
+    role.role,
+    role.responsibility,
+    role.assignedTasks.join(" "),
+    role.requiredOutputs.join(" "),
+  ].join(" ");
+  return /验收|验证|测试|质检|review|acceptance|verify|test|qa/i.test(text)
+    ? Array.from({ length: index }, (_value, dependencyIndex) => `subtask_${dependencyIndex + 1}`)
+    : [];
+}
+
+function ensureRequiredArtifactRoleStates(
+  roles: AgentRoleState[],
+  contract: NormalizedTaskCompletionContract,
+  objective: string,
+): AgentRoleState[] {
+  let next = [...roles];
+  const limit = roleLimitForContract(contract, objective);
+  const ensure = (needed: boolean, predicate: (role: AgentRoleState) => boolean, fallback: () => AgentRoleState) => {
+    if (!needed || next.some(predicate)) return;
+    const role = fallback();
+    if (next.length < limit) {
+      next.push(role);
+      return;
+    }
+    let replaceIndex = Math.max(0, next.length - 1);
+    for (let index = next.length - 1; index >= 0; index -= 1) {
+      if (!/玩法|关卡|界面|交互|动效|gsap|motion/i.test(`${next[index]!.role} ${next[index]!.preloadedSkills.join(" ")}`)) {
+        replaceIndex = index;
+        break;
+      }
+    }
+    next = next.map((candidate, index) => index === replaceIndex ? role : candidate);
+  };
+  const contractText = [
+    objective,
+    ...contract.expectedOutputs.map((output) => `${output.kind} ${output.description}`),
+    ...contract.acceptanceCriteria,
+    ...contract.verificationHints,
+  ].join("\n");
+  ensure(
+    contract.expectedOutputs.some((output) => output.kind === "pdf") || /\bpdf\b/i.test(contractText),
+    (role) => role.preloadedSkills.includes("pdf") || role.allowedTools.includes("create_pdf") || /pdf/i.test(role.role),
+    () => roleState({
+      role: "PDF\u4ea7\u7269\u5de5\u7a0b\u5e08",
+      responsibility: `\u751f\u6210\u548c\u6821\u9a8c\u771f\u5b9e PDF\uff0c\u8bb0\u5f55\u9875\u6570\u3001\u6587\u672c\u548c\u9884\u89c8 evidence\uff1a${objective}`,
+      contextScope: "\u53ea\u8bfb\u53d6 PDF \u5b50\u4efb\u52a1\u3001\u6587\u6863\u7d20\u6750\u3001\u683c\u5f0f\u8981\u6c42\u3001\u5de5\u5177\u6458\u8981\u548c\u81ea\u5df1\u7684 checkpoint\u3002",
+      allowedTools: ["read_file", "write_file", "append_file", "create_pdf", "validate_artifact", "verify_task"],
+      preloadedSkills: ["pdf", "documents", "artifact-review"],
+      assignedTasks: ["\u751f\u6210\u6216\u4fee\u590d PDF \u4ea7\u7269\u5e76\u8bb0\u5f55\u771f\u5b9e\u9a8c\u8bc1 evidence"],
+      requiredOutputs: ["PDF \u6587\u4ef6", "PDF \u9a8c\u8bc1 evidence"],
+      riskChecks: ["\u7528\u6237\u8981 PDF \u65f6\u4e0d\u5f97\u7528 DOCX/Markdown \u5192\u5145\u5b8c\u6210\u3002"],
+      handoffFormat: "\u4ea4\u4ed8 PDF \u8def\u5f84\u3001\u9875\u6570/\u6587\u672c/\u9884\u89c8 evidence \u548c\u672a\u89e3\u95ee\u9898\u3002",
+    }),
+  );
+  ensure(
+    contract.expectedOutputs.some((output) => output.kind === "mcp") || /\bmcp\b|model context protocol/i.test(contractText),
+    (role) => role.preloadedSkills.includes("mcp") || role.allowedTools.includes("mcp_call"),
+    () => roleState({
+      role: "MCP\u534f\u8bae\u5de5\u7a0b\u5e08",
+      responsibility: `\u5b9e\u73b0 MCP discover/call/mock \u548c\u534f\u8bae\u5931\u8d25 evidence\uff1a${objective}`,
+      allowedTools: ["read_file", "write_file", "append_file", "mcp_call", "validate_artifact"],
+      preloadedSkills: ["mcp", "integration-testing"],
+      assignedTasks: ["\u9a8c\u8bc1 MCP discover/call \u6d41\u7a0b"],
+      requiredOutputs: ["MCP discover/call evidence"],
+      riskChecks: ["\u6ca1\u6709\u771f\u5b9e\u51ed\u636e\u65f6\u4f7f\u7528 mock \u5e76\u6807\u6ce8\u3002"],
+    }),
+  );
+  return next;
+}
+
 function buildCleanWorkflowPlan(
   roles: AgentRoleSpec[] | undefined,
   objective: string,
@@ -1116,8 +1278,7 @@ function heuristicExecutionRolesV2(objective: string, contract: NormalizedTaskCo
 }
 
 function cleanExecutionRolesV2(objective: string, contract: NormalizedTaskCompletionContract): AgentRoleState[] {
-  return cleanRoleSpecsV2(objective, contract)
-    .slice(0, roleLimitForContract(contract, objective))
+  return selectRoleSpecsForContract(cleanRoleSpecsV2(objective, contract), contract, objective)
     .map((spec) => roleState({
       role: spec.role,
       responsibility: spec.responsibility,
@@ -1133,6 +1294,193 @@ function cleanExecutionRolesV2(objective: string, contract: NormalizedTaskComple
       riskChecks: unique(spec.risks),
       handoffFormat: "\u4e2d\u6587\u6458\u8981\uff1b\u6539\u52a8\u8def\u5f84\uff1b\u4ea7\u7269/URL/\u547d\u4ee4\uff1b\u9a8c\u8bc1 evidence\uff1b\u963b\u585e\u4e0e\u5efa\u8bae\u3002",
     }));
+}
+
+function selectRoleSpecsForContract(
+  specs: Array<{
+    role: string;
+    responsibility: string;
+    tools: string[];
+    skills: string[];
+    outputs: string[];
+    risks: string[];
+  }>,
+  contract: NormalizedTaskCompletionContract,
+  objective: string,
+): Array<{
+  role: string;
+  responsibility: string;
+  tools: string[];
+  skills: string[];
+  outputs: string[];
+  risks: string[];
+}> {
+  const limit = roleLimitForContract(contract, objective);
+  const text = [
+    objective,
+    ...contract.expectedOutputs.map((output) => `${output.kind} ${output.description}`),
+    ...contract.acceptanceCriteria,
+    ...contract.verificationHints,
+  ].join("\n").toLowerCase();
+  const candidates = ensureRequiredArtifactRoleSpecs(specs, contract, objective);
+  const selected: typeof specs = [];
+  const addFirst = (pattern: RegExp) => {
+    if (selected.length >= limit) return;
+    const match = candidates.find((spec) => !selected.includes(spec) && pattern.test(roleSpecSearchText(spec)));
+    if (match) selected.push(match);
+  };
+
+  if (/游戏|小游戏|关卡|战机|game|level|enemy|bullet|score/.test(text)) addFirst(/玩法|关卡|game|level|score/i);
+  if (/网站|网页|前端|页面|商城|web|website|frontend|browser|page|shop|ecommerce/.test(text)) addFirst(/界面|交互|前端|web|ui|browser/i);
+  if (/动效|动画|gsap|motion|animate|animation|过渡|特效/.test(text)) addFirst(/动效|动画|gsap|motion|animation/i);
+  if (contract.expectedOutputs.some((output) => output.kind === "pdf") || /\bpdf\b/.test(text)) addFirst(/pdf|PDF|文档产物/i);
+  if (/后端|接口|api|服务端|server|backend/.test(text)) addFirst(/后端|接口|api|server|backend/i);
+  if (/数据库|数据|schema|seed|csv|json|db|sqlite|data/.test(text)) addFirst(/数据|schema|seed|database|data/i);
+  if (contract.expectedOutputs.some((output) => output.kind === "mcp") || /mcp|model context protocol/.test(text)) addFirst(/mcp|协议/i);
+  if (contract.expectedOutputs.some((output) => ["docx", "pptx", "xlsx", "markdown"].includes(output.kind))) addFirst(/文档|演示|表格|office|docx|pptx|xlsx|markdown/i);
+
+  for (const spec of candidates) {
+    if (selected.length >= limit) break;
+    if (!selected.includes(spec) && !/验收|验证|测试|质检|review|acceptance|verify|test|qa/i.test(roleSpecSearchText(spec))) {
+      selected.push(spec);
+    }
+  }
+  for (const spec of candidates) {
+    if (selected.length >= limit) break;
+    if (!selected.includes(spec)) selected.push(spec);
+  }
+  return enforceRequiredArtifactSelection(selected, candidates, contract, objective, limit);
+}
+
+function enforceRequiredArtifactSelection(
+  selected: Array<{
+    role: string;
+    responsibility: string;
+    tools: string[];
+    skills: string[];
+    outputs: string[];
+    risks: string[];
+  }>,
+  candidates: Array<{
+    role: string;
+    responsibility: string;
+    tools: string[];
+    skills: string[];
+    outputs: string[];
+    risks: string[];
+  }>,
+  contract: NormalizedTaskCompletionContract,
+  objective: string,
+  limit: number,
+): typeof selected {
+  let next = [...selected];
+  const ensure = (needed: boolean, predicate: (spec: typeof selected[number]) => boolean) => {
+    if (!needed || next.some(predicate)) return;
+    const match = candidates.find(predicate) ?? ensureRequiredArtifactRoleSpecs([], contract, objective).find(predicate);
+    if (!match) return;
+    if (next.length < limit) {
+      next.push(match);
+      return;
+    }
+    let replaceIndex = 0;
+    for (let index = next.length - 1; index >= 0; index -= 1) {
+      if (!/玩法|关卡|界面|交互|动效|gsap|motion/i.test(roleSpecSearchText(next[index]!))) {
+        replaceIndex = index;
+        break;
+      }
+    }
+    next = next.map((spec, index) => index === replaceIndex ? match : spec);
+  };
+  const contractText = [
+    objective,
+    ...contract.expectedOutputs.map((output) => `${output.kind} ${output.description}`),
+    ...contract.acceptanceCriteria,
+    ...contract.verificationHints,
+  ].join("\n");
+  ensure(contract.expectedOutputs.some((output) => output.kind === "pdf") || /\bpdf\b/i.test(contractText), isPdfRoleSpec);
+  ensure(contract.expectedOutputs.some((output) => output.kind === "mcp") || /\bmcp\b|model context protocol/i.test(contractText), isMcpRoleSpec);
+  ensure(contract.expectedOutputs.some((output) => ["docx", "pptx", "xlsx"].includes(output.kind)) || /\b(docx|pptx|xlsx)\b/i.test(contractText), isOfficeRoleSpec);
+  return next;
+}
+
+function isPdfRoleSpec(spec: {
+  tools: string[];
+  skills: string[];
+  outputs: string[];
+  role: string;
+  responsibility: string;
+}): boolean {
+  return spec.skills.some((skill) => skill.toLowerCase() === "pdf")
+    || spec.tools.includes("create_pdf")
+    || /pdf/i.test([spec.role, spec.responsibility, spec.outputs.join(" ")].join(" "));
+}
+
+function isMcpRoleSpec(spec: { tools: string[]; skills: string[]; role: string; responsibility: string }): boolean {
+  return spec.skills.some((skill) => skill.toLowerCase() === "mcp")
+    || spec.tools.includes("mcp_call")
+    || /mcp|model context protocol/i.test(`${spec.role} ${spec.responsibility}`);
+}
+
+function isOfficeRoleSpec(spec: { tools: string[]; skills: string[]; role: string; responsibility: string }): boolean {
+  return spec.tools.some((tool) => ["create_docx", "create_pptx", "create_xlsx"].includes(tool))
+    || spec.skills.some((skill) => ["documents", "presentations", "spreadsheets"].includes(skill.toLowerCase()))
+    || /docx|pptx|xlsx|office|文档|演示|表格/i.test(`${spec.role} ${spec.responsibility}`);
+}
+
+function ensureRequiredArtifactRoleSpecs(
+  specs: Array<{
+    role: string;
+    responsibility: string;
+    tools: string[];
+    skills: string[];
+    outputs: string[];
+    risks: string[];
+  }>,
+  contract: NormalizedTaskCompletionContract,
+  objective: string,
+): typeof specs {
+  const next = [...specs];
+  const hasCapability = (pattern: RegExp) => next.some((spec) => pattern.test(roleSpecSearchText(spec)));
+  if (contract.expectedOutputs.some((output) => output.kind === "pdf") && !hasCapability(/\bpdf\b|create_pdf/i)) {
+    next.push({
+      role: "PDF\u4ea7\u7269\u5de5\u7a0b\u5e08",
+      responsibility: `\u751f\u6210\u548c\u6821\u9a8c\u771f\u5b9e PDF\uff0c\u8bb0\u5f55\u9875\u6570\u3001\u6587\u672c\u548c\u9884\u89c8 evidence\uff1a${objective}`,
+      tools: ["read_file", "write_file", "append_file", "create_pdf", "validate_artifact", "verify_task"],
+      skills: ["pdf", "documents", "artifact-review"],
+      outputs: ["PDF \u6587\u4ef6", "PDF \u9a8c\u8bc1 evidence"],
+      risks: ["\u7528\u6237\u8981 PDF \u65f6\u4e0d\u5f97\u7528 DOCX/Markdown \u5192\u5145\u5b8c\u6210\u3002"],
+    });
+  }
+  if (contract.expectedOutputs.some((output) => output.kind === "mcp") && !hasCapability(/\bmcp\b|mcp_call/i)) {
+    next.push({
+      role: "MCP\u534f\u8bae\u5de5\u7a0b\u5e08",
+      responsibility: `\u5b9e\u73b0 MCP discover/call/mock \u548c\u534f\u8bae\u5931\u8d25 evidence\uff1a${objective}`,
+      tools: ["read_file", "write_file", "append_file", "mcp_call", "validate_artifact"],
+      skills: ["mcp", "integration-testing"],
+      outputs: ["MCP discover/call evidence"],
+      risks: ["\u6ca1\u6709\u771f\u5b9e\u51ed\u636e\u65f6\u4f7f\u7528 mock \u5e76\u6807\u6ce8\u3002"],
+    });
+  }
+  if (contract.expectedOutputs.some((output) => ["docx", "pptx", "xlsx"].includes(output.kind)) && !hasCapability(/create_docx|create_pptx|create_xlsx|documents|presentations|spreadsheets/i)) {
+    next.push({
+      role: "\u6587\u6863\u4ea7\u7269\u5de5\u7a0b\u5e08",
+      responsibility: `\u751f\u6210\u548c\u9a8c\u8bc1 Office \u4ea7\u7269\uff1a${objective}`,
+      tools: ["read_file", "write_file", "append_file", "create_docx", "create_pptx", "create_xlsx", "validate_artifact"],
+      skills: ["documents", "presentations", "spreadsheets", "artifact-review"],
+      outputs: ["Office \u4ea7\u7269", "\u683c\u5f0f\u9a8c\u8bc1 evidence"],
+      risks: ["\u6587\u4ef6\u5fc5\u987b\u771f\u5b9e\u5b58\u5728\u4e14\u53ef\u6253\u5f00\u3002"],
+    });
+  }
+  return next;
+}
+
+function roleSpecSearchText(spec: {
+  role: string;
+  responsibility: string;
+  skills: string[];
+  outputs: string[];
+}): string {
+  return [spec.role, spec.responsibility, spec.skills.join(" "), spec.outputs.join(" ")].join(" ");
 }
 
 function cleanRoleSpecsV2(objective: string, contract: NormalizedTaskCompletionContract): Array<{
@@ -1478,7 +1826,7 @@ function ensurePlannerAndAcceptanceReviewer(
 ): AgentRoleState[] {
   const normalizedRoles = roles.map((role) => migrateRole(role));
   const middleRoles = normalizedRoles.filter((role) => !isPlannerRole(role.role) && !isAcceptanceRole(role.role));
-  const fallback = buildCleanWorkflowPlan([], objective, contract).roles;
+  const fallback = buildCleanWorkflowPlanV3([], objective, contract).roles;
   const planner = normalizedRoles.find((role) => isPlannerRole(role.role)) ?? fallback.find((role) => isPlannerRole(role.role))!;
   const reviewer = normalizedRoles.find((role) => isAcceptanceRole(role.role)) ?? fallback.find((role) => isAcceptanceRole(role.role))!;
   return [planner, ...(middleRoles.length ? middleRoles : cleanExecutionRolesV2(objective, contract)), { ...reviewer, role: "AcceptanceReviewer", name: "AcceptanceReviewer" }];
@@ -2135,11 +2483,11 @@ function roleLimitForContract(contract: NormalizedTaskCompletionContract, object
   const text = `${objective}\n${contract.expectedOutputs.map((output) => output.description).join("\n")}`.toLowerCase();
   if (/游戏|小游戏|网站|商城|前后端|后端|数据库|api|动效|动画|全栈|game|website|full.?stack|backend|database|animation/.test(text)) {
     if (required <= 1) return 4;
-    if (required <= 3) return 5;
+    return 5;
   }
   if (required <= 1) return 2;
   if (required <= 3) return 4;
-  return 7;
+  return 5;
 }
 
 function contractFromSingleOutput(kind: string, description: string): NormalizedTaskCompletionContract {
