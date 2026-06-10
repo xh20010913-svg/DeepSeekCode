@@ -1,6 +1,7 @@
 import type { Command } from "../types/command.js";
 import type { CommandContext } from "../types/command.js";
 import { addDirCommand } from "./builtin/addDir.js";
+import { agentCommand } from "./builtin/agent.js";
 import { agentsCommand } from "./builtin/agents.js";
 import { askCommand } from "./builtin/ask.js";
 import { attachCommand } from "./builtin/attach.js";
@@ -16,6 +17,7 @@ import { compactCommand } from "./builtin/compact.js";
 import { configCommand } from "./builtin/config.js";
 import { contextCommand } from "./builtin/context.js";
 import { costCommand } from "./builtin/cost.js";
+import { dashboardCommand } from "./builtin/dashboard.js";
 import { diagCommand } from "./builtin/diag.js";
 import { diffCommand } from "./builtin/diff.js";
 import { doctorCommand } from "./builtin/doctor.js";
@@ -23,6 +25,7 @@ import { effortCommand } from "./builtin/effort.js";
 import { eventsCommand } from "./builtin/events.js";
 import { exportCommand } from "./builtin/export.js";
 import { filesCommand } from "./builtin/files.js";
+import { gitCommand } from "./builtin/git.js";
 import { createHelpCommand } from "./builtin/help.js";
 import { hooksCommand } from "./builtin/hooks.js";
 import { initCommand } from "./builtin/init.js";
@@ -119,6 +122,7 @@ export function buildCommandCatalog(context?: CommandContext): Command[] {
     shellCommand,
     sshCommand,
     browserCommand,
+    agentCommand,
     agentsCommand,
     hooksCommand,
     skillsCommand,
@@ -127,6 +131,8 @@ export function buildCommandCatalog(context?: CommandContext): Command[] {
     memoryCommand,
     mcpCommand,
     cacheCommand,
+    dashboardCommand,
+    gitCommand,
     costCommand,
     usageCommand,
     statsCommand,

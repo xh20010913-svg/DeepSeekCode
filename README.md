@@ -28,11 +28,11 @@
 </p>
 
 > [!IMPORTANT]
-> v0.3.3 is a local-first stability release: real PDF generation/validation, project process management, Windows terminal recovery, plan-gated dynamic multi-agent workflows, Pixel Agents visualization, WeChat remote viewing, workflow-local skills, generic verification, and cache reporting are designed for local acceptance before npm publish.
+> v0.3.4 is a local-first runtime hardening release: Agent Kernel lifecycle events, prompt-budget records, structured evidence, stronger multi-agent quality gates, a rebuilt Pixel operations room, cache trends, validation explainability, local git diagnostics, real PDF validation, project process management, and Windows terminal recovery are designed for local acceptance before npm publish.
 
 DeepSeekCode is a DeepSeek-first local agent runtime for real project workspaces. It connects native function calling, local files, shell/browser permissions, project state, skills, plugins, MCP, WeChat remote control, multi-agent workflows, and task verification.
 
-v0.3.3 focuses on a generic execution loop: create a task contract, execute with tools, verify real outputs, feed failures back to the model, and retry with a better strategy. HTML is only one artifact type. The same `verify_task` entry point also covers code projects, CLI scripts, real PDF files, Office files, spreadsheets, reports, data tasks, media artifacts, MCP, plugins, and automation jobs.
+v0.3.4 focuses on the generic Agent Kernel loop: normalize intent into a task contract, budget every provider call, execute with tools, store structured evidence, verify real outputs, feed failures back to the model, and retry with a better strategy. HTML is only one artifact type. The same `verify_task` entry point also covers code projects, CLI scripts, real PDF files, Office files, spreadsheets, reports, data tasks, media artifacts, MCP, plugins, and automation jobs.
 
 ## Install
 
@@ -127,6 +127,8 @@ When a multi-agent workflow starts, DeepSeekCode serves the bundled Pixel Agents
 
 DeepSeekCode emits runtime snapshots, SSE/WebSocket updates, and Pixel-style JSONL. Pixel Agents is the presentation layer; DeepSeekCode no longer maintains a separate hand-written multi-agent dashboard UI. Labels are short by default; long prompts, stack traces, checkpoints, and role transcripts live in the snapshot/diagnostics payload.
 
+The Pixel overlay is now a full-screen operations room fed only by the run snapshot: left side is the task board, workstations, dispatch area, lounge, evidence corner, and live role movement; right side is the task console with roles, DAG tasks, evidence, spans, cache/budget trend, and details. On phones and WeChat it switches to a summary-first layout with a bottom detail drawer instead of squeezing the office scene.
+
 Backup commands:
 
 ```text
@@ -163,7 +165,12 @@ Remote messages share the same project runtime and permission gates. WeChat rece
 | `/status`, `/status full` | Task progress |
 | `/compact` | Build a five-part session capsule for long-context recovery |
 | `/cache report` | Cache hit/miss and prompt-shape diagnostics |
+| `/cache trend` | Recent cache hit rate, stable-prefix drift, dynamic block size, and pin suggestions |
 | `/memory doctor` | TencentDB memory recall/capture diagnostics |
+| `/agent doctor` | Agent Kernel, workflow, evidence, budget, and process diagnostics |
+| `/verify explain` | Explain validation gates and evidence for the latest or selected run |
+| `/dashboard reset` | Restart the Pixel panel server when a browser view is stale |
+| `/git doctor` | Inspect local git branch, origin, status, and proxy settings |
 | `/project processes` | List services started by `launch_project` |
 | `/project stop latest\|<pid>\|all` | Stop launched project services without exiting the TUI |
 | `/terminal reset` | Restore Windows terminal modes if mouse/paste escape sequences leak |
@@ -199,4 +206,4 @@ Real scenario tests should be run in `D:\code\DeepSeekTest`. Do not publish `.en
 
 ## References
 
-DeepSeek Function Calling, DeepSeek Context Caching, Claude Code subagents/skills/hooks/MCP, MCP TypeScript SDK, Playwright screenshots, Pixel Agents, and browser-use informed the v0.3.3 direction.
+DeepSeek Function Calling, DeepSeek Context Caching, Claude Code subagents/skills/hooks/MCP, MCP TypeScript SDK, Playwright screenshots, Pixel Agents, and browser-use informed the v0.3.4 direction.

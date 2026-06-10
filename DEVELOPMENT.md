@@ -1,6 +1,6 @@
 ﻿# DeepSeekCode Development Guide
 
-Version: `v0.3.3`
+Version: `v0.3.4`
 
 This guide is for contributors and future maintenance work. The main rule is simple: DeepSeekCode is a generic local agent runtime. Do not turn it into a pile of task-specific keyword branches.
 
@@ -142,6 +142,7 @@ The multi-agent panel is an observer, not a control plane. DeepSeekCode now serv
 
 - `src/services/agents/agentDashboardModel.ts`: converts durable state, workflow roles, tasks, events, usage, and artifacts into `AgentDashboardSnapshot`.
 - `src/services/agents/agentDashboardServer.ts`: starts a per-project local HTTP server, serves Pixel Agents assets, snapshot JSON, websocket/SSE updates, and `agent-trace.jsonl`.
+- `src/services/agents/agentDashboardOverlay.ts`: owns the single desktop/mobile overlay template. Do not add another inline overlay string to `agentDashboardServer.ts`; this prevents older layout variants from taking over again.
 - `QueryEngine.openAgentDashboard`: opens the Agent Panel for a new multi-agent run; continue, repair, and refine messages reuse the existing run page.
 - remote channel callbacks: WeChat/WeCom receive a share link when a public base URL is configured; `/agents dashboard tunnel` starts a Cloudflare Quick Tunnel only when explicitly requested.
 
@@ -193,7 +194,7 @@ Prompt blocks should stay stable in this order:
 6. recent turns
 7. compact tool results
 
-When a change is needed, prefer updating dynamic summaries instead of rewriting stable prefix text. `/cache report` should explain low hit rates by stable/dynamic token split and recent churn. `/memory doctor` should show whether TencentDB memory was recalled, how much text entered the prompt, latency, score cutoffs, and skipped-recall reasons.
+When a change is needed, prefer updating dynamic summaries instead of rewriting stable prefix text. `/cache report` should explain low hit rates by stable/dynamic token split and recent churn. `/cache trend` should show recent hit rate, stable-prefix drift, dynamic block size, and pin suggestions. `/memory doctor` should show whether TencentDB memory was recalled, how much text entered the prompt, latency, score cutoffs, and skipped-recall reasons.
 
 ## Local Test Rules
 
@@ -217,6 +218,7 @@ Targeted checks:
 - MCP mock server discovery and call.
 - remote delivery plan for HTML, real PDF, Office, Markdown, and multi-file projects.
 - `/project processes`, `/project stop latest`, and `/terminal reset` on Windows.
+- `/agent doctor`, `/verify explain`, `/cache trend`, `/dashboard reset`, and `/git doctor`.
 - multi-agent workflow status and Reviewer completion.
 
 ## Release Rules

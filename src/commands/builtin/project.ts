@@ -10,7 +10,10 @@ export const projectCommand: Command = {
   execute(args, context) {
     const trimmed = args.trim();
     if (trimmed === "processes") {
-      const records = context.state.listProjectProcesses({ projectPath: context.config.projectPath, includeStale: true });
+      const records = context.state.listProjectProcesses({
+        projectPath: context.config.projectPath,
+        includeStale: true,
+      });
       return {
         message: records.length
           ? records.map((record) => [
@@ -25,10 +28,18 @@ export const projectCommand: Command = {
     }
     if (trimmed === "stop" || trimmed.startsWith("stop ")) {
       const target = trimmed.startsWith("stop ") ? trimmed.slice("stop ".length).trim() : "latest";
-      const records = context.state.listProjectProcesses({ projectPath: context.config.projectPath, includeStale: false, limit: 100 });
+      const records = context.state.listProjectProcesses({
+        projectPath: context.config.projectPath,
+        includeStale: false,
+        limit: 100,
+      });
       const selected = target === "all"
         ? records
-        : [target === "latest" ? records[0] : records.find((record) => record.id === target || String(record.pid) === target)].filter((record): record is NonNullable<typeof record> => Boolean(record));
+        : [
+          target === "latest"
+            ? records[0]
+            : records.find((record) => record.id === target || String(record.pid) === target),
+        ].filter((record): record is NonNullable<typeof record> => Boolean(record));
       if (!selected.length) return { message: `没有找到可停止的项目进程：${target}` };
       const lines: string[] = [];
       for (const record of selected) {

@@ -133,14 +133,19 @@ Use:
 
 ```text
 /cache report
+/cache trend
 /compact
 /memory doctor
+/agent doctor
+/verify explain
+/dashboard reset
+/git doctor
 /project processes
 /project stop latest
 /terminal reset
 ```
 
-DeepSeekCode keeps stable prompt blocks in a fixed order, summarizes old tool results, and records input/output/cache hit/cache miss/cost. `/compact` creates a five-part session capsule with user goals, completed facts, blockers, key artifacts, next steps, and recent tool summaries. `memory doctor` shows whether TencentDB memory was skipped by the prompt budget governor, recalled, or inserted into the prompt. For long tasks, `/status full` shows phase, recent tool, elapsed time, waiting item, issues, and next step. Long-running app servers are managed separately from the TUI: use `/project processes` and `/project stop latest|<pid>|all` to stop services started by `launch_project`, and `/terminal reset` if Windows Terminal shows mouse/paste escape characters after an abnormal exit.
+DeepSeekCode keeps stable prompt blocks in a fixed order, summarizes old tool results, and records input/output/cache hit/cache miss/cost. `/compact` creates a five-part session capsule with user goals, completed facts, blockers, key artifacts, next steps, and recent tool summaries. `/cache trend` explains recent cache hit rate, stable-prefix drift, dynamic block size, and pin suggestions. `memory doctor` shows whether TencentDB memory was skipped by the prompt budget governor, recalled, or inserted into the prompt. `/agent doctor` checks Kernel/workflow/evidence/budget/process state, and `/verify explain` explains whether validation gates have real evidence or still need repair. For long tasks, `/status full` shows phase, recent tool, elapsed time, waiting item, issues, and next step. Long-running app servers are managed separately from the TUI: use `/project processes` and `/project stop latest|<pid>|all` to stop services started by `launch_project`, and `/terminal reset` if Windows Terminal shows mouse/paste escape characters after an abnormal exit.
 
 ## 9. Testing rules
 

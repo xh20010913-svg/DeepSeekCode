@@ -146,7 +146,23 @@ export interface AgentDashboardEvidence {
   createdAtMs: number;
 }
 
+export interface AgentDashboardSpan {
+  spanId: string;
+  parentSpanId?: string;
+  stage: string;
+  status: string;
+  role?: string;
+  subtaskId?: string;
+  toolCallId?: string;
+  budgetPlanId?: string;
+  evidenceId?: string;
+  summary: string;
+  startedAtMs?: number;
+  finishedAtMs?: number;
+}
+
 export interface AgentDashboardLayoutModel {
+  version: string;
   desktop: "split-ops-room";
   mobile: "summary-drawer";
   zones: Array<{ id: string; label: string; purpose: string }>;
@@ -185,6 +201,8 @@ export interface AgentDashboardSnapshot {
   generatedSkills: GeneratedRoleSkill[];
   readyQueue: AgentDashboardReadyQueueItem[];
   evidence: AgentDashboardEvidence[];
+  evidenceBySubtask: Record<string, AgentDashboardEvidence[]>;
+  spans: AgentDashboardSpan[];
   layoutModel: AgentDashboardLayoutModel;
   completionSummary: AgentDashboardCompletionSummary;
   mobileSummary: AgentDashboardMobileSummary;
@@ -197,6 +215,8 @@ export interface AgentDashboardSnapshot {
   processes: ProjectProcessRecord[];
   cacheSummary: AgentDashboardCacheSummary;
   tokenBudget?: Record<string, unknown>;
+  budgetTrend: Array<Record<string, unknown>>;
+  browserOpenState?: Record<string, unknown>;
   offlineReason?: string;
 }
 
@@ -220,6 +240,9 @@ export function buildAgentDashboardSnapshot(input: {
   const artifacts = associatedRunIds.flatMap((id) => readArtifacts(input.state, id));
   const messages = workflowStatus?.messages ?? [];
   const processRecords = input.state.listProjectProcesses({ projectPath: input.projectPath, includeStale: true, limit: 20 });
+  const evidence = buildEvidence(events);
+  const spans = buildSpans(events);
+  const latestBudgetEvents = events.filter((event) => event.kind === "agent_kernel_budget_plan" || event.kind === "cache_prompt_plan").slice(-5);
   const roles = buildRoles({
     roles: workflowStatus?.record.roles ?? inferRoles(tasks),
     tasks,
@@ -259,7 +282,9 @@ export function buildAgentDashboardSnapshot(input: {
     subtaskGraph: workflowStatus?.record.subtaskGraph ?? [],
     generatedSkills: workflowStatus?.record.generatedSkills ?? [],
     readyQueue: buildReadyQueue(workflowStatus?.record),
-    evidence: buildEvidence(events),
+    evidence,
+    evidenceBySubtask: groupEvidenceBySubtask(evidence),
+    spans,
     layoutModel: buildLayoutModel(roles),
     completionSummary: buildCompletionSummary(workflowStatus?.record.subtaskGraph ?? []),
     mobileSummary: buildMobileSummary({
@@ -280,6 +305,8 @@ export function buildAgentDashboardSnapshot(input: {
     processes: processRecords,
     cacheSummary: buildCacheSummary(usage, latestCachePromptEvent),
     tokenBudget: tokenBudgetFromEvent(latestCachePromptEvent),
+    budgetTrend: latestBudgetEvents.map(budgetTrendFromEvent),
+    browserOpenState: browserOpenState(input.state, input.projectPath, workflowStatus?.record?.runId ?? runId),
   };
 }
 
@@ -582,6 +609,30 @@ function tokenBudgetFromEvent(event?: EventRecord): Record<string, unknown> | un
   };
 }
 
+function budgetTrendFromEvent(event: EventRecord): Record<string, unknown> {
+  const payload = objectPayload(event.payload);
+  return {
+    id: event.id,
+    kind: event.kind,
+    createdAtMs: event.createdAtMs,
+    budgetPlanId: stringValue(payload.budgetPlanId) ?? stringValue(payload.budget_plan_id),
+    stableHash: stringValue(payload.stable_hash),
+    dynamicHash: stringValue(payload.dynamic_hash),
+    dynamicChars: numberValue(payload.dynamic_chars),
+    maxDynamicChars: numberValue(payload.max_dynamic_chars),
+    dynamicShare: numberValue(payload.dynamic_share),
+    droppedChars: numberValue(payload.dropped_chars),
+    shouldCompact: booleanValue(payload.should_compact),
+  };
+}
+
+function browserOpenState(state: StateStore, projectPath: string, runId?: string): Record<string, unknown> | undefined {
+  if (!runId) return undefined;
+  const scope = `agent_dashboard:${path.resolve(projectPath)}`;
+  const value = state.getUiState<Record<string, unknown>>(scope, `auto_opened:${runId}`);
+  return value ? { ...value, runId } : { runId, opened: false };
+}
+
 function buildReadyQueue(workflow?: AgentWorkflowRecord): AgentDashboardReadyQueueItem[] {
   if (!workflow) return [];
   const done = new Set(workflow.subtaskGraph
@@ -623,6 +674,38 @@ function buildEvidence(events: EventRecord[]): AgentDashboardEvidence[] {
     });
 }
 
+function groupEvidenceBySubtask(evidence: AgentDashboardEvidence[]): Record<string, AgentDashboardEvidence[]> {
+  const grouped: Record<string, AgentDashboardEvidence[]> = {};
+  for (const item of evidence) {
+    if (!item.subtaskId) continue;
+    grouped[item.subtaskId] = [...(grouped[item.subtaskId] ?? []), item];
+  }
+  return grouped;
+}
+
+function buildSpans(events: EventRecord[]): AgentDashboardSpan[] {
+  return events
+    .filter((event) => event.kind === "agent_kernel_span")
+    .slice(-80)
+    .map((event) => {
+      const payload = objectPayload(event.payload);
+      return {
+        spanId: stringValue(payload.spanId) ?? `span_${event.id}`,
+        parentSpanId: stringValue(payload.parentSpanId),
+        stage: stringValue(payload.stage) ?? "unknown",
+        status: stringValue(payload.status) ?? "unknown",
+        role: stringValue(payload.role),
+        subtaskId: stringValue(payload.subtaskId),
+        toolCallId: stringValue(payload.toolCallId),
+        budgetPlanId: stringValue(payload.budgetPlanId),
+        evidenceId: stringValue(payload.evidenceId),
+        summary: compact(stringValue(payload.summary) ?? event.kind, 260),
+        startedAtMs: numberValue(payload.startedAtMs) ?? event.createdAtMs,
+        finishedAtMs: numberValue(payload.finishedAtMs),
+      };
+    });
+}
+
 function buildLayoutModel(roles: AgentDashboardRole[]): AgentDashboardLayoutModel {
   const roleLocations: AgentDashboardLayoutModel["roleLocations"] = {};
   for (const role of roles) {
@@ -637,6 +720,7 @@ function buildLayoutModel(roles: AgentDashboardRole[]): AgentDashboardLayoutMode
             : "lounge";
   }
   return {
+    version: "ops-room.v2",
     desktop: "split-ops-room",
     mobile: "summary-drawer",
     zones: [
@@ -949,6 +1033,10 @@ function stringValue(value: unknown): string | undefined {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function normalizePath(value: string): string {

@@ -14,7 +14,7 @@ export interface CachePromptBlock {
 
 export interface CachePromptPlan extends Pick<
   PromptBudgetPlan,
-  "userMessage" | "approxTokens" | "dynamicChars" | "maxDynamicChars" | "droppedChars" | "droppedBlocks" | "stableHash" | "dynamicHash" | "dynamicShare" | "diagnostics"
+  "budgetPlanId" | "userMessage" | "approxTokens" | "dynamicChars" | "maxDynamicChars" | "droppedChars" | "droppedBlocks" | "stableHash" | "dynamicHash" | "dynamicShare" | "diagnostics"
 > {
   userMessage: string;
   approxTokens: number;
@@ -42,6 +42,7 @@ export function buildResonixPromptPlan(
 export function cachePlanSummary(plan: CachePromptPlan): string {
   const truncated = plan.blocks.filter((block) => block.truncated).map((block) => block.title);
   return [
+    `budgetPlanId=${plan.budgetPlanId}`,
     `stableHash=${plan.stableHash ?? "none"}`,
     `dynamicHash=${plan.dynamicHash}`,
     `dynamicTokens~${plan.approxTokens}`,

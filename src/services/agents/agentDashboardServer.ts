@@ -13,6 +13,7 @@ import {
   type AgentDashboardSnapshot,
   type AgentDashboardTimelineEvent,
 } from "./agentDashboardModel.js";
+import { buildAgentDashboardOverlay } from "./agentDashboardOverlay.js";
 import type { StateStore } from "../../state/sqlite.js";
 
 export type AgentDashboardOpenResult = {
@@ -549,7 +550,7 @@ export class AgentPanelServer {
   window.WebSocket = PatchedWebSocket;
 })();
 </script>`;
-    const overlay = pixelDashboardOverlayV5();
+    const overlay = buildAgentDashboardOverlay();
     const html = fs.readFileSync(indexPath, "utf8")
       .replace("<title>webview-ui</title>", "<title>DeepSeekCode Pixel Agents</title>")
       .replace('href="/vite.svg"', 'href="/pixel-assets/banner.png"')

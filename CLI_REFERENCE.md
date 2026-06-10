@@ -42,7 +42,12 @@ The npm package only installs `deepseekcode`.
 | `/ask <question>` | Read-only side question while a task is running. |
 | `/compact [session-id] [keep-tail]` | Build a five-part local session capsule preview for long-context recovery. |
 | `/cache report` | Cache hit/miss, stable prefix, dynamic context, and suggestions. |
+| `/cache trend` | Recent cache hit rate, stable-prefix drift, dynamic block size, and suggested pins. |
 | `/memory doctor` | TencentDB memory backend, recall/capture, inserted chars, latency, and failure diagnostics. |
+| `/agent doctor` | Agent Kernel, workflow, evidence, prompt budget, and project process diagnostics. |
+| `/verify explain [run-id\|attached]` | Explain validation gates and evidence for a run. |
+| `/dashboard reset` | Restart the Pixel Agent panel server when a browser view is stale. |
+| `/git doctor` | Inspect local git branch, origin, working tree, and proxy settings. |
 | `/skills` | List installed skills. |
 | `/skills install <source>` | Install a skill from local path, GitHub, Git URL, or `file://`. |
 | `/plugins` | List installed plugins. |

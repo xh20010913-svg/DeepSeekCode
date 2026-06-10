@@ -177,7 +177,20 @@ export class AgentWorkflowService {
     const now = Date.now();
     const id = `workflow_${randomUUID()}`;
     const contract = normalizeTaskCompletionContract(input.contract, input.objective, input.acceptanceCriteria ?? []);
-    const rolePlan = input.rolePlan ?? buildCleanWorkflowPlanV3(input.roles, input.objective, contract);
+    let rolePlan = input.rolePlan ?? buildCleanWorkflowPlanV3(input.roles, input.objective, contract);
+    const planQuality = validateWorkflowPlanQuality(rolePlan, input.objective, contract);
+    if (!planQuality.passed) {
+      const repaired = buildCleanWorkflowPlanV3(undefined, input.objective, contract);
+      rolePlan = {
+        ...repaired,
+        source: "heuristic",
+        plannerNotes: [
+          "原计划未通过质量门，已回退为任务定制中文角色计划。",
+          ...planQuality.issues,
+          repaired.plannerNotes,
+        ].join(" "),
+      };
+    }
     let roles = ensurePlannerAndAcceptanceReviewer(rolePlan.roles, input.objective, contract);
     let generatedSkills = normalizeGeneratedSkills(input.generatedSkills, roles, contract);
     roles = attachGeneratedSkillsToRoles(roles, generatedSkills);
@@ -282,6 +295,7 @@ export class AgentWorkflowService {
       expected_artifacts: record.expectedArtifacts,
       verification_plan: record.verificationPlan,
       risk_and_permission_notes: record.riskAndPermissionNotes,
+      plan_quality: planQuality,
     });
     for (const role of record.roles) {
       this.appendRoleTranscript(record.id, role.role, {
@@ -982,6 +996,76 @@ export function buildCleanWorkflowPlanV3(
       ? "用户提供了中间角色；系统只补齐 Planner 和 AcceptanceReviewer。"
       : "本地兜底根据任务契约生成中文动态角色；模型可通过 start_agent_workflow 参数替换这份计划。",
     roles: [planner, ...dynamicRoles, reviewer],
+  };
+}
+
+export interface WorkflowPlanQualityResult {
+  passed: boolean;
+  issues: string[];
+  warnings: string[];
+}
+
+export function validateWorkflowPlanQuality(
+  plan: WorkflowRolePlan,
+  objective: string,
+  contract: NormalizedTaskCompletionContract,
+): WorkflowPlanQualityResult {
+  const issues: string[] = [];
+  const warnings: string[] = [];
+  const roles = plan.roles.map((role) => migrateRole(role));
+  const executionRoles = roles.filter((role) => !isPlannerRole(role.role) && !isAcceptanceRole(role.role));
+  const taskText = [
+    objective,
+    ...contract.expectedOutputs.map((output) => `${output.kind} ${output.description}`),
+    ...contract.acceptanceCriteria,
+    ...contract.verificationHints,
+  ].join("\n");
+  const complex = isComplexWorkflowTask(taskText, contract);
+
+  if (!roles.some((role) => isPlannerRole(role.role))) issues.push("缺少 Planner 固定规划角色。");
+  if (!roles.some((role) => isAcceptanceRole(role.role))) issues.push("缺少 AcceptanceReviewer 固定验收角色。");
+  if (!executionRoles.length) issues.push("缺少任务执行角色。");
+  if (complex && executionRoles.length < 3) issues.push(`复杂任务至少需要 3 个中间执行角色，当前 ${executionRoles.length} 个。`);
+  if (executionRoles.length > 5) warnings.push(`中间执行角色超过 5 个，可能增加 token 和调度成本：${executionRoles.length}。`);
+
+  const generic = executionRoles
+    .map((role) => role.role)
+    .filter((role) => /^(ImplementationSpecialist|RuntimeImplementationSpecialist|Builder|Worker|Coordinator|Frontend|Backend|Tester)$/i.test(role));
+  if (generic.length) issues.push(`角色名过于泛化：${generic.join(", ")}。`);
+
+  const wantsChinese = /[\u4e00-\u9fff]/.test(taskText);
+  if (wantsChinese) {
+    const nonChinese = executionRoles.map((role) => role.role).filter((role) => !/[\u4e00-\u9fff]/.test(role));
+    if (nonChinese.length) issues.push(`中文任务需要中文角色名：${nonChinese.join(", ")}。`);
+  }
+
+  const missingSkill = executionRoles.filter((role) =>
+    !role.generatedSkillId &&
+    role.preloadedSkills.length === 0 &&
+    role.skills.length === 0
+  ).map((role) => role.role);
+  if (missingSkill.length) issues.push(`角色缺少 workflow-local skill 或预加载 skill：${missingSkill.join(", ")}。`);
+
+  if (contract.expectedOutputs.some((output) => output.kind === "pdf") && !executionRoles.some((role) =>
+    /pdf/i.test(role.role) || role.preloadedSkills.includes("pdf") || role.allowedTools.includes("create_pdf")
+  )) {
+    issues.push("PDF 任务缺少 PDF 产物角色或 create_pdf/pdf skill。");
+  }
+  if (/gsap|动效|动画|animation|motion/i.test(taskText) && !executionRoles.some((role) =>
+    role.preloadedSkills.some((skill) => /^gsap/.test(skill)) || /动效|动画|motion|gsap/i.test(role.role)
+  )) {
+    issues.push("动效任务缺少 GSAP/动效角色或 gsap skill。");
+  }
+  if (/后端|数据库|api|server|backend|data|db|sqlite/i.test(taskText) && complex && !executionRoles.some((role) =>
+    /后端|接口|数据|数据库|api|server|backend|data/i.test(`${role.role} ${role.responsibility}`)
+  )) {
+    issues.push("全栈/数据任务缺少后端、接口或数据角色。");
+  }
+
+  return {
+    passed: issues.length === 0,
+    issues,
+    warnings,
   };
 }
 
@@ -2490,6 +2574,21 @@ function roleLimitForContract(contract: NormalizedTaskCompletionContract, object
   return 5;
 }
 
+function isComplexWorkflowTask(text: string, contract: NormalizedTaskCompletionContract): boolean {
+  const normalized = text.toLowerCase();
+  const requiredOutputs = contract.expectedOutputs.filter((output) => output.required).length;
+  const capabilitySignals = [
+    /网站|网页|前端|浏览器|web|frontend|browser|html|css/.test(normalized),
+    /游戏|小游戏|关卡|game|level|score|collision/.test(normalized),
+    /后端|接口|服务端|api|backend|server/.test(normalized),
+    /数据库|schema|seed|sqlite|data|db|数据/.test(normalized),
+    /动效|动画|gsap|motion|animation/.test(normalized),
+    /\bpdf\b|PDF|文档|报告|document/.test(text),
+    /mcp|plugin|automation|集成|协议/.test(normalized),
+  ].filter(Boolean).length;
+  return requiredOutputs >= 3 || capabilitySignals >= 3 || /全栈|完整|端到端|通用|复杂|full.?stack|end.?to.?end/.test(normalized);
+}
+
 function contractFromSingleOutput(kind: string, description: string): NormalizedTaskCompletionContract {
   return {
     objective: description,
@@ -2575,7 +2674,10 @@ function selectNextSubtask(
     .filter((subtask) => roleMatches(subtask))
     .filter((subtask) => !["succeeded", "skipped", "running"].includes(subtask.status))
     .filter((subtask) => dependenciesSatisfied(record, subtask));
-  const priority: WorkflowSubtaskStatus[] = ["needs_review", "queued", "blocked", "failed"];
+  const hasRepairWork = runnable.some((subtask) => subtask.status === "failed" || subtask.status === "blocked");
+  const priority: WorkflowSubtaskStatus[] = hasRepairWork
+    ? ["failed", "blocked", "needs_review", "queued"]
+    : ["needs_review", "queued", "blocked", "failed"];
   for (const status of priority) {
     const found = runnable.find((subtask) => subtask.status === status);
     if (found) return found;

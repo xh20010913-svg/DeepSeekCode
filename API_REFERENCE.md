@@ -1,6 +1,6 @@
 ﻿# DeepSeekCode API Reference
 
-Version: `v0.3.3`
+Version: `v0.3.4`
 
 This reference covers the public CLI, slash commands, remote commands, tools, and extension surfaces that are stable enough to document.
 
@@ -458,7 +458,7 @@ Workflow tools:
 
 ## `create_pdf`
 
-`create_pdf` creates a real PDF artifact from Markdown and validates the resulting file. Existing `path`, `markdown`, and `markdown_lines` inputs remain compatible. v0.3.3 adds `title`, `author`, `page_size`, `font_path`, and `render_preview`. Chinese text uses `DEEPSEEKCODE_PDF_FONT` when set, then Windows CJK font fallbacks. Explicit PDF requests must not be completed with only DOCX or Markdown.
+`create_pdf` creates a real PDF artifact from Markdown and validates the resulting file. Existing `path`, `markdown`, and `markdown_lines` inputs remain compatible. It supports `title`, `author`, `page_size`, `font_path`, and `render_preview`. Chinese text uses `DEEPSEEKCODE_PDF_FONT` when set, then Windows CJK font fallbacks. Explicit PDF requests must not be completed with only DOCX or Markdown.
 
 ## Project Process Tools
 
@@ -466,6 +466,16 @@ Workflow tools:
 - `list_project_processes`: lists persisted and in-memory services.
 - `stop_project_process`: stops `latest`, a PID/id, or `all` launched services and verifies the port is released when possible.
 - `terminal_reset`: sends the Windows terminal recovery sequence without exiting the TUI.
+
+## Agent Kernel Events
+
+Kernel events are stored in the run event log and surfaced to Pixel/WeChat diagnostics:
+
+- `agent_kernel_span`: lifecycle span with `runId`, `workflowId`, `role`, `subtaskId`, `toolCallId`, `stage`, `status`, and summary.
+- `agent_kernel_budget_plan`: prompt budget record with `budgetPlanId`, stable/dynamic hashes, dynamic chars, dropped blocks, compact pressure, and recommendations.
+- `agent_kernel_evidence`: structured evidence record for files, URLs, screenshots, console output, commands, PDF, Office, MCP, processes, or manual confirmation.
+
+Pixel snapshots include `spans`, `evidenceBySubtask`, `layoutModel.version`, `browserOpenState`, `budgetTrend`, `verificationQueue`, and `offlineReason` so the UI can observe the runtime without inventing state.
 
 ## Remote Delivery Plan
 

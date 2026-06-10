@@ -57,7 +57,7 @@ import { resolveRunId } from "../runSelection.js";
 export const cacheCommand: Command = {
   name: "cache",
   description: "Show DeepSeek cache telemetry.",
-  usage: "[report|guard <goal>|guard policy|guard strict on|off|guard min-hit <percent>|guard reset|guard path|prepare <goal>|preflight <goal>|plan <goal>|profile list|profile audit|profile clean [--apply]|profile forecast <goal>|profile match <goal>|profile auto <goal>|profile save <name> <goal>|profile prepare <name>|profile show <name>|profile remove <name>|profile path [name]|shapes [limit]|shapes clear|doctor [run-id|attached|current]|pin list|pin audit|pin apply [goal]|pin suggest [goal]|pin from <file> [name]|pin add <name> <content>|pin show <name>|pin remove <name>|pin path [name]]",
+  usage: "[report|trend|guard <goal>|guard policy|guard strict on|off|guard min-hit <percent>|guard reset|guard path|prepare <goal>|preflight <goal>|plan <goal>|profile list|profile audit|profile clean [--apply]|profile forecast <goal>|profile match <goal>|profile auto <goal>|profile save <name> <goal>|profile prepare <name>|profile show <name>|profile remove <name>|profile path [name]|shapes [limit]|shapes clear|doctor [run-id|attached|current]|pin list|pin audit|pin apply [goal]|pin suggest [goal]|pin from <file> [name]|pin add <name> <content>|pin show <name>|pin remove <name>|pin path [name]]",
   execute(args, context) {
     const trimmed = args.trim();
     if (trimmed === "report") {
@@ -70,6 +70,9 @@ export const cacheCommand: Command = {
         message: formatCacheReport(readiness),
         display: React.createElement(CacheReadinessPanel, { model: buildCacheReadinessPanelModel(readiness) }),
       };
+    }
+    if (trimmed === "trend") {
+      return { message: formatCacheTrend(context) };
     }
     if (trimmed === "profile" || trimmed.startsWith("profile ")) {
       return handleCacheProfile(trimmed.slice("profile".length).trim(), context);
@@ -526,6 +529,69 @@ function splitCachePinFromArgs(args: string): [string | undefined, string | unde
   if (quoted) return [quoted[1], quoted[2]];
   const [sourcePath, name] = trimmed.split(/\s+/, 2);
   return [sourcePath, name];
+}
+
+function formatCacheTrend(context: CommandContext): string {
+  const runs = context.state.listRuns(5);
+  const events = context.state.listEvents(undefined, 200);
+  const budgetEvents = events.filter((event) => event.kind === "agent_kernel_budget_plan");
+  const cacheEvents = events.filter((event) => event.kind === "cache_prompt_plan");
+  const latestHashes = budgetEvents
+    .map((event) => stringPayloadValue(event.payload, "stable_hash"))
+    .filter((value): value is string => Boolean(value))
+    .slice(0, 8);
+  const uniqueHashes = Array.from(new Set(latestHashes));
+  const dynamicChars = budgetEvents
+    .map((event) => numberPayloadValue(event.payload, "dynamic_chars"))
+    .filter((value): value is number => Number.isFinite(value));
+  const averageDynamicChars = dynamicChars.length
+    ? Math.round(dynamicChars.reduce((sum, value) => sum + value, 0) / dynamicChars.length)
+    : 0;
+  const dropped = budgetEvents
+    .map((event) => numberPayloadValue(event.payload, "dropped_blocks"))
+    .filter((value): value is number => Number.isFinite(value))
+    .reduce((sum, value) => sum + value, 0);
+  const rows = runs.map((run, index) => {
+    const hit = run.cacheHitTokens ?? 0;
+    const miss = run.cacheMissTokens ?? 0;
+    const total = hit + miss;
+    const rate = total > 0 ? `${Math.round((hit / total) * 1000) / 10}%` : "n/a";
+    return `${index + 1}. ${run.status} cache=${rate} hit=${hit} miss=${miss} actions=${run.actionCount} ${run.id}`;
+  });
+  const driftReason = uniqueHashes.length > 1
+    ? `稳定前缀出现 ${uniqueHashes.length} 个 hash，可能有系统前缀、工具 schema、skills 索引或 pin 内容漂移。`
+    : uniqueHashes.length === 1
+      ? "稳定前缀 hash 近期保持一致。"
+      : "暂无 budget hash 事件；下一次模型调用后会记录。";
+  const dynamicAdvice = averageDynamicChars > 12000
+    ? "动态块偏大：建议 compact、减少 memory 召回、只加载命中的 skill 摘要。"
+    : averageDynamicChars > 0
+      ? "动态块在预算内；继续观察 cache miss 和 tool 摘要膨胀。"
+      : "暂无动态块统计。";
+  return [
+    "DeepSeek cache trend",
+    "最近 5 个 run:",
+    ...(rows.length ? rows : ["无 run 记录。"]),
+    "",
+    `stableHash=${uniqueHashes[0] ?? "n/a"} unique_recent=${uniqueHashes.length}`,
+    `budget_events=${budgetEvents.length} cache_plan_events=${cacheEvents.length}`,
+    `avg_dynamic_chars=${averageDynamicChars || "n/a"} dropped_blocks=${dropped}`,
+    `低命中原因: ${driftReason}`,
+    `建议: ${dynamicAdvice}`,
+    averageDynamicChars > 0 ? `预计浪费金额线索: 动态块越大，cache miss 时重复计费越高；先压到 12k chars 以下。` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function numberPayloadValue(payload: unknown, key: string): number | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const value = (payload as Record<string, unknown>)[key];
+  return typeof value === "number" ? value : undefined;
+}
+
+function stringPayloadValue(payload: unknown, key: string): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const value = (payload as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : undefined;
 }
 
 function splitFirstToken(args: string): [string | undefined, string | undefined] {

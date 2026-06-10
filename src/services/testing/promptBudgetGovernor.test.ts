@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildPromptBudgetPlan, formatPromptBudgetPlan } from "../context/promptBudgetGovernor.js";
+import {
+  buildPromptBudgetPlan,
+  formatPromptBudgetPlan,
+  planProviderPrompt,
+  shouldAutoCompactPrompt,
+} from "../context/promptBudgetGovernor.js";
 
 test("prompt budget keeps current request and trims low priority dynamic context", () => {
   const plan = buildPromptBudgetPlan({
@@ -43,4 +48,26 @@ test("prompt budget preserves deterministic block order for cacheable prompts", 
 
   assert.equal(first.userMessage, second.userMessage);
   assert.equal(first.dynamicHash, second.dynamicHash);
+});
+
+test("provider prompt planning records budget identity and compact pressure", () => {
+  const planned = planProviderPrompt({
+    provider: "deepseek",
+    runId: "run_budget_test",
+    callSite: "role_runner",
+    phase: "execution",
+    maxDynamicChars: 100,
+    stablePrefix: "DeepSeekCode stable kernel policy",
+    blocks: [
+      { title: "project_index", priority: "project", body: "p".repeat(120) },
+      { title: "tool_feedback", priority: "feedback", body: "f".repeat(120) },
+      { title: "current_request", priority: "request", body: "finish the task" },
+    ],
+  });
+
+  assert.ok(planned.plan.budgetPlanId.startsWith("budget_"));
+  assert.ok(planned.plan.diagnostics.shouldCompact);
+  assert.equal(planned.messages[0]?.role, "system");
+  assert.equal(planned.messages[1]?.role, "user");
+  assert.equal(shouldAutoCompactPrompt(planned.plan), true);
 });

@@ -107,7 +107,11 @@ deepseekcode --model deepseek-v4-flash
             <pre><code>/status full
 /artifacts
 /cache report
+/cache trend
 /memory doctor
+/agent doctor
+/verify explain
+/git doctor
 /project processes
 /project stop latest
 /terminal reset</code></pre>
@@ -162,7 +166,7 @@ deepseekcode --model deepseek-v4-flash
           <article id="agent-dashboard" class="guide-block reveal">
             <span class="eyebrow">08A</span>
             <h2>多 Agent Pixel 面板</h2>
-            <p>新的多 Agent 工作流启动时会自动打开内置 Pixel Agents 只读面板；继续、修复、再完善会复用同一个 run 页面，不反复弹新窗口。DeepSeekCode 后端提供真实 run snapshot、WebSocket/SSE 更新和 <code>agent-trace.jsonl</code>，Pixel Agents 负责展示目标、阶段、角色职责、任务黑板、进程/缓存状态、产物、阻塞和验收结论。</p>
+            <p>新的多 Agent 工作流启动时会自动打开内置 Pixel Agents 只读面板；继续、修复、再完善会复用同一个 run 页面，不反复弹新窗口。DeepSeekCode 后端提供真实 run snapshot、WebSocket/SSE 更新和 <code>agent-trace.jsonl</code>，Pixel Agents 负责展示目标、阶段、角色职责、任务黑板、角色移动、进程/缓存/预算趋势、span、产物、阻塞和验收结论。</p>
             <pre><code>/agents dashboard
 /agents dashboard share
 /agents dashboard tunnel
@@ -185,7 +189,7 @@ npm.cmd pack --dry-run</code></pre>
     </main>
 
     <footer class="site-footer">
-      <span>DeepSeekCode v0.3.3 Guide</span>
+      <span>DeepSeekCode v0.3.4 Guide</span>
       <span>General agent runtime, not a single-purpose web generator.</span>
     </footer>
 

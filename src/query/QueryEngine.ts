@@ -522,6 +522,7 @@ export class QueryEngine {
         phase: `native_tool_plan_attempt_${attempt + 1}`,
       });
       this.state.appendEvent(runId, "cache_prompt_plan", {
+        budget_plan_id: promptPlan.budgetPlanId,
         attempt: attempt + 1,
         effort: inference.effort,
         approx_tokens: promptPlan.approxTokens,
@@ -534,6 +535,20 @@ export class QueryEngine {
         dropped_blocks: promptPlan.droppedBlocks,
         diagnostics: promptPlan.diagnostics,
         blocks: promptPlan.blocks,
+      });
+      this.kernel.recordBudgetPlan(runId, promptPlan, `native_tool_plan_attempt_${attempt + 1}`);
+      this.kernel.recordSpan({
+        spanId: `span_${runId}_${attempt + 1}_planning`,
+        runId,
+        stage: "plan",
+        status: "started",
+        summary: `native tool planning attempt ${attempt + 1}`,
+        budgetPlanId: promptPlan.budgetPlanId,
+        details: {
+          attempt: attempt + 1,
+          dynamicChars: promptPlan.dynamicChars,
+          droppedChars: promptPlan.droppedChars,
+        },
       });
       onEvent?.({
         type: "status",
@@ -586,6 +601,15 @@ export class QueryEngine {
           usage: planUsage,
           message,
         });
+        this.kernel.recordSpan({
+          spanId: `span_${runId}_${attempt + 1}_planning`,
+          runId,
+          stage: "plan",
+          status: "failed",
+          summary: message,
+          budgetPlanId: promptPlan.budgetPlanId,
+          finishedAtMs: Date.now(),
+        });
         this.state.appendEvent(runId, "native_tool_plan_failed", {
           attempt: attempt + 1,
           message,
@@ -617,6 +641,19 @@ export class QueryEngine {
         model: this.provider!.model,
         duration_ms: Date.now() - planStartedAtMs,
         usage: planUsage,
+      });
+      this.kernel.recordSpan({
+        spanId: `span_${runId}_${attempt + 1}_planning`,
+        runId,
+        stage: "plan",
+        status: "succeeded",
+        summary: `planned ${envelope.actions.length} action(s)`,
+        budgetPlanId: promptPlan.budgetPlanId,
+        finishedAtMs: Date.now(),
+        details: {
+          actionCount: envelope.actions.length,
+          taskKind: envelope.task_kind,
+        },
       });
       this.state.saveCheckpoint(runId, `native_tool_plan_attempt_${attempt + 1}`, envelope);
       this.state.appendEvent(runId, "native_tool_plan_received", {

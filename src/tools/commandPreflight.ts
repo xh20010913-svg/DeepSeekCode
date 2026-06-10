@@ -38,8 +38,7 @@ export function preflightCommand(command: string): CommandPreflightResult {
         "Split chained commands into separate run_command actions, or use a PowerShell-safe guarded form.",
         "Example:",
         "npm.cmd install",
-        "npm.cmd run build",
-        "For long-running services, use launch_project instead of chaining after install/build.",
+        "if ($LASTEXITCODE -eq 0) { npm.cmd run build }",
       ].join("\n"),
     };
   }
@@ -52,11 +51,10 @@ export function preflightCommand(command: string): CommandPreflightResult {
         "Use PowerShell pipeline commands instead:",
         "- Get-Content -Path <file> | Select-String -Pattern <pattern>",
         "- Get-ChildItem -Recurse | Select-String -Pattern <pattern>",
-        "- Measure-Object for counts, Select-Object -First/-Last for head/tail behavior",
       ].join("\n"),
     };
   }
-  if (/;\s*(mkdir\s+-p|rm\s+-rf|cat\b|touch\b|cp\s+-r|grep\b|sed\b|awk\b)/.test(trimmed)) {
+  if (/;\s*(cat|grep|touch|rm\s+-rf|cp\s+-r|mkdir\s+-p)\b/.test(trimmed)) {
     return {
       ok: false,
       category: "windows_shell_incompatible",
@@ -74,12 +72,12 @@ export function preflightCommand(command: string): CommandPreflightResult {
         "- read files with Get-Content -Path <file>",
         "- search with Select-String -Pattern <pattern> -Path <file>",
         "- create files with New-Item -ItemType File -Force -Path <file>",
-        "- remove with Remove-Item -Recurse -Force -LiteralPath <path>",
-        "- copy with Copy-Item -Recurse -Force -Path <src> -Destination <dst>",
+        "- remove directories with Remove-Item -Recurse -Force -LiteralPath <path>",
+        "- copy directories with Copy-Item -Recurse -Force -Path <src> -Destination <dst>",
       ].join("\n"),
     };
   }
-  if (/<<\s*['"]?\w+['"]?/.test(trimmed) || /\b2>\/dev\/null\b/.test(trimmed)) {
+  if (/<<\s*['"]?\w+['"]?|\/dev\/null/.test(trimmed)) {
     return {
       ok: false,
       category: "windows_shell_incompatible",
@@ -91,15 +89,13 @@ export function preflightCommand(command: string): CommandPreflightResult {
 }
 
 export function detectLongRunningCommand(command: string): LongRunningCommandDetection {
-  const normalized = command.trim().replace(/\s+/g, " ").toLowerCase();
-  if (!normalized) return { detected: false };
+  const normalized = command.trim().toLowerCase();
   const patterns: Array<[RegExp, string]> = [
-    [/\bnpm(?:\.cmd)?\s+run\s+(dev|serve|preview)\b/, "npm dev/serve/preview scripts usually keep a local service running."],
-    [/\bnpm(?:\.cmd)?\s+(start)\b/, "npm start often launches a long-running local service."],
-    [/\bnode\s+[\w./\\-]*(server|app|index|main)\.(c?m?js|ts)\b/, "node server-style entry points often keep listening instead of exiting."],
-    [/\b(vite|next\s+dev|next\s+start|react-scripts\s+start|vue-cli-service\s+serve|astro\s+dev|svelte-kit\s+dev)\b/, "frontend and app server commands are long-running dev services."],
-    [/\b(python|py)\s+-m\s+http\.server\b/, "python -m http.server is a long-running static file server."],
-    [/\b(flask\s+run|uvicorn\s+[\w.:_-]+|streamlit\s+run)\b/, "web service commands keep running until stopped."],
+    [/\bnpm(\.cmd)?\s+run\s+(dev|start|serve)\b/, "npm dev/start scripts usually keep a server alive."],
+    [/\b(pnpm|yarn)\s+(dev|start|serve)\b/, "package manager dev/start scripts usually keep a server alive."],
+    [/\b(vite|next|nuxt|astro|webpack-dev-server|parcel|serve)\b/, "frontend dev server commands are long-running."],
+    [/\bnode\s+.*(server|app|index)\.(js|mjs|cjs|ts)\b/, "node server entrypoints are often long-running."],
+    [/\bpython\s+(-m\s+)?(http\.server|uvicorn|flask|django|manage\.py\s+runserver)\b/, "Python server commands are long-running."],
   ];
   for (const [pattern, reason] of patterns) {
     if (pattern.test(normalized)) {
@@ -114,7 +110,8 @@ export function detectLongRunningCommand(command: string): LongRunningCommandDet
 }
 
 export function classifyCommandFailure(output: { stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }): CommandFailureDiagnosis | undefined {
-  const text = `${output.stdout}\n${output.stderr}`.toLowerCase();
+  const raw = `${output.stdout}\n${output.stderr}`;
+  const text = raw.toLowerCase();
   if (output.timedOut) {
     return {
       category: "timeout",
@@ -143,6 +140,29 @@ export function classifyCommandFailure(output: { stdout: string; stderr: string;
       ],
     };
   }
+  if (/rg(\.exe)?/.test(text) && /(access is denied|permission denied|operation not permitted|被拒绝|拒绝访问)/i.test(raw)) {
+    return {
+      category: "search_tool_blocked",
+      reason: "ripgrep was blocked or denied by the local Windows environment.",
+      suggestions: [
+        "Use PowerShell-native search as a fallback: Get-ChildItem -Recurse | Select-String -Pattern <pattern>.",
+        "For file listing, use Get-ChildItem -Recurse -File instead of retrying rg in a loop.",
+        "If this is antivirus or policy related, report the blocked executable path instead of silently failing.",
+      ],
+    };
+  }
+  if (/github\.com|git push|origin head|schannel|could not resolve host|failed to connect|recv failure|connection was reset|unable to access/i.test(raw)) {
+    return {
+      category: "git_network_or_proxy",
+      reason: "Git network access failed or the local proxy was not applied to this repository.",
+      suggestions: [
+        "Use local git with the repository proxy configured:",
+        "git config http.proxy http://127.0.0.1:7897",
+        "git config https.proxy http://127.0.0.1:7897",
+        "Then retry: git push origin HEAD",
+      ],
+    };
+  }
   if (/npm err|eresolve|enoent|econnreset|etimedout|network|socket hang up/.test(text)) {
     return {
       category: "dependency_install_failed",
@@ -153,7 +173,7 @@ export function classifyCommandFailure(output: { stdout: string; stderr: string;
       ],
     };
   }
-  if (/not recognized as|commandnotfoundexception|is not recognized|找不到/.test(text)) {
+  if (/not recognized as|commandnotfoundexception|is not recognized|cannot find path|找不到/.test(text)) {
     return {
       category: "command_not_found",
       reason: "The command is not available in the current Windows environment.",
@@ -173,21 +193,22 @@ export function formatPreflightFailure(command: string, result: CommandPreflight
   ].filter(Boolean).join("\n");
 }
 
-export function formatFailureDiagnosis(diagnosis: CommandFailureDiagnosis | undefined): string {
-  if (!diagnosis) return "";
+export function formatCommandFailureDiagnosis(diagnosis: CommandFailureDiagnosis): string {
   return [
-    `diagnosis=${diagnosis.category}`,
+    `category=${diagnosis.category}`,
     `reason=${diagnosis.reason}`,
     "next_steps:",
     ...diagnosis.suggestions.map((item) => `- ${item}`),
   ].join("\n");
 }
 
+export function formatFailureDiagnosis(diagnosis: CommandFailureDiagnosis | undefined): string {
+  return diagnosis ? formatCommandFailureDiagnosis(diagnosis) : "";
+}
+
 function powershellSuggestion(command: string): string | undefined {
   let match = command.match(/^mkdir\s+-p\s+(.+)$/s);
-  if (match) {
-    return `New-Item -ItemType Directory -Force -Path ${quotePowerShellArgs(match[1] ?? "")}`;
-  }
+  if (match) return `New-Item -ItemType Directory -Force -Path ${quotePowerShellArgs(match[1] ?? "")}`;
   match = command.match(/^cat\s+(.+)$/s);
   if (match) return `Get-Content -Path ${quotePowerShellArgs(match[1] ?? "")}`;
   match = command.match(/^touch\s+(.+)$/s);

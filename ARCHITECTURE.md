@@ -1,6 +1,6 @@
 ﻿# DeepSeekCode Architecture
 
-Version: `v0.3.3`
+Version: `v0.3.4`
 
 DeepSeekCode is a DeepSeek-native local agent runtime. The model is responsible for understanding the user's goal and choosing tools. The runtime is responsible for tool schemas, permission gates, platform safety, project state, verification, artifact delivery, remote channels, and recovery.
 
@@ -28,8 +28,8 @@ Provider-facing execution does not rely on model-emitted `ActionEnvelope JSON`. 
 
 | Subsystem | Responsibility |
 | --- | --- |
-| Agent Kernel | Normalizes run lifecycle into intent, contract, plan, execution, evidence, verification, repair/final events so chat, tools, workflows, remote, and UI observe the same truth. |
-| QueryEngine | Builds messages, calls the provider, executes native tool calls, records usage/events, schedules verification, and feeds failures back. |
+| Agent Kernel | Normalizes run lifecycle into intent, contract, plan, execution, evidence, verification, repair/final events; records spans, prompt budget plans, and evidence so chat, tools, workflows, remote, and UI observe the same truth. |
+| QueryEngine | Streams UI and dispatches user input while provider calls, tool reports, evidence, budget records, and verification events are routed through Kernel services. |
 | Prompt Budget Governor | Splits prompts into stable, project, context, feedback, and request blocks; applies deterministic ordering, hashes, token/char budgets, and dropped-block diagnostics before provider calls. |
 | Context capsule | Compresses long sessions into user goals, completed facts, blockers, key artifacts, next steps, and recent tool summaries. |
 | Tool registry | Exposes file, shell, browser, real PDF, Office, skills, MCP, project process, verification, and workflow tools. |
@@ -90,7 +90,7 @@ The scheduler chooses the next runnable subtask by dependency and status, not by
 
 Required artifact roles have a runtime safety pass. If the contract requires PDF, MCP, or Office outputs, the fallback planner preserves or injects a role with the matching tools/skills before execution so a complex website/game plan cannot silently drop document or integration deliverables.
 
-When a new workflow starts, `AgentDashboardServer` serves the bundled Pixel Agents panel and writes `agent-trace.jsonl`. Continue, repair, and refine requests reuse the same run page instead of opening another browser tab. The panel is built from durable run/task/event/artifact state, not terminal scraping. It presents the plan preview, stage, dynamic roles, subtask graph, dependencies, evidence, blockers, artifacts, process/cache summary, offline state, and a responsive phone layout for WeChat viewing. Remote channels can share the same view through `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL`; `/agents dashboard tunnel` can create a temporary Cloudflare Quick Tunnel for one tokenized run page. Without a secure public URL the link remains local-only. The panel is read-only and never approves tools or executes commands.
+When a new workflow starts, `AgentDashboardServer` serves the bundled Pixel Agents panel and writes `agent-trace.jsonl`. Continue, repair, and refine requests reuse the same run page instead of opening another browser tab. The panel is built from durable run/task/event/artifact state, not terminal scraping. It presents the plan preview, stage, dynamic roles, subtask graph, dependencies, evidence, blockers, spans, artifacts, process/cache/budget summary, offline state, and a responsive phone layout for WeChat viewing. The overlay is a single template module (`agentDashboardOverlay.ts`) so old V1-V5 inline layouts cannot accidentally take over. Remote channels can share the same view through `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL`; `/agents dashboard tunnel` can create a temporary Cloudflare Quick Tunnel for one tokenized run page. Without a secure public URL the link remains local-only. The panel is read-only and never approves tools or executes commands.
 
 ## Remote Runtime
 
@@ -118,7 +118,7 @@ DeepSeek cache hit rate depends heavily on stable prefixes. DeepSeekCode keeps s
 
 Long stdout, diffs, logs, and raw artifacts are stored as events or files; only compact summaries are replayed.
 
-All provider calls should go through the prompt budget governor. The governor keeps user requests last, stable prefixes first, and records `stableHash`, `dynamicHash`, dynamic character share, dropped blocks, and cache hit/miss usage when the provider reports it. Long conversations use the five-part context capsule instead of replaying full transcripts. `/cache report` and Pixel snapshots expose the same budget/cache evidence so cost regressions are visible.
+All provider calls should go through the prompt budget governor. The governor keeps user requests last, stable prefixes first, and records `budgetPlanId`, `stableHash`, `dynamicHash`, dynamic character share, dropped blocks, compact pressure, and cache hit/miss usage when the provider reports it. Long conversations use the five-part context capsule instead of replaying full transcripts. `/cache report`, `/cache trend`, and Pixel snapshots expose the same budget/cache evidence so cost regressions are visible.
 
 ## Capability Status
 

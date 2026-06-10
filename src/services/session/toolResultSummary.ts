@@ -13,8 +13,8 @@ export function compactActionReport(
   report: ActionExecutionReport,
   options: Pick<ToolResultSummaryOptions, "maxResults" | "maxMessageChars" | "maxContextChars"> = {},
 ): ActionExecutionReport {
-  const maxResults = options.maxResults ?? 16;
-  const maxMessageChars = options.maxMessageChars ?? 700;
+  const maxResults = options.maxResults ?? 8;
+  const maxMessageChars = options.maxMessageChars ?? 420;
   const important = [...report.results]
     .map((result, index) => ({ result, index, score: scoreActionResult(result, index, report.results.length) }))
     .sort((a, b) => b.score - a.score || a.index - b.index)
@@ -22,7 +22,7 @@ export function compactActionReport(
     .sort((a, b) => a.index - b.index);
 
   const omitted = Math.max(0, report.results.length - important.length);
-  const maxContextChars = options.maxContextChars ?? 4000;
+  const maxContextChars = options.maxContextChars ?? 1600;
   const compactResults = important.map(({ result }) => compactActionResult(result, maxMessageChars, maxContextChars));
   if (omitted > 0) {
     compactResults.push({
@@ -34,7 +34,7 @@ export function compactActionReport(
 
   return {
     status: report.status,
-    final_message: compactText(report.final_message, 700),
+    final_message: compactText(report.final_message, 520),
     results: compactResults,
   };
 }

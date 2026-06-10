@@ -9,6 +9,7 @@ import {
   buildCleanSubtasksV3,
   buildCleanWorkflowPlanV3,
   normalizeTaskCompletionContract,
+  validateWorkflowPlanQuality,
 } from "../agents/agentWorkflow.js";
 import { StateStore } from "../../state/sqlite.js";
 
@@ -73,10 +74,32 @@ test("workflow subtasks and dashboard snapshot expose ready queue, evidence, and
       subtaskId: "subtask_1",
       path: path.join(projectPath, "docs", "project.pdf"),
     });
+    state.appendEvent(runId, "agent_kernel_span", {
+      spanId: "span_test_1",
+      runId,
+      stage: "tool",
+      status: "succeeded",
+      role: "PDF产物工程师",
+      subtaskId: "subtask_1",
+      summary: "create_pdf succeeded",
+    });
+    state.appendEvent(runId, "agent_kernel_budget_plan", {
+      budgetPlanId: "budget_test_1",
+      stable_hash: "stable-test",
+      dynamic_hash: "dynamic-test",
+      dynamic_chars: 800,
+      max_dynamic_chars: 12000,
+      dropped_blocks: 0,
+      source: "unit",
+    });
     const snapshot = buildAgentDashboardSnapshot({ state, projectPath, runId });
 
     assert.ok(snapshot.readyQueue.length >= 1);
     assert.ok(snapshot.evidence.some((item) => item.evidenceId === "evidence_test_1"));
+    assert.equal(snapshot.evidenceBySubtask.subtask_1?.[0]?.evidenceId, "evidence_test_1");
+    assert.equal(snapshot.spans[0]?.spanId, "span_test_1");
+    assert.equal(snapshot.budgetTrend[0]?.budgetPlanId, "budget_test_1");
+    assert.equal(snapshot.layoutModel.version, "ops-room.v2");
     assert.equal(snapshot.layoutModel.desktop, "split-ops-room");
     assert.equal(snapshot.layoutModel.mobile, "summary-drawer");
     assert.ok(Object.keys(snapshot.layoutModel.roleLocations).includes("Planner"));
@@ -86,3 +109,50 @@ test("workflow subtasks and dashboard snapshot expose ready queue, evidence, and
     fs.rmSync(projectPath, { recursive: true, force: true });
   }
 });
+
+test("workflow plan quality gate rejects generic roles for complex Chinese tasks", () => {
+  const contract = normalizeTaskCompletionContract({
+    objective: complexChineseObjective,
+    expectedOutputs: [
+      { kind: "web", description: "网站", required: true },
+      { kind: "pdf", description: "PDF 文档", required: true },
+    ],
+  }, complexChineseObjective);
+  const result = validateWorkflowPlanQuality({
+    source: "model",
+    plannerNotes: "generic bad plan",
+    roles: [
+      badRole("Planner", "规划"),
+      badRole("ImplementationSpecialist", "实现全部内容"),
+      badRole("AcceptanceReviewer", "验收"),
+    ],
+  }, complexChineseObjective, contract);
+
+  assert.equal(result.passed, false);
+  assert.ok(result.issues.some((issue) => issue.includes("ImplementationSpecialist")));
+  assert.ok(result.issues.some((issue) => issue.includes("中文")));
+});
+
+function badRole(role: string, responsibility: string) {
+  return {
+    name: role,
+    role,
+    responsibility,
+    contextScope: "all",
+    allowedTools: [],
+    preloadedSkills: [],
+    assignedTasks: [],
+    completedTasks: [],
+    transcript: [],
+    toolResultSummary: [],
+    checkpoint: "",
+    status: "idle" as const,
+    taskIds: [],
+    skills: [],
+    tools: [],
+    acceptance: [],
+    requiredOutputs: [],
+    riskChecks: [],
+    handoffFormat: "summary",
+  };
+}
