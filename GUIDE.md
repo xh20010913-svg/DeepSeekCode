@@ -102,7 +102,7 @@ Backup commands:
 /agents dashboard close
 ```
 
-For phone access from WeChat/WeCom, point `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` to a trusted HTTPS tunnel. Without it, the Pixel Agents panel remains local-only. For a temporary local-only-to-phone preview, install `cloudflared` and run `/agents dashboard tunnel`; DeepSeekCode starts a Cloudflare Quick Tunnel to one tokenized run page. Treat that link as private: anyone with the URL and token can view the read-only panel until the token expires.
+For phone access from WeChat/WeCom, point `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` to a trusted stable HTTPS tunnel or reverse proxy, then run `/agents dashboard stable`. Without it, the Pixel Agents panel remains local-only. `/agents dashboard lan` exposes a LAN URL for phones on the same Wi-Fi. `/agents dashboard tunnel` uses an installed or locally cached `cloudflared` binary to start a Cloudflare Quick Tunnel for temporary preview of one tokenized run page. Quick Tunnel is useful for testing, not for stable long-running public access. Treat every shared link as private: anyone with the URL and token can view the read-only panel until the token expires.
 
 ## 7. Remote control
 
@@ -114,7 +114,7 @@ From the TUI:
 /remote-control wecom start
 ```
 
-Remote commands:
+`npm start -- --wechat` and `npm start -- --wecom` keep the normal computer TUI active and connect the remote bridge in the background. Remote commands:
 
 ```text
 /run 帮我继续完成这个项目

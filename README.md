@@ -28,11 +28,11 @@
 </p>
 
 > [!IMPORTANT]
-> v0.3.4 is a local-first runtime hardening release: Agent Kernel lifecycle events, prompt-budget records, structured evidence, stronger multi-agent quality gates, a rebuilt Pixel operations room, cache trends, validation explainability, local git diagnostics, real PDF validation, project process management, and Windows terminal recovery are designed for local acceptance before npm publish.
+> v0.3.5 is a local-first runtime hardening release: Agent Kernel lifecycle events, prompt-budget records, structured evidence, stronger multi-agent quality gates, a rebuilt Pixel operations room, cache trends, validation explainability, local git diagnostics, real PDF validation, project process management, Windows terminal recovery, non-blocking WeChat remote startup, and safer dashboard sharing are designed for local acceptance before npm publish.
 
 DeepSeekCode is a DeepSeek-first local agent runtime for real project workspaces. It connects native function calling, local files, shell/browser permissions, project state, skills, plugins, MCP, WeChat remote control, multi-agent workflows, and task verification.
 
-v0.3.4 focuses on the generic Agent Kernel loop: normalize intent into a task contract, budget every provider call, execute with tools, store structured evidence, verify real outputs, feed failures back to the model, and retry with a better strategy. HTML is only one artifact type. The same `verify_task` entry point also covers code projects, CLI scripts, real PDF files, Office files, spreadsheets, reports, data tasks, media artifacts, MCP, plugins, and automation jobs.
+v0.3.5 focuses on the generic Agent Kernel loop: normalize intent into a task contract, budget every provider call, execute with tools, store structured evidence, verify real outputs, feed failures back to the model, and retry with a better strategy. HTML is only one artifact type. The same `verify_task` entry point also covers code projects, CLI scripts, real PDF files, Office files, spreadsheets, reports, data tasks, media artifacts, MCP, plugins, and automation jobs.
 
 ## Install
 
@@ -117,7 +117,9 @@ MCP tools are routed through the same tool-result, permission, hook, audit, and 
 
 Natural language can start a visible, plan-gated multi-agent workflow. DeepSeekCode first creates a reviewable Planner proposal, then waits for the user to choose execute, revise, regenerate, or cancel. `Planner` and `AcceptanceReviewer` are the only fixed roles; the middle execution roles are generated from the task contract, output types, tools, and verification risk. Each role keeps role-local assigned subtasks, transcript snippets, tool-result summaries, checkpoint, allowed tools, generated workflow-local skill, risk checks, and handoff format. `AcceptanceReviewer` uses the generic task contract and real evidence rather than a web-specific checklist.
 
-When a multi-agent workflow starts, DeepSeekCode serves the bundled Pixel Agents read-only panel for that run. In TUI mode it opens the local browser once; remote channels receive a tokenized link when `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` points to a secure tunnel. For temporary WeChat phone viewing, `/agents dashboard tunnel` can start a Cloudflare Quick Tunnel and print a random `trycloudflare.com` HTTPS link. The link is still reachable by anyone who has the URL and token, so do not post it publicly. The panel shows:
+When a multi-agent workflow starts, DeepSeekCode serves the bundled Pixel Agents read-only panel for that run. In TUI mode it opens the local browser once; continuation and repair turns reuse the same run and never auto-open a new tab. The TUI side panel keeps the latest dashboard entry visible, so `/agents dashboard open` reopens it after you close the browser.
+
+Remote channels receive a tokenized link when `DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL` points to your own stable HTTPS tunnel or reverse proxy. `/agents dashboard stable` prints that stable URL. `/agents dashboard lan` exposes the panel on the LAN for a phone on the same Wi-Fi. `/agents dashboard tunnel` uses an auto-resolved or cached `cloudflared` binary to start a Cloudflare Quick Tunnel and print a random `trycloudflare.com` HTTPS link for temporary preview. Quick Tunnel is a convenient test path, not a stable long-running public endpoint. Every shared mode only exposes one tokenized read-only run page, but anyone with the URL and token can view it until expiry, so do not post it publicly. The panel shows:
 
 - objective, phase, approval state, stale state, recent tool, token/cache summary
 - dynamic role cards with responsibility, context scope, generated skill, current subtask, checkpoints, blockers, tools, risk checks, and acceptance criteria
@@ -134,6 +136,8 @@ Backup commands:
 ```text
 /agents dashboard
 /agents dashboard share
+/agents dashboard stable
+/agents dashboard lan
 /agents dashboard tunnel
 /agents dashboard trace
 /agents dashboard close
@@ -147,6 +151,8 @@ Two remote channels are available:
 - Personal WeChat OpenClaw: experimental.
 
 Remote messages share the same project runtime and permission gates. WeChat receives concise progress, approvals, read-only `/ask` answers, and final results rather than console logs or source-code floods.
+
+Starting with `--wechat` or `--wecom` keeps the normal TUI open and starts the remote bridge in the background. Use this when you want to operate from the computer and the phone at the same time.
 
 ## Common Commands
 
@@ -206,4 +212,4 @@ Real scenario tests should be run in `D:\code\DeepSeekTest`. Do not publish `.en
 
 ## References
 
-DeepSeek Function Calling, DeepSeek Context Caching, Claude Code subagents/skills/hooks/MCP, MCP TypeScript SDK, Playwright screenshots, Pixel Agents, and browser-use informed the v0.3.4 direction.
+DeepSeek Function Calling, DeepSeek Context Caching, Claude Code subagents/skills/hooks/MCP, MCP TypeScript SDK, Playwright screenshots, Pixel Agents, and browser-use informed the v0.3.5 direction.

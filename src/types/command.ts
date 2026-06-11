@@ -9,6 +9,7 @@ export interface AgentDashboardRequestOptions {
   share?: boolean;
   writeTrace?: boolean;
   tunnel?: "cloudflare";
+  exposeLan?: boolean;
 }
 
 export interface CommandContext {

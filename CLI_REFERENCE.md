@@ -20,8 +20,8 @@ The npm package only installs `deepseekcode`.
 | `--allow-browser` | Start with browser tools enabled. |
 | `--continue` | Resume the latest project session when possible. |
 | `--doctor` | Print configuration, provider, tools, skills, plugins, MCP, cache, and permission diagnostics. |
-| `--wechat` | Start personal WeChat OpenClaw remote mode. Experimental. |
-| `--wecom` | Start WeCom remote mode. Experimental. |
+| `--wechat` | Keep the normal TUI open and start personal WeChat OpenClaw remote mode in the background. Experimental. |
+| `--wecom` | Keep the normal TUI open and start WeCom remote mode in the background. Experimental. |
 | `--wechat-login` | Start OpenClaw login flow. |
 
 ## Slash commands
@@ -58,8 +58,11 @@ The npm package only installs `deepseekcode`.
 | `/remote-control wecom start` | Start WeCom remote. |
 | `/agents status` | Show active multi-agent workflow. |
 | `/agents dashboard` | Open the read-only multi-agent panel for the latest agent run. |
-| `/agents dashboard share` | Print/share a tokenized dashboard link for remote channels. Requires a public base URL for phone access. |
-| `/agents dashboard tunnel` | Start a Cloudflare Quick Tunnel for the dashboard and print a tokenized HTTPS link for WeChat phone viewing. |
+| `/agents dashboard open` | Reopen the latest dashboard if you closed the browser tab. |
+| `/agents dashboard share` | Print/share a tokenized dashboard link for remote channels. Uses the configured public base URL when present. |
+| `/agents dashboard stable` | Require a stable public base URL such as a Cloudflare Named Tunnel or your reverse proxy. |
+| `/agents dashboard lan` | Bind the panel to the LAN and print a tokenized URL for phones on the same Wi-Fi. |
+| `/agents dashboard tunnel` | Start a Cloudflare Quick Tunnel with an installed or cached `cloudflared` binary and print a temporary tokenized HTTPS link. |
 | `/agents dashboard trace` | Write `agent-trace.jsonl` for the selected run. |
 | `/agents dashboard close` | Close the local dashboard server. |
 | `/artifacts` | Recent artifacts and delivery summary. |

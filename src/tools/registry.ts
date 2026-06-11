@@ -2276,6 +2276,29 @@ async function runWorkflowStep(
     return { status: "failed", message: "workflow step requires a provider in ToolExecutionContext." };
   }
   const service = new AgentWorkflowService(context.state, context.root);
+  try {
+    const status = service.status(input.workflow_id);
+    if (status.record.phase === "awaiting_approval") {
+      return {
+        status: "blocked",
+        workflowId: status.record.id,
+        message: [
+          "正在等待多 Agent 计划确认，尚未开始执行子任务。",
+          "请在审批面板选择：执行 / 修改：... / 重生成 / 取消。",
+          "CLI 也可以直接输入“执行”批准当前计划，或输入“修改：你的补充要求”让 Planner 重写计划。",
+        ].join("\n"),
+      };
+    }
+    if (status.record.phase === "cancelled") {
+      return {
+        status: "blocked",
+        workflowId: status.record.id,
+        message: "当前多 Agent workflow 已取消；如需继续，请重新启动多 Agent 任务。",
+      };
+    }
+  } catch {
+    // Fall through to the normal claim path so the original error handling remains intact.
+  }
   const claimed = service.claimNextSubtask({
     workflowId: input.workflow_id,
     role: input.role,
@@ -2288,7 +2311,7 @@ async function runWorkflowStep(
     } catch {
       status = "";
     }
-    return { status: "idle", message: ["No runnable approved workflow subtask is available.", status].filter(Boolean).join("\n") };
+    return { status: "idle", message: ["当前没有可执行的已批准 workflow 子任务。", status].filter(Boolean).join("\n") };
   }
   const { record, role, subtask, task } = claimed;
   const maxTurns = Math.min(6, Math.max(1, Math.trunc(input.max_turns ?? 2)));

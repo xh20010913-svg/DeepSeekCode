@@ -25,7 +25,7 @@ import {
 export const agentsCommand: Command = {
   name: "agents",
   description: "List, show, create, validate, and run DeepSeekCode agents.",
-  usage: "[dashboard [share|tunnel|trace|close] [run]|workflow|show <name>|create <name> <description>|suggest <goal>|create-smart <name> <goal>|runs|detail [attached|current]|start <name> <task>|add <attached|current> <name> <task>|step [attached|current]|drain [attached|current] [max-steps]|daemon [all|attached|current] [max-runs] [max-steps]|run <name> <task>|validate [name]|path [name]]",
+  usage: "[dashboard [open|share|stable|lan|tunnel|trace|close] [run]|workflow|show <name>|create <name> <description>|suggest <goal>|create-smart <name> <goal>|runs|detail [attached|current]|start <name> <task>|add <attached|current> <name> <task>|step [attached|current]|drain [attached|current] [max-steps]|daemon [all|attached|current] [max-runs] [max-steps]|run <name> <task>|validate [name]|path [name]]",
   async execute(args, context) {
     const trimmed = args.trim();
     const service = new AgentService(context.config.projectPath, context.config.dataDir);
@@ -37,9 +37,11 @@ export const agentsCommand: Command = {
         return { message: "Agent panel closed." };
       }
       const tunnel = action === "tunnel";
-      const share = action === "share" || tunnel;
+      const lan = action === "lan";
+      const share = action === "share" || action === "stable" || tunnel || lan;
       const trace = action === "trace";
-      const selector = share || trace ? parts[1] : parts[0];
+      const open = action === "" || action === "open";
+      const selector = share || trace || open ? parts[1] : parts[0];
       const runId = resolveDashboardRunId(selector ?? "", context);
       if (!runId) return { message: "No agent run is available for the agent panel yet." };
       if (context.openAgentDashboard) {
@@ -48,6 +50,7 @@ export const agentsCommand: Command = {
           share,
           writeTrace: true,
           tunnel: tunnel ? "cloudflare" : undefined,
+          exposeLan: lan,
         });
         return { message };
       }
@@ -60,6 +63,7 @@ export const agentsCommand: Command = {
         share,
         writeTrace: true,
         tunnel: tunnel ? "cloudflare" : undefined,
+        exposeLan: lan,
       });
       return {
         message: [
@@ -67,6 +71,12 @@ export const agentsCommand: Command = {
           result.tracePath ? `trace: ${result.tracePath}` : "",
           tunnel && result.remoteAccess === "cloudflare-quick-tunnel"
             ? `remote: Cloudflare Quick Tunnel active; token expires ${new Date(result.tokenExpiresAtMs).toLocaleString()}.`
+            : "",
+          lan && result.remoteAccess === "lan"
+            ? "remote: LAN link active. Your phone must be on the same Wi-Fi and Windows Firewall must allow this Node process."
+            : "",
+          action === "stable" && result.remoteAccess !== "public-base-url"
+            ? "stable remote: set DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL to a Cloudflare Named Tunnel / reverse proxy URL, then run /agents dashboard stable again."
             : "",
           share && result.remoteAccess === "local-only"
             ? "remote: local-only; set DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL or a secure tunnel to share from WeChat."

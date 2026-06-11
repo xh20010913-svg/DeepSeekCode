@@ -88,6 +88,13 @@ function AgentWorkflowSummary(props: {
   try {
     const service = new AgentWorkflowService(props.state, props.projectPath);
     const status = service.status();
+    const dashboard = props.state.getUiState<{
+      runId?: string;
+      localUrl?: string;
+      shareUrl?: string;
+      remoteAccess?: string;
+      updatedAtMs?: number;
+    }>("agent_dashboard", "last");
     const done = status.tasks.filter((task) => task.status === "succeeded").length;
     const failed = status.tasks.filter((task) => task.status === "failed").length;
     const running = status.tasks.filter((task) => task.status === "running").length;
@@ -97,6 +104,11 @@ function AgentWorkflowSummary(props: {
         <Text color={status.record.status === "failed" ? "red" : "cyan"}>{status.record.status}</Text>
         <Text color="gray">{`roles ${status.record.roles.length} / tasks ${done}/${status.tasks.length}`}</Text>
         <Text color="gray">{`running ${running} / failed ${failed}`}</Text>
+        <Text color="yellow">/agents dashboard open</Text>
+        <Text color="gray">share: /agents dashboard share|lan|tunnel</Text>
+        {dashboard?.runId ? (
+          <Text color="gray">{compact(`${dashboard.remoteAccess ?? "local"} ${dashboard.shareUrl ?? dashboard.localUrl ?? ""}`, 30)}</Text>
+        ) : null}
         {latest ? <Text color="gray">{compact(`${latest.from}->${latest.to}: ${latest.message}`, 30)}</Text> : null}
       </Box>
     );

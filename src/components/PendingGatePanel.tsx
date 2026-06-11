@@ -40,7 +40,12 @@ export function currentSessionPendingGates(
   sessionStartedAtMs?: number,
 ): ApprovalGateRecord[] {
   if (sessionStartedAtMs === undefined) return gates;
-  return gates.filter((gate) => gate.createdAtMs >= sessionStartedAtMs);
+  return [...gates].sort((left, right) => {
+    const leftCurrent = left.createdAtMs >= sessionStartedAtMs ? 1 : 0;
+    const rightCurrent = right.createdAtMs >= sessionStartedAtMs ? 1 : 0;
+    if (leftCurrent !== rightCurrent) return rightCurrent - leftCurrent;
+    return right.createdAtMs - left.createdAtMs;
+  });
 }
 
 export function pendingGateQueueHint(count: number): string {

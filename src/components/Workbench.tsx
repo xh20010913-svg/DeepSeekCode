@@ -37,8 +37,14 @@ import { SessionStorage } from "../services/session/sessionStorage.js";
 import { setCurrentSessionId } from "../services/session/resumeService.js";
 import { ThemeService } from "../services/theme/themeService.js";
 import { isChineseUi, normalizeUiLanguage } from "../services/ui/languageService.js";
-import { stopSharedWeChatOpenClawRemoteControlService } from "../remote/wechat/service.js";
-import { stopSharedWeComRemoteControlService } from "../remote/wecom/service.js";
+import {
+  getSharedWeChatOpenClawRemoteControlService,
+  stopSharedWeChatOpenClawRemoteControlService,
+} from "../remote/wechat/service.js";
+import {
+  getSharedWeComRemoteControlService,
+  stopSharedWeComRemoteControlService,
+} from "../remote/wecom/service.js";
 import { useInputHistory } from "../hooks/useInputHistory.js";
 import { useApprovals } from "../hooks/useApprovals.js";
 import { usePromptEditor } from "../hooks/usePromptEditor.js";
@@ -67,6 +73,8 @@ export function Workbench(props: {
   config: RuntimeConfig;
   state: StateStore;
   provider: DeepSeekProviderClient | null;
+  autoStartWeChat?: boolean;
+  autoStartWeCom?: boolean;
 }): React.ReactElement {
   setActiveTerminalTheme(new ThemeService(props.config.projectPath).current().theme);
   const app = useApp();
@@ -107,6 +115,7 @@ export function Workbench(props: {
     () => !props.config.shellEnabled && process.env.DEEPSEEKCODE_STARTUP_SHELL_PROMPT !== "0",
   );
   const [startupShellSelectedIndex, setStartupShellSelectedIndex] = useState(0);
+  const [autoRemoteStarted, setAutoRemoteStarted] = useState(false);
   const editor = usePromptEditor();
   const history = useInputHistory();
   const { permissions, setShell } = useRuntimePermissions({
@@ -180,7 +189,7 @@ export function Workbench(props: {
   }, [activeConfig.model, sessionStorage]);
   const openAgentDashboard = useCallback(async (
     runId?: string,
-    options?: { openBrowser?: boolean; share?: boolean; writeTrace?: boolean; tunnel?: "cloudflare" },
+    options?: { openBrowser?: boolean; share?: boolean; writeTrace?: boolean; tunnel?: "cloudflare"; exposeLan?: boolean },
   ): Promise<string> => {
     const selectedRunId = runId ?? props.state.listRuns(1)[0]?.id;
     if (!selectedRunId) {
@@ -197,6 +206,7 @@ export function Workbench(props: {
       share: options?.share ?? false,
       writeTrace: options?.writeTrace ?? true,
       tunnel: options?.tunnel,
+      exposeLan: options?.exposeLan,
     });
     const traceNote = result.tracePath
       ? (isChineseUi(activeConfig.language) ? `\ntrace: ${result.tracePath}` : `\ntrace: ${result.tracePath}`)
@@ -212,14 +222,24 @@ export function Workbench(props: {
           ? `\n远程访问：Cloudflare Quick Tunnel 已启动；面板 token 到期时间 ${expiry}。不要把链接发到公开群。`
           : `\nRemote access: Cloudflare Quick Tunnel is active; panel token expires at ${expiry}. Do not post the link publicly.`)
       : "";
+    const lanNote = result.remoteAccess === "lan"
+      ? (isChineseUi(activeConfig.language)
+          ? "\n远程访问：局域网链接已生成；手机需要和电脑在同一个 Wi-Fi，且 Windows 防火墙允许 Node 访问。"
+          : "\nRemote access: LAN link is active. Your phone must be on the same Wi-Fi and Windows Firewall must allow Node.")
+      : "";
+    const stableNote = options?.share && result.remoteAccess !== "public-base-url" && !options?.tunnel && !options?.exposeLan
+      ? (isChineseUi(activeConfig.language)
+          ? "\n稳定公网：请配置 DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL 为你的 Cloudflare Named Tunnel/反代地址。"
+          : "\nStable public access: set DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL to your Cloudflare Named Tunnel or reverse-proxy URL.")
+      : "";
     const publicNote = result.remoteAccess === "public-base-url"
       ? (isChineseUi(activeConfig.language)
           ? `\n远程访问：使用 DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL；面板 token 到期时间 ${expiry}。`
           : `\nRemote access: using DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL; panel token expires at ${expiry}.`)
       : "";
     return isChineseUi(activeConfig.language)
-      ? `多 Agent 面板已启动：${options?.share ? result.shareUrl : result.localUrl}${traceNote}${tunnelNote}${publicNote}${remoteNote}`
-      : `Agent panel started: ${options?.share ? result.shareUrl : result.localUrl}${traceNote}${tunnelNote}${publicNote}${remoteNote}`;
+      ? `多 Agent 面板已启动：${options?.share ? result.shareUrl : result.localUrl}${traceNote}${tunnelNote}${lanNote}${publicNote}${stableNote}${remoteNote}`
+      : `Agent panel started: ${options?.share ? result.shareUrl : result.localUrl}${traceNote}${tunnelNote}${lanNote}${publicNote}${stableNote}${remoteNote}`;
   }, [activeConfig.dataDir, activeConfig.language, activeConfig.projectPath, props.state]);
   const engine = useMemo(
     () =>
@@ -303,6 +323,55 @@ export function Workbench(props: {
       void stopSharedWeComRemoteControlService();
     };
   }, []);
+
+  useEffect(() => {
+    if (autoRemoteStarted || (!props.autoStartWeChat && !props.autoStartWeCom)) return;
+    setAutoRemoteStarted(true);
+    const zh = isChineseUi(activeConfig.language);
+    if (props.autoStartWeChat) {
+      const service = getSharedWeChatOpenClawRemoteControlService({
+        baseConfig: activeConfig,
+        baseState: props.state,
+        baseProvider: activeProvider,
+        permissions,
+        onStatus: appendSystemMessage,
+        onRemoteUserMessage: appendRemoteUserMessage,
+        onRemoteAssistantMessage: appendRemoteAssistantMessage,
+      });
+      appendSystemMessage(zh
+        ? "微信远程正在后台连接；TUI 已保持可用，你可以继续在电脑端输入。"
+        : "WeChat remote control is connecting in the background; the TUI remains interactive.");
+      void service.start().catch((error) => {
+        appendSystemMessage(`[wechat] ${zh ? "启动失败" : "start failed"}: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
+    if (props.autoStartWeCom) {
+      const service = getSharedWeComRemoteControlService({
+        baseConfig: activeConfig,
+        baseState: props.state,
+        baseProvider: activeProvider,
+        permissions,
+        onStatus: appendSystemMessage,
+      });
+      appendSystemMessage(zh
+        ? "企微远程正在后台连接；TUI 已保持可用。"
+        : "WeCom remote control is connecting in the background; the TUI remains interactive.");
+      void service.start().catch((error) => {
+        appendSystemMessage(`[wecom] ${zh ? "启动失败" : "start failed"}: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
+  }, [
+    props.autoStartWeChat,
+    props.autoStartWeCom,
+    autoRemoteStarted,
+    activeConfig,
+    activeProvider,
+    props.state,
+    permissions,
+    appendSystemMessage,
+    appendRemoteUserMessage,
+    appendRemoteAssistantMessage,
+  ]);
 
   useEffect(() => {
     setSelectedSuggestion((previous) => Math.min(previous, Math.max(0, suggestions.length - 1)));
@@ -676,6 +745,13 @@ export function Workbench(props: {
     const typedAnswerCommand = gateTypedQuestionAnswerCommand(activeGate.subjectType, editor.value);
 
     if (editor.value.trim()) {
+      if (key.return && isWorkflowPlanApprovalGate(activeGate.subjectType, activeGate.summary)) {
+        const text = editor.value.trim();
+        editor.reset();
+        setClearPromptPending(false);
+        void applyWorkflowPlanGateText(text);
+        return true;
+      }
       if (key.return && typedAnswerCommand) {
         editor.reset();
         setClearPromptPending(false);
@@ -806,11 +882,37 @@ export function Workbench(props: {
 
   async function applyGateDecision(option: GateDecisionOption | undefined): Promise<void> {
     if (!option) return;
+    if (activeGate && isWorkflowPlanApprovalGate(activeGate.subjectType, activeGate.summary)) {
+      await applyWorkflowPlanGateChoice(option.label);
+      return;
+    }
     if (option.command.includes("<")) {
       editor.set(option.command.replace(/<[^>]+>/g, "").trimEnd() + " ", "end");
       return;
     }
     await applyGateCommand(option.command);
+  }
+
+  async function applyWorkflowPlanGateChoice(label: string): Promise<void> {
+    const normalized = label.trim();
+    if (/^修改$/i.test(normalized)) {
+      editor.set("修改：", "end");
+      return;
+    }
+    await applyWorkflowPlanGateText(normalized || "执行");
+  }
+
+  async function applyWorkflowPlanGateText(text: string): Promise<void> {
+    if (!activeGate) return;
+    const normalized = text.trim();
+    if (!normalized) return;
+    const answerCommand = `/question answer ${activeGate.id} ${normalized}`;
+    applyCommandResult(await runSlashCommand(answerCommand, engine.commandContext()), answerCommand);
+    if (busy) {
+      setQueuedPrompts((previous) => [...previous, normalized]);
+    } else {
+      void submit(normalized, { resetEditor: false });
+    }
   }
 
   async function applyGateCommand(command: string): Promise<void> {
@@ -1350,6 +1452,11 @@ export function gateTypedQuestionAnswerCommand(subjectType: string, value: strin
   const answer = value.trim();
   if (subjectType !== "question" || !answer || answer.startsWith("/")) return null;
   return `/question answer latest ${answer}`;
+}
+
+function isWorkflowPlanApprovalGate(subjectType: string, summary: string): boolean {
+  return subjectType === "question"
+    && /多\s*Agent\s*计划|多Agent计划|Planner 已生成动态角色|请选择下一步/i.test(summary);
 }
 
 export type GateDirectShortcutIntent = "allow" | "reject" | null;

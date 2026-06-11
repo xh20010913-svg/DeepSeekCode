@@ -43,8 +43,8 @@ const program = new Command()
   .option("-c, --continue", "continue the most recent local transcript session before running")
   .option("--doctor", "print runtime diagnostics")
   .option("--verify-model", "verify DeepSeek model access")
-  .option("--wecom", "start WeCom remote-control bridge")
-  .option("--wechat", "start personal WeChat OpenClaw remote-control bridge")
+  .option("--wecom", "start WeCom remote-control bridge in the background while keeping the TUI open")
+  .option("--wechat", "start personal WeChat OpenClaw remote-control bridge in the background while keeping the TUI open")
   .option("--wechat-login", "scan and store personal WeChat OpenClaw login")
   .option("--allow-shell", "allow shell tool execution")
   .option("--allow-browser", "allow browser bridge actions")
@@ -80,18 +80,29 @@ if (options.doctor) {
 } else if (options.verifyModel) {
   const result = await runSlashCommand("/model verify", commandContext());
   print(result.message ?? "");
-} else if (options.wecom) {
-  await runWeComRemote();
 } else if (options.wechatLogin) {
   await runWeChatLogin();
-} else if (options.wechat) {
-  await runWeChatRemote();
 } else if (options.prompt) {
   await runHeadless(options.prompt, Boolean(options.json));
 } else {
+  await runTui({
+    autoStartWeChat: Boolean(options.wechat),
+    autoStartWeCom: Boolean(options.wecom),
+  });
+}
+
+async function runTui(input: { autoStartWeChat?: boolean; autoStartWeCom?: boolean } = {}): Promise<void> {
   const restore = enterTerminalScreen();
   try {
-    await render(<Workbench config={config} state={state} provider={provider} />).waitUntilExit();
+    await render(
+      <Workbench
+        config={config}
+        state={state}
+        provider={provider}
+        autoStartWeChat={input.autoStartWeChat}
+        autoStartWeCom={input.autoStartWeCom}
+      />,
+    ).waitUntilExit();
   } finally {
     restore();
   }

@@ -1,6 +1,8 @@
 import http from "node:http";
+import https from "node:https";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
@@ -21,7 +23,7 @@ export type AgentDashboardOpenResult = {
   localUrl: string;
   shareUrl: string;
   tracePath: string;
-  remoteAccess: "local-only" | "public-base-url" | "cloudflare-quick-tunnel";
+  remoteAccess: "local-only" | "lan" | "public-base-url" | "cloudflare-quick-tunnel";
   tokenExpiresAtMs: number;
   tunnelOutput?: string[];
 };
@@ -31,6 +33,7 @@ export type AgentPanelOpenOptions = {
   openBrowser?: boolean;
   writeTrace?: boolean;
   tunnel?: "cloudflare";
+  exposeLan?: boolean;
 };
 
 type ServerOptions = {
@@ -112,7 +115,11 @@ export class AgentPanelServer {
   }
 
   async open(runId: string, options: AgentPanelOpenOptions = {}): Promise<AgentDashboardOpenResult> {
-    await this.ensureStarted();
+    const exposeLan = Boolean(options.exposeLan);
+    if (exposeLan && this.started && this.host !== "0.0.0.0") {
+      await this.close();
+    }
+    await this.ensureStarted(exposeLan);
     const token = this.tokenFor(runId);
     if (options.tunnel === "cloudflare") {
       await this.ensureCloudflareQuickTunnel();
@@ -121,10 +128,21 @@ export class AgentPanelServer {
     const localUrl = `http://${localHost}:${this.port}/pixel/${encodeURIComponent(runId)}?token=${encodeURIComponent(token.token)}`;
     const configuredPublicBaseUrl = (process.env.DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL || "").replace(/\/+$/, "");
     const publicBaseUrl = configuredPublicBaseUrl || this.cloudflareTunnel?.publicBaseUrl || "";
+    const lanBaseUrl = exposeLan ? firstLanBaseUrl(this.port) : "";
     const shareUrl = publicBaseUrl
       ? `${publicBaseUrl}/pixel/${encodeURIComponent(runId)}?token=${encodeURIComponent(token.token)}`
+      : lanBaseUrl
+        ? `${lanBaseUrl}/pixel/${encodeURIComponent(runId)}?token=${encodeURIComponent(token.token)}`
       : localUrl;
     const tracePath = options.writeTrace === false ? "" : this.writeTrace(runId);
+    this.stateStore.setUiState("agent_dashboard", "last", {
+      runId,
+      localUrl,
+      shareUrl,
+      remoteAccess: configuredPublicBaseUrl ? "public-base-url" : this.cloudflareTunnel?.publicBaseUrl ? "cloudflare-quick-tunnel" : lanBaseUrl ? "lan" : "local-only",
+      tokenExpiresAtMs: token.expiresAtMs,
+      updatedAtMs: Date.now(),
+    });
 
     if (options.openBrowser) {
       openUrl(localUrl);
@@ -169,9 +187,9 @@ export class AgentPanelServer {
     this.cloudflareTunnel = undefined;
   }
 
-  private async ensureStarted(): Promise<void> {
+  private async ensureStarted(exposeLan = false): Promise<void> {
     if (this.started && this.server) return;
-    this.host = process.env.DEEPSEEKCODE_AGENT_PANEL_HOST || "127.0.0.1";
+    this.host = exposeLan ? "0.0.0.0" : process.env.DEEPSEEKCODE_AGENT_PANEL_HOST || "127.0.0.1";
     this.port = Number(process.env.DEEPSEEKCODE_AGENT_PANEL_PORT || 0);
     this.server = http.createServer((req, res) => this.handle(req, res));
     this.wss = new WebSocketServer({ noServer: true });
@@ -447,12 +465,12 @@ export class AgentPanelServer {
     if (this.cloudflareTunnel?.process && !this.cloudflareTunnel.process.killed && this.cloudflareTunnel.publicBaseUrl) {
       return;
     }
-    const executable = await resolveCommand("cloudflared");
+    const executable = await resolveCloudflaredExecutable(this.dataDir);
     if (!executable) {
       throw new Error([
-        "cloudflared is not installed or not on PATH.",
-        "Install it with: winget install --id Cloudflare.cloudflared --accept-source-agreements --accept-package-agreements",
-        "Then run /agents dashboard tunnel again.",
+        "cloudflared is not installed and automatic download did not complete.",
+        "For temporary preview: install it with winget install --id Cloudflare.cloudflared --accept-source-agreements --accept-package-agreements",
+        "For stable access: configure Cloudflare Named Tunnel or another reverse proxy and set DEEPSEEKCODE_AGENT_PANEL_PUBLIC_BASE_URL.",
       ].join("\n"));
     }
     const targetUrl = `http://127.0.0.1:${this.port}`;
@@ -1561,6 +1579,17 @@ function panelTokenTtlMs(): number {
   return Math.min(24 * 60 * 60 * 1000, Math.max(60_000, Math.trunc(raw)));
 }
 
+function firstLanBaseUrl(port: number): string {
+  for (const records of Object.values(os.networkInterfaces())) {
+    for (const record of records ?? []) {
+      if (record.family !== "IPv4" || record.internal) continue;
+      if (/^(169\.254|127\.)/.test(record.address)) continue;
+      return `http://${record.address}:${port}`;
+    }
+  }
+  return "";
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1578,6 +1607,77 @@ function resolveCommand(command: string): Promise<string | undefined> {
       resolve(first);
     });
     child.on("error", () => resolve(undefined));
+  });
+}
+
+async function resolveCloudflaredExecutable(dataDir: string): Promise<string | undefined> {
+  const configured = process.env.DEEPSEEKCODE_CLOUDFLARED_PATH?.trim();
+  if (configured && fs.existsSync(configured)) return configured;
+  const existing = await resolveCommand("cloudflared");
+  if (existing) return existing;
+  return await ensureCachedCloudflared(dataDir);
+}
+
+async function ensureCachedCloudflared(dataDir: string): Promise<string | undefined> {
+  const url = cloudflaredDownloadUrl();
+  if (!url) return undefined;
+  const binDir = path.join(dataDir, "bin", "cloudflared");
+  fs.mkdirSync(binDir, { recursive: true });
+  const executable = path.join(binDir, process.platform === "win32" ? "cloudflared.exe" : "cloudflared");
+  if (fs.existsSync(executable) && fs.statSync(executable).size > 1024 * 1024) return executable;
+  const partial = `${executable}.download`;
+  try {
+    await downloadFile(url, partial);
+    fs.renameSync(partial, executable);
+    if (process.platform !== "win32") fs.chmodSync(executable, 0o755);
+    return executable;
+  } catch {
+    try {
+      if (fs.existsSync(partial)) fs.rmSync(partial, { force: true });
+    } catch {
+      // ignore cleanup failure
+    }
+    return undefined;
+  }
+}
+
+function cloudflaredDownloadUrl(): string | undefined {
+  const arch = process.arch === "arm64" ? "arm64" : process.arch === "x64" ? "amd64" : "";
+  if (!arch) return undefined;
+  if (process.platform === "win32") {
+    return `https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-${arch}.exe`;
+  }
+  if (process.platform === "linux") {
+    return `https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${arch}`;
+  }
+  return undefined;
+}
+
+function downloadFile(url: string, target: string, redirects = 0): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = https.get(url, { headers: { "User-Agent": "DeepSeekCode agent panel" } }, (response) => {
+      const status = response.statusCode ?? 0;
+      const location = response.headers.location;
+      if (status >= 300 && status < 400 && location && redirects < 5) {
+        response.resume();
+        const next = new URL(location, url).toString();
+        downloadFile(next, target, redirects + 1).then(resolve, reject);
+        return;
+      }
+      if (status < 200 || status >= 300) {
+        response.resume();
+        reject(new Error(`download failed HTTP ${status}`));
+        return;
+      }
+      const output = fs.createWriteStream(target);
+      response.pipe(output);
+      output.on("finish", () => output.close(() => resolve()));
+      output.on("error", reject);
+    });
+    request.setTimeout(60_000, () => {
+      request.destroy(new Error("download timed out"));
+    });
+    request.on("error", reject);
   });
 }
 
